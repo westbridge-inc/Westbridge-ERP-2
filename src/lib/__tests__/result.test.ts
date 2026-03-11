@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ok, err } from "../utils/result.js";
+import { ok, err, appError } from "../utils/result.js";
 import type { Result, AppError } from "../utils/result.js";
 
 describe("Result type helpers", () => {
@@ -22,13 +22,31 @@ describe("Result type helpers", () => {
   });
 
   it("err works with AppError", () => {
-    const error: AppError = { code: "NOT_FOUND", message: "Resource not found" };
+    const error: AppError = {
+      code: "NOT_FOUND",
+      message: "Resource not found",
+      timestamp: new Date().toISOString(),
+    };
     const result: Result<never, AppError> = err(error);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("NOT_FOUND");
       expect(result.error.message).toBe("Resource not found");
+      expect(result.error.timestamp).toBeDefined();
     }
+  });
+
+  it("appError() factory creates AppError with auto timestamp", () => {
+    const error = appError("VALIDATION", "Invalid input", {
+      details: { field: "email" },
+      requestId: "req-123",
+    });
+    expect(error.code).toBe("VALIDATION");
+    expect(error.message).toBe("Invalid input");
+    expect(error.details).toEqual({ field: "email" });
+    expect(error.requestId).toBe("req-123");
+    expect(error.timestamp).toBeDefined();
+    expect(new Date(error.timestamp).getTime()).toBeGreaterThan(0);
   });
 
   it("ok with null data is valid", () => {

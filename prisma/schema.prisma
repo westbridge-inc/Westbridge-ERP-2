@@ -11,17 +11,22 @@ datasource db {
 }
 
 model Account {
-  id               String   @id @default(cuid())
-  email            String   @unique
-  companyName      String   @map("company_name")
-  erpnextCompany   String?  @map("erpnext_company") // ERPNext Company name for row-level scoping
-  plan             String   // Starter | Growth | Business
-  status           String   @default("pending") // pending | active | past_due | canceled
-  twocoOrderId     String?  @map("twoco_order_id")
-  twocoCustomerId  String?  @map("twoco_customer_id")
-  modulesSelected  String[] @map("modules_selected") // module ids
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id               String    @id @default(cuid())
+  email            String    @unique
+  companyName      String    @map("company_name")
+  erpnextCompany   String?   @map("erpnext_company") // ERPNext Company name for row-level scoping
+  plan             String    // Starter | Growth | Business
+  status           String    @default("pending") // pending | active | past_due | canceled
+  currency         String    @default("GYD")     // Default currency (Caribbean-first)
+  country          String    @default("GY")      // ISO 3166-1 alpha-2
+  timezone         String    @default("America/Guyana")
+  twocoOrderId     String?   @map("twoco_order_id")
+  twocoCustomerId  String?   @map("twoco_customer_id")
+  modulesSelected  String[]  @map("modules_selected") // module ids
+  version          Int       @default(1)          // Optimistic concurrency control
+  deletedAt        DateTime? @map("deleted_at")   // Soft delete
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   users              User[]
   subscriptions      Subscription[]
@@ -30,6 +35,8 @@ model Account {
   inviteTokens       InviteToken[]
   webhookEndpoints   WebhookEndpoint[]
 
+  @@index([createdAt])
+  @@index([deletedAt])
   @@map("accounts")
 }
 
@@ -45,6 +52,8 @@ model User {
   lockedUntil          DateTime? @map("locked_until")
   lastFailedLogin      DateTime? @map("last_failed_login")
   passwordChangedAt    DateTime? @map("password_changed_at")
+  version              Int       @default(1)          // Optimistic concurrency control
+  deletedAt            DateTime? @map("deleted_at")   // Soft delete
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -54,6 +63,8 @@ model User {
 
   @@unique([accountId, email])
   @@index([accountId])
+  @@index([accountId, deletedAt])
+  @@index([accountId, createdAt])
   @@index([email])
   @@map("users")
 }

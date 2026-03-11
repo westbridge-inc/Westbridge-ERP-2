@@ -95,8 +95,8 @@ describe("PAGINATION", () => {
 });
 
 describe("LOCALE", () => {
-  it("defaults to USD", () => {
-    expect(LOCALE.DEFAULT_CURRENCY).toBe("USD");
+  it("defaults to GYD (Caribbean-first)", () => {
+    expect(LOCALE.DEFAULT_CURRENCY).toBe("GYD");
   });
 
   it("Guyana VAT rate is 14%", () => {
@@ -105,8 +105,13 @@ describe("LOCALE", () => {
 });
 
 describe("CURRENCY_CODES", () => {
-  it("includes USD and EUR", () => {
+  it("includes Caribbean + international currencies", () => {
+    expect(CURRENCY_CODES).toContain("GYD");
     expect(CURRENCY_CODES).toContain("USD");
+    expect(CURRENCY_CODES).toContain("TTD");
+    expect(CURRENCY_CODES).toContain("BBD");
+    expect(CURRENCY_CODES).toContain("JMD");
+    expect(CURRENCY_CODES).toContain("XCD");
     expect(CURRENCY_CODES).toContain("EUR");
   });
 

@@ -59,13 +59,17 @@ export const PAGINATION = {
 
 /** Caribbean / Guyana defaults */
 export const LOCALE = {
-  DEFAULT_CURRENCY: "USD" as const,
+  DEFAULT_CURRENCY: "GYD" as const,
   DEFAULT_TIMEZONE: "America/Guyana",
   DATE_FORMAT: "DD/MM/YYYY",
   VAT_RATE_GUYANA: 0.14, // 14%
 } as const;
 
-export const CURRENCY_CODES = ["USD", "EUR", "GBP", "CAD"] as const;
+/**
+ * Supported currencies — Caribbean-first, international-second.
+ * For full Caribbean constants (NIS, PAYE, CARICOM) see ./caribbean/constants.ts
+ */
+export const CURRENCY_CODES = ["GYD", "USD", "TTD", "BBD", "JMD", "XCD", "EUR", "GBP", "CAD"] as const;
 export type CurrencyCode = (typeof CURRENCY_CODES)[number];
 
 /**
