@@ -12,6 +12,7 @@
     "db:migrate:status": "prisma migrate status",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -45,6 +46,9 @@
     "resend": "^6.4.2",
     "uuid": "^11.1.0",
     "zod": "^3.24.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

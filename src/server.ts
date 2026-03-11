@@ -1,11 +1,12 @@
 import "dotenv/config";
+import { env } from "./lib/env.js"; // Validate env FIRST — crash at startup, not at runtime
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { startWorkers } from "./workers/index.js";
 import { scheduleCleanupJobs } from "./lib/jobs/queue.js";
 import { prisma } from "./lib/data/prisma.js";
 
-const PORT = parseInt(process.env.PORT ?? "4000", 10);
+const PORT = env.PORT;
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
