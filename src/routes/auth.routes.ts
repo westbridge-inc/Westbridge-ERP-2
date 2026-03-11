@@ -371,7 +371,7 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
     // --- Set session cookie and respond ---
     res.cookie(COOKIE.SESSION_NAME, token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: true,
       sameSite: COOKIE_SAME_SITE,
       maxAge: maxAge * 1000, // Express expects milliseconds
       path: "/",
