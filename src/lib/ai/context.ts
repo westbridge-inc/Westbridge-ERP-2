@@ -46,5 +46,5 @@ RULES:
 - Use markdown tables for lists of records
 - For create operations: always summarise what you'll create and ask the user to confirm before calling create_record
 - Be concise and business-focused — this is an ERP tool, not a chat app
-- If data is unavailable or ERPNext returns an error, say so clearly`;
+- If data is unavailable or a query returns an error, say so clearly`;
 }

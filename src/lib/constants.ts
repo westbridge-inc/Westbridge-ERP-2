@@ -79,6 +79,11 @@ export type CurrencyCode = (typeof CURRENCY_CODES)[number];
 export const COOKIE_SAME_SITE: "none" | "lax" | "strict" =
   (process.env.COOKIE_SAME_SITE as "none" | "lax" | "strict") ?? "none";
 
+/**
+ * Secure flag for cookies — disabled in development so cookies work over plain HTTP.
+ */
+export const COOKIE_SECURE: boolean = process.env.NODE_ENV !== "development";
+
 export const SECURITY = {
   SESSION_EXPIRY_DAYS: 7,
   IDLE_TIMEOUT_MINUTES: 30,

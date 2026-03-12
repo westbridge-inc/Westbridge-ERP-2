@@ -4,7 +4,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { validateSession } from "../lib/services/session.service.js";
-import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
+import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 import { hasPermission, type Permission } from "../lib/rbac.js";
 import { logAudit } from "../lib/services/audit.service.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
@@ -46,7 +46,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // Reject obviously malformed tokens
   const SESSION_TOKEN_REGEX = /^[A-Za-z0-9\-_]+$/;
   if (!SESSION_TOKEN_REGEX.test(sessionToken)) {
-    res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: true });
+    res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: COOKIE_SECURE });
     res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid session" } });
     return;
   }
@@ -58,7 +58,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const result = await validateSession(sessionToken, fakeRequest);
 
     if (!result.ok) {
-      res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: true });
+      res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: COOKIE_SECURE });
       res.status(401).json({ ok: false, error: { code: "SESSION_EXPIRED", message: "Session expired or invalid" } });
       return;
     }

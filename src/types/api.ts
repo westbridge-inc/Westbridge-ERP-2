@@ -2,6 +2,8 @@
  * Standard API response shape. Every endpoint returns this.
  */
 
+import { randomUUID } from "crypto";
+
 export interface ApiMeta {
   timestamp: string;
   request_id?: string;
@@ -39,14 +41,14 @@ export type ApiResponse<T> = ApiSuccess<T> | ApiErrorResponse;
 export function apiMeta(overrides?: Partial<ApiMeta>): ApiMeta {
   return {
     timestamp: new Date().toISOString(),
-    request_id: overrides?.request_id ?? crypto.randomUUID(),
+    request_id: overrides?.request_id ?? randomUUID(),
     ...overrides,
   };
 }
 
 /** Call from API routes: pass request_id from header or generate. */
 export function getRequestId(request: Request): string {
-  return request.headers.get("x-request-id") ?? crypto.randomUUID();
+  return request.headers.get("x-request-id") ?? randomUUID();
 }
 
 export function apiSuccess<T>(data: T, meta?: Partial<ApiMeta>): ApiSuccess<T> {

@@ -1,0 +1,35 @@
+# Westbridge ERP Backend — Code Ownership
+# These owners are automatically requested for review on PRs.
+
+# Default — all changes require at least one team review
+* @westbridgeinc/engineering
+
+# CI/CD and infrastructure
+.github/ @westbridgeinc/platform
+Dockerfile @westbridgeinc/platform
+docker-compose.yml @westbridgeinc/platform
+fly.toml @westbridgeinc/platform
+scripts/ @westbridgeinc/platform
+
+# Security-critical code
+src/lib/encryption.ts @westbridgeinc/security
+src/lib/csrf.ts @westbridgeinc/security
+src/lib/rbac.ts @westbridgeinc/security
+src/lib/security-monitor.ts @westbridgeinc/security
+src/lib/password-policy.ts @westbridgeinc/security
+src/middleware/ @westbridgeinc/security
+src/routes/auth.routes.ts @westbridgeinc/security
+
+# Database schema
+prisma/ @westbridgeinc/engineering @westbridgeinc/security
+
+# Billing and payments
+src/routes/billing.routes.ts @westbridgeinc/engineering
+src/lib/data/twocheckout.client.ts @westbridgeinc/engineering
+
+# Caribbean regional logic
+src/lib/caribbean/ @westbridgeinc/engineering
+
+# Documentation and policies
+docs/ @westbridgeinc/engineering
+*.md @westbridgeinc/engineering

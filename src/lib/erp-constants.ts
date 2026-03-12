@@ -20,6 +20,14 @@ export const ALLOWED_DOCTYPES = [
   "Leave Application",
   "Salary Slip",
   "BOM",
+  "Company",
+  "Account",
+  "Warehouse",
+  "Opportunity",
+  "Project",
+  "Task",
+  "Timesheet",
+  "Attendance",
 ] as const;
 
 export type AllowedDoctype = (typeof ALLOWED_DOCTYPES)[number];
@@ -32,4 +40,5 @@ export const COMPANY_SCOPED_DOCTYPES = new Set([
   "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
   "Quotation", "Journal Entry", "Payment Entry", "Stock Entry",
   "Expense Claim", "Leave Application", "Salary Slip", "Employee",
+  "Project", "Task", "Timesheet", "Attendance",
 ]);

@@ -227,13 +227,9 @@ export async function buildDashboardData(
     }
   }
 
-  // isDemo is true if any metric fell back to DEMO_DATA values
-  const usingDemoActivity = activityItems.length === 0;
-  const usingDemoOrders = !(
-    ordersRes.status === "fulfilled" && ordersRes.value.ok
-  );
-  const usingDemoEmployees = activeEmployees.length === 0;
-  const isDemo = usingDemoActivity || usingDemoOrders || usingDemoEmployees;
+  // isDemo is only true when ERP calls actually failed — an empty activity
+  // feed just means the company is new, not that we're in demo mode.
+  const isDemo = !anySucceeded;
 
   return {
     revenueMTD,
@@ -246,7 +242,13 @@ export async function buildDashboardData(
     activity:
       activityItems.length > 0
         ? activityItems.slice(0, 5)
-        : DEMO_DATA.activity,
+        : invoices.length > 0
+          ? invoices.slice(0, 5).map((inv) => ({
+              text: `Invoice ${String(inv.name ?? "")} — ${String(inv.status ?? "Draft")} — $${Number(inv.grand_total ?? 0).toLocaleString()}`,
+              time: formatRelativeTime(String(inv.modified ?? inv.creation ?? "")),
+              type: "info" as const,
+            }))
+          : [],
     isDemo,
   };
 }

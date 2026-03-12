@@ -105,11 +105,24 @@ router.get("/erp/list", requireAuth, async (req: Request, res: Response) => {
       limit_start: String(limit_start),
       order_by: orderBy,
     };
-    if (fields) params.fields = JSON.stringify(fields.split(",").map((f) => f.trim()));
+    if (fields) {
+      // Handle both comma-separated "name,customer" and JSON array '["name","customer"]' formats
+      if (fields.startsWith("[")) {
+        params.fields = fields;
+      } else {
+        params.fields = JSON.stringify(fields.split(",").map((f) => f.trim()));
+      }
+    } else {
+      // Default to all fields — ERPNext only returns 'name' without this
+      params.fields = JSON.stringify(["*"]);
+    }
     if (filtersResult.filters && filtersResult.filters.length > 0) params.filters = JSON.stringify(filtersResult.filters);
 
     const account = await prisma.account.findUnique({ where: { id: accountId }, select: { erpnextCompany: true } }).catch(() => null);
-    const result = await list(doctype, sid, params, accountId ?? undefined, account?.erpnextCompany);
+    // Only pass erpnextCompany for doctypes that actually have a company field —
+    // otherwise ERPNext returns 417 for the invalid filter.
+    const companyScope = COMPANY_SCOPED_DOCTYPES.has(doctype) ? account?.erpnextCompany : null;
+    const result = await list(doctype, sid, params, accountId ?? undefined, companyScope);
     if (!result.ok) {
       const status = result.error === "doctype required" ? 400 : 502;
       res.set(responseHeaders());

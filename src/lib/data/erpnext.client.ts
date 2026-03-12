@@ -65,13 +65,13 @@ async function fetchErp(
         const data = await res.json();
         return ok(data);
       }
-      lastError = `ERPNext ${res.status}: ${res.statusText}`;
+      lastError = `Service error ${res.status}: ${res.statusText}`;
       if (!isRetryable(res.status)) return err(lastError);
       if (attempt < MAX_ATTEMPTS - 1) {
         await sleep(BACKOFF_BASE_MS * (attempt + 1));
       }
     } catch (e) {
-      lastError = e instanceof Error ? e.message : "ERPNext request failed";
+      lastError = e instanceof Error ? e.message : "Service request failed";
       const isNetworkError = e instanceof TypeError || (e instanceof DOMException && e.name === "TimeoutError");
       if (!isNetworkError || attempt === MAX_ATTEMPTS - 1) return err(lastError);
       if (attempt < MAX_ATTEMPTS - 1) {

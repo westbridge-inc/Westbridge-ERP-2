@@ -34,7 +34,7 @@ import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { loginBodySchema } from "../types/schemas/auth.js";
 import { prisma } from "../lib/data/prisma.js";
-import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
+import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
 import { toWebRequest, requireCsrf } from "../middleware/auth.js";
 import { requestPasswordReset } from "../lib/services/password-reset.service.js";
@@ -371,7 +371,7 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
     // --- Set session cookie and respond ---
     res.cookie(COOKIE.SESSION_NAME, token, {
       httpOnly: true,
-      secure: true,
+      secure: COOKIE_SECURE,
       sameSite: COOKIE_SAME_SITE,
       maxAge: maxAge * 1000, // Express expects milliseconds
       path: "/",

@@ -5,9 +5,10 @@
 
 import { erpLogin } from "../data/auth.client.js";
 import type { Result } from "../utils/result.js";
-import { err } from "../utils/result.js";
+import { ok, err } from "../utils/result.js";
 import { logger } from "../logger.js";
 import bcrypt from "bcrypt";
+import { prisma } from "../data/prisma.js";
 
 // ---------------------------------------------------------------------------
 // Password hashing & verification
@@ -59,5 +60,23 @@ export async function login(
   // password consisting entirely of whitespace is almost certainly a mistake.
   if (!password || !password.trim()) return err("Email and password required");
 
-  return erpLogin(trimmedEmail, password);
+  const erpResult = await erpLogin(trimmedEmail, password);
+
+  // In development, fall back to local bcrypt verification when ERPNext is
+  // unreachable. This allows local testing without a running ERPNext instance.
+  if (!erpResult.ok && process.env.NODE_ENV === "development") {
+    logger.info("ERPNext login failed, trying local password fallback (dev mode)");
+    const user = await prisma.user
+      .findFirst({ where: { email: trimmedEmail }, select: { passwordHash: true } })
+      .catch(() => null);
+    if (user?.passwordHash) {
+      const match = await verifyPassword(password, user.passwordHash);
+      if (match) {
+        logger.info("Local password verification succeeded (dev mode)");
+        return ok("dev-local-session");
+      }
+    }
+  }
+
+  return erpResult;
 }

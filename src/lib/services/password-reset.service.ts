@@ -104,10 +104,10 @@ export async function applyPasswordReset(
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      return err("Failed to update password in ERPNext. Please try again.");
+      return err("Failed to update password. Please try again.");
     }
   } catch (e) {
-    return err(e instanceof Error ? e.message : "ERPNext unreachable");
+    return err(e instanceof Error ? e.message : "Service temporarily unavailable");
   }
 
   // Mark token used, reset lockout state, and revoke all sessions (stolen tokens invalid after password change)
