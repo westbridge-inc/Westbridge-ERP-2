@@ -8,6 +8,10 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
+# Run Prisma migrations automatically before each deploy
+[deploy]
+  release_command = "node ./node_modules/prisma/build/index.js migrate deploy"
+
 [env]
   NODE_ENV = "production"
   PORT = "4000"

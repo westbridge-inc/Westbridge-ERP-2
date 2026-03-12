@@ -36,9 +36,11 @@ RUN addgroup -g 1001 -S westbridge && \
 COPY package.json package-lock.json ./
 RUN npm ci --legacy-peer-deps --omit=dev && npm cache clean --force
 
-# Copy Prisma schema and generated client
+# Copy Prisma schema, migrations, and generated client
 COPY prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma/engines ./node_modules/@prisma/engines
 
 # Copy compiled output
 COPY --from=builder /app/dist ./dist
