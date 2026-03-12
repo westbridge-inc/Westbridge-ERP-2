@@ -9,6 +9,22 @@ import { closeRedis } from "./lib/redis.js";
 
 const PORT = env.PORT;
 
+// ─── Process-level error handlers ─────────────────────────────────────────────
+// Defence-in-depth: catch truly unexpected errors that escape route try/catch.
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection", {
+    error: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+process.on("uncaughtException", (err) => {
+  logger.error("Uncaught exception — shutting down", {
+    error: err.message,
+    stack: err.stack,
+  });
+  process.exit(1);
+});
+
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 const server = app.listen(PORT, () => {
