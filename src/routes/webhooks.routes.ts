@@ -21,6 +21,15 @@ const router = Router();
 
 const WEBHOOK_IDEMPOTENCY_TTL_SEC = 24 * 60 * 60; // 24 hours
 
+/** Safelist of known 2Checkout IPN parameter names to prevent property injection. */
+const ALLOWED_IPN_PARAMS = new Set([
+  "MERCHANT_ORDER_ID", "EXTERNAL_REFERENCE", "REFNO", "ORDERNO", "ORDER_NUMBER",
+  "TOTAL", "ORDER_TOTAL", "STATUS", "ORDER_STATUS", "MESSAGE_TYPE",
+  "MD5_HASH", "HMAC", "CUSTOMER_REF", "MERCHANT_SID",
+  "IPN_PID", "IPN_PNAME", "IPN_DATE", "IPN_TOTALGENERAL",
+  "FIRSTNAME", "LASTNAME", "EMAIL", "PHONE",
+]);
+
 /** 2Checkout IPN source IP ranges (CIDR notation). */
 const TWOCHECKOUT_CIDRS: CidrRange[] = [
   { network: "86.105.46.0", prefix: 24 },
@@ -78,7 +87,10 @@ router.post("/webhooks/2checkout", async (req: Request, res: Response) => {
       if (req.body && typeof req.body === "object") {
         const entries = Object.entries(req.body);
         for (const [key, value] of entries) {
-          paramsRecord[key] = typeof value === "string" ? value : undefined;
+          // Only allow known 2Checkout IPN parameters to prevent property injection
+          if (ALLOWED_IPN_PARAMS.has(key)) {
+            paramsRecord[key] = typeof value === "string" ? value : undefined;
+          }
         }
       }
     }

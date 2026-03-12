@@ -13,28 +13,18 @@
 
 import { PrismaClient } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
+import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** SHA-256 hash (matches the auth module's session token hashing) */
-function sha256(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
-}
-
 /**
- * Hash password with bcrypt.
- * Falls back to SHA-256 if bcrypt is not installed (e.g., CI without native deps).
+ * Hash password with bcrypt (cost factor 12).
+ * bcrypt is a required dependency — no insecure fallback.
  */
 async function hashPassword(plain: string): Promise<string> {
-  try {
-    const bcrypt = await import("bcrypt");
-    return await bcrypt.hash(plain, 12);
-  } catch {
-    // bcrypt not available (no native deps) — use SHA-256 as fallback for dev seed
-    return sha256(plain);
-  }
+  return bcrypt.hash(plain, 12);
 }
 
 // ─── Seed Data ────────────────────────────────────────────────────────────────
@@ -141,7 +131,8 @@ async function main() {
 
   // 4. Create a demo session for the owner (useful for immediate API testing)
   const rawToken = randomBytes(32).toString("hex");
-  const tokenHash = sha256(rawToken);
+  // SHA-256 is appropriate for session token hashing (not password hashing)
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
 
   await prisma.session.upsert({
     where: { token: tokenHash },

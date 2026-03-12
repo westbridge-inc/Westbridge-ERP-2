@@ -32,7 +32,7 @@ import {
 } from "../lib/services/session.service.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
-import { loginBodySchema } from "../types/schemas/auth.js";
+import { loginBodySchema, changePasswordBodySchema } from "../types/schemas/auth.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
@@ -113,18 +113,8 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
         );
     }
 
-    // --- Body parsing (already parsed by Express body-parser) ---
-    const body = req.body;
-    if (!body || typeof body !== "object") {
-      return res
-        .status(400)
-        .set(responseTime())
-        .json(
-          apiError("INVALID_JSON", "Invalid request body", undefined, meta()),
-        );
-    }
-
-    const parsed = loginBodySchema.safeParse(body);
+    // --- Body validation via Zod schema ---
+    const parsed = loginBodySchema.safeParse(req.body);
     if (!parsed.success) {
       const first = parsed.error.flatten().fieldErrors;
       const message =
@@ -755,26 +745,22 @@ router.post("/change-password", requireCsrf, async (req: Request, res: Response)
         );
     }
 
-    // --- Body parsing ---
-    const body = req.body ?? null;
-    const currentPassword =
-      typeof body?.currentPassword === "string" ? body.currentPassword : "";
-    const newPassword =
-      typeof body?.newPassword === "string" ? body.newPassword : "";
-
-    if (!currentPassword || !newPassword) {
+    // --- Body validation via Zod schema ---
+    const bodyParsed = changePasswordBodySchema.safeParse(req.body);
+    if (!bodyParsed.success) {
+      const firstError = bodyParsed.error.flatten().fieldErrors;
+      const message =
+        firstError.currentPassword?.[0] ??
+        firstError.newPassword?.[0] ??
+        "currentPassword and newPassword are required";
       return res
         .status(400)
         .set(responseTime())
         .json(
-          apiError(
-            "VALIDATION",
-            "currentPassword and newPassword are required",
-            undefined,
-            meta(),
-          ),
+          apiError("VALIDATION", message, undefined, meta()),
         );
     }
+    const { currentPassword, newPassword } = bodyParsed.data;
 
     // --- Validate new password policy ---
     const { valid, errors } = validatePassword(newPassword);

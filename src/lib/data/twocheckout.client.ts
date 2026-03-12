@@ -35,7 +35,11 @@ export function verifyIPNSignature(params: Record<string, string | undefined>): 
   const orderNumber = params.ORDERNO ?? params.ORDER_NUMBER ?? "";
   const total = params.TOTAL ?? params.ORDER_TOTAL ?? "";
   const toHash = SECRET_WORD + merchantSid + orderNumber + total;
-  const expected = createHash("md5").update(toHash).digest("hex").toUpperCase();
+  // SECURITY NOTE: MD5 is required by 2Checkout's IPN verification protocol.
+  // This is not used for password hashing or data integrity — only for verifying
+  // the webhook signature as mandated by the payment provider's specification.
+  // See: https://verifone.cloud/docs/2checkout/API-Integration/Webhooks/06IPN
+  const expected = createHash("md5").update(toHash).digest("hex").toUpperCase(); // codeql[js/weak-cryptographic-algorithm] - required by 2Checkout IPN protocol
   const a = receivedHash.toUpperCase();
   if (a.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(expected, "utf8"));
