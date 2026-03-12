@@ -166,13 +166,6 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
       );
     }
 
-    const ALLOWED_DOCTYPES = new Set([
-      "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
-      "Quotation", "Customer", "Supplier", "Item", "Employee",
-      "Journal Entry", "Payment Entry", "Stock Entry", "Expense Claim",
-      "Leave Application", "Salary Slip", "BOM",
-    ]);
-
     const doctype = req.query.doctype as string | undefined;
     const name = req.query.name as string | undefined;
     if (!doctype || !name) {
@@ -181,7 +174,7 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
         apiError("BAD_REQUEST", "doctype and name required", undefined, meta())
       );
     }
-    if (!ALLOWED_DOCTYPES.has(doctype)) {
+    if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
       res.set(responseHeaders());
       return res.status(400).json(
         apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta())
@@ -196,6 +189,19 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
         apiError("ERP_ERROR", result.error, undefined, meta())
       );
     }
+
+    // Tenant isolation: verify the doc belongs to the caller's ERPNext company.
+    const account = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
+    if (account?.erpnextCompany) {
+      const doc = result.data as Record<string, unknown>;
+      if (doc.company && doc.company !== account.erpnextCompany) {
+        res.set(responseHeaders());
+        return res.status(403).json(
+          apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
+        );
+      }
+    }
+
     void logAudit({
       accountId: session.accountId,
       userId: session.userId,
@@ -270,13 +276,7 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
     const data = Object.fromEntries(
       Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k))
     );
-    const ALLOWED_DOCTYPES_POST = new Set([
-      "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
-      "Quotation", "Customer", "Supplier", "Item", "Employee",
-      "Journal Entry", "Payment Entry", "Stock Entry", "Expense Claim",
-      "Leave Application", "Salary Slip", "BOM",
-    ]);
-    if (!ALLOWED_DOCTYPES_POST.has(doctype)) {
+    if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
       res.set(responseHeaders());
       return res.status(400).json(
         apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta())
@@ -375,17 +375,26 @@ router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Respo
       );
     }
 
-    const ALLOWED_DOCTYPES_PUT = new Set([
-      "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
-      "Quotation", "Customer", "Supplier", "Item", "Employee",
-      "Journal Entry", "Payment Entry", "Stock Entry", "Expense Claim",
-      "Leave Application", "Salary Slip", "BOM",
-    ]);
-    if (!ALLOWED_DOCTYPES_PUT.has(doctype)) {
+    if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
       res.set(responseHeaders());
       return res.status(400).json(
         apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta())
       );
+    }
+
+    // Tenant isolation: verify the doc belongs to the caller's ERPNext company before updating.
+    const accountPut = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
+    if (accountPut?.erpnextCompany) {
+      const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
+      if (existing.ok) {
+        const doc = existing.data as Record<string, unknown>;
+        if (doc.company && doc.company !== accountPut.erpnextCompany) {
+          res.set(responseHeaders());
+          return res.status(403).json(
+            apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
+          );
+        }
+      }
     }
 
     const result = await updateDoc(doctype, name, session.erpnextSid as string, data as Record<string, unknown>, session.accountId);
@@ -408,7 +417,7 @@ router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Respo
     });
     // Meter billable doc update — fire-and-forget
     const { meter } = await import("../lib/metering.js");
-    meter.increment(session.accountId, "erp_docs_created").catch(() => {});
+    meter.increment(session.accountId, "erp_docs_updated").catch(() => {});
     res.set(responseHeaders());
     return res.json(apiSuccess(result.data, meta()));
   } catch (error) {
@@ -453,17 +462,26 @@ router.delete("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Re
       );
     }
 
-    const ALLOWED_DOCTYPES_DELETE = new Set([
-      "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
-      "Quotation", "Customer", "Supplier", "Item", "Employee",
-      "Journal Entry", "Payment Entry", "Stock Entry", "Expense Claim",
-      "Leave Application", "Salary Slip", "BOM",
-    ]);
-    if (!ALLOWED_DOCTYPES_DELETE.has(doctype)) {
+    if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
       res.set(responseHeaders());
       return res.status(400).json(
         apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta())
       );
+    }
+
+    // Tenant isolation: verify the doc belongs to the caller's ERPNext company before deleting.
+    const accountDel = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
+    if (accountDel?.erpnextCompany) {
+      const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
+      if (existing.ok) {
+        const doc = existing.data as Record<string, unknown>;
+        if (doc.company && doc.company !== accountDel.erpnextCompany) {
+          res.set(responseHeaders());
+          return res.status(403).json(
+            apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
+          );
+        }
+      }
     }
 
     const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);

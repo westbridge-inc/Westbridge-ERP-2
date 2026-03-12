@@ -218,8 +218,11 @@ export async function validateSession(
             erpnextSid: parsed.erpnextSid ?? undefined,
           });
         }
-      } catch {
-        // Cache read error — fall through to DB.
+      } catch (redisErr) {
+        // Cache read error — fall through to DB, but log so ops can detect Redis issues.
+        logger.warn("validateSession: Redis cache read failed, falling back to DB", {
+          error: redisErr instanceof Error ? redisErr.message : String(redisErr),
+        });
       }
     }
 
@@ -302,7 +305,18 @@ export async function validateSession(
       ? session.user.role
       : "member") as SessionRole;
     const erpnextSid = session.erpnextSid
-      ? (() => { try { return decrypt(session.erpnextSid!); } catch { return undefined; } })()
+      ? (() => {
+          try {
+            return decrypt(session.erpnextSid!);
+          } catch (decryptErr) {
+            logger.warn("ERPNext SID decryption failed — user will need to re-authenticate with ERPNext", {
+              sessionId: session.id,
+              userId: session.userId,
+              error: decryptErr instanceof Error ? decryptErr.message : String(decryptErr),
+            });
+            return undefined;
+          }
+        })()
       : undefined;
     const result = { userId: session.userId, accountId: session.user.accountId, role, erpnextSid };
 

@@ -10,8 +10,8 @@ WORKDIR /app
 # Install OS deps required for bcrypt native compilation
 RUN apk add --no-cache python3 make g++
 
-COPY package.json package-lock.json* ./
-RUN npm install --legacy-peer-deps --ignore-scripts=false
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
 
 # Generate Prisma client
 COPY prisma ./prisma
@@ -33,8 +33,8 @@ RUN addgroup -g 1001 -S westbridge && \
     adduser -S westbridge -u 1001 -G westbridge
 
 # Copy only production dependencies
-COPY package.json package-lock.json* ./
-RUN npm install --legacy-peer-deps --omit=dev --ignore-scripts=false && npm cache clean --force
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps --omit=dev && npm cache clean --force
 
 # Copy Prisma schema and generated client
 COPY prisma ./prisma

@@ -18,6 +18,7 @@ import { logger } from "./logger.js";
 export type MeterMetric =
   | "api_calls"
   | "erp_docs_created"
+  | "erp_docs_updated"
   | "ai_tokens_input"
   | "ai_tokens_output";
 

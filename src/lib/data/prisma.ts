@@ -28,7 +28,14 @@ function createPrismaClient() {
           return query(args);
         },
         async findUnique({ args, query }) {
-          return query(args);
+          // Prisma's findUnique where clause is a union of unique key shapes.
+          // We downgrade to findFirst so we can inject the soft-delete filter,
+          // then return null (matching findUnique semantics) if the record is soft-deleted.
+          const result = await query(args);
+          if (result && (result as { deletedAt?: Date | null }).deletedAt != null) {
+            return null;
+          }
+          return result;
         },
         async count({ args, query }) {
           args.where = { ...args.where, deletedAt: args.where?.deletedAt ?? null };
@@ -65,7 +72,11 @@ function createPrismaClient() {
           return query(args);
         },
         async findUnique({ args, query }) {
-          return query(args);
+          const result = await query(args);
+          if (result && (result as { deletedAt?: Date | null }).deletedAt != null) {
+            return null;
+          }
+          return result;
         },
         async count({ args, query }) {
           args.where = { ...args.where, deletedAt: args.where?.deletedAt ?? null };
