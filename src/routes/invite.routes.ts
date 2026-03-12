@@ -9,6 +9,7 @@ import { z } from "zod";
 import { prisma } from "../lib/data/prisma.js";
 import { acceptInvite } from "../lib/services/invite.service.js";
 import { validatePassword } from "../lib/password-policy.js";
+import { hashPassword } from "../lib/services/auth.service.js";
 
 const router = Router();
 
@@ -206,6 +207,13 @@ router.post("/invite/accept", requireCsrf, async (req: Request, res: Response) =
       res.set(responseHeaders());
       return res.status(400).json(apiError("INVITE_FAILED", result.error, undefined, meta()));
     }
+
+    // Persist the bcrypt password hash locally so the user can authenticate
+    const passwordHash = await hashPassword(password);
+    await prisma.user.update({
+      where: { id: result.data.userId },
+      data: { passwordHash },
+    });
 
     void logAudit({
       accountId: result.data.accountId,

@@ -38,6 +38,7 @@ import cspRoutes from "./routes/csp.routes.js";
 
 export function createApp(): express.Application {
   const app = express();
+  app.set("trust proxy", 1);
 
   // ─── Global Middleware ─────────────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { erpList, erpGet, erpCreate } from "../data/erpnext.client.js";
+import { ALLOWED_DOCTYPES_SET } from "../erp-constants.js";
 
 // ─── Tool Definitions ─────────────────────────────────────────────────────────
 
@@ -69,6 +70,12 @@ export async function executeTool(
 ): Promise<string> {
   try {
     const i = input as Record<string, unknown>;
+
+    // Validate doctype against allowlist before executing any tool that operates on doctypes
+    const doctype = i.doctype as string | undefined;
+    if (doctype && !ALLOWED_DOCTYPES_SET.has(doctype)) {
+      return `Error: doctype "${doctype}" is not allowed. Supported doctypes: ${[...ALLOWED_DOCTYPES_SET].join(", ")}`;
+    }
 
     if (toolName === "list_records") {
       const limit = Math.min((i.limit as number) ?? 20, 50);

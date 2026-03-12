@@ -15,6 +15,18 @@
 import { getRedis } from "./redis.js";
 import { logger } from "./logger.js";
 
+// Helper: scan for keys matching a pattern (non-blocking alternative to KEYS)
+async function scanKeys(redis: ReturnType<typeof getRedis> & object, pattern: string): Promise<string[]> {
+  const results: string[] = [];
+  let cursor = "0";
+  do {
+    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
+    cursor = nextCursor;
+    results.push(...keys);
+  } while (cursor !== "0");
+  return results;
+}
+
 export type MeterMetric =
   | "api_calls"
   | "erp_docs_created"
@@ -110,7 +122,7 @@ export const meter = {
       const key = periodKey(accountId, p);
       const [fields, activeUserKeys] = await Promise.all([
         redis.hgetall(key),
-        redis.keys(`meter:${accountId}:${p}:active_users:*`),
+        scanKeys(redis, `meter:${accountId}:${p}:active_users:*`),
       ]);
 
       // Tally active users across all days in the period (union of sets)
@@ -150,7 +162,7 @@ export const meter = {
 
 // ─── AI token cost estimation ─────────────────────────────────────────────────
 
-// Rough estimate based on GPT-4o pricing at time of writing.
+// Rough estimate based on Anthropic Claude pricing at time of writing.
 // Update when model pricing changes.
 const COST_PER_1K_INPUT = 0.005;
 const COST_PER_1K_OUTPUT = 0.015;

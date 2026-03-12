@@ -211,11 +211,21 @@ export async function validateSession(
           const role = (["owner", "admin", "manager", "member", "viewer"].includes(parsed.role)
             ? parsed.role
             : "member") as SessionRole;
+
+          // Update cached lastActiveAt to prevent premature idle timeout on cache hits.
+          const cachedLastActiveMs = parsed.lastActiveAt;
+          if (nowMs - cachedLastActiveMs > 60_000) {
+            parsed.lastActiveAt = nowMs;
+            redis.set(cacheKey, JSON.stringify(parsed), "EX", SESSION_CACHE_TTL_SEC).catch(() => {});
+            // Lazy DB update — fire and forget
+            void prisma.session.updateMany({ where: { token: tokenHash }, data: { lastActiveAt: now } }).catch(() => {});
+          }
+
           return ok({
             userId: parsed.userId,
             accountId: parsed.accountId,
             role,
-            erpnextSid: parsed.erpnextSid ?? undefined,
+            erpnextSid: parsed.erpnextSid ? (() => { try { return decrypt(parsed.erpnextSid!); } catch { return undefined; } })() : undefined,
           });
         }
       } catch (redisErr) {
@@ -324,6 +334,8 @@ export async function validateSession(
     if (redis) {
       const cached: CachedSession = {
         ...result,
+        // Encrypt SID before caching — never store plaintext credentials in Redis
+        erpnextSid: result.erpnextSid ? encrypt(result.erpnextSid) : null,
         expiresAt: session.expiresAt.getTime(),
         lastActiveAt: (shouldUpdate ? now : lastActiveTs).getTime(),
         fingerprint: session.fingerprint ?? null,

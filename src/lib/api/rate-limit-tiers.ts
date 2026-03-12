@@ -92,25 +92,28 @@ export async function checkTieredRateLimit(
   const key = `rl2:${tier}:${identifier}`;
 
   try {
-    const pipeline = redis.pipeline();
-    // Remove entries outside the window
-    pipeline.zremrangebyscore(key, 0, windowStart);
-    // Add current request (score = timestamp, member = timestamp:random)
-    const member = `${now}:${Math.random().toString(36).slice(2)}`;
-    pipeline.zadd(key, now, member);
-    // Count entries in the window
-    pipeline.zcard(key);
-    // Set expiry on the key
-    pipeline.pexpire(key, windowMs * 2);
-    const results = await pipeline.exec();
+    // Phase 1: clean stale entries and check current count BEFORE adding.
+    const checkPipeline = redis.pipeline();
+    checkPipeline.zremrangebyscore(key, 0, windowStart);
+    checkPipeline.zcard(key);
+    const checkResults = await checkPipeline.exec();
 
-    const count = ((results?.[2]?.[1] as number) ?? 1) * costMultiplier;
-    const allowed = count <= limit;
-    const remaining = Math.max(0, limit - count);
+    const currentCount = ((checkResults?.[1]?.[1] as number) ?? 0) * costMultiplier;
 
-    if (!allowed) {
+    // Reject if the limit is already reached — without consuming a token.
+    if (currentCount >= limit) {
       return { allowed: false, limit, remaining: 0, reset, retryAfter: Math.ceil(windowMs / 1000) };
     }
+
+    // Phase 2: add the request now that we know it's within limits.
+    const member = `${now}:${Math.random().toString(36).slice(2)}`;
+    const addPipeline = redis.pipeline();
+    addPipeline.zadd(key, now, member);
+    addPipeline.pexpire(key, windowMs * 2);
+    await addPipeline.exec();
+
+    const newCount = currentCount + 1 * costMultiplier;
+    const remaining = Math.max(0, limit - newCount);
     return { allowed: true, limit, remaining, reset };
   } catch (e) {
     logger.warn("Rate limit: Redis error", { error: e instanceof Error ? e.message : String(e) });
@@ -136,19 +139,25 @@ export async function checkEmailRateLimit(email: string): Promise<RateLimitResul
   }
 
   try {
-    const pipeline = redis.pipeline();
-    pipeline.zremrangebyscore(key, 0, windowStart);
-    const member = `${now}:${Math.random().toString(36).slice(2)}`;
-    pipeline.zadd(key, now, member);
-    pipeline.zcard(key);
-    pipeline.pexpire(key, EMAIL_WINDOW_MS * 2);
-    const results = await pipeline.exec();
-    const count = (results?.[2]?.[1] as number) ?? 1;
-    const allowed = count <= EMAIL_RATE_LIMIT;
-    const remaining = Math.max(0, EMAIL_RATE_LIMIT - count);
-    if (!allowed) {
+    // Phase 1: clean stale entries and check current count BEFORE adding.
+    const checkPipeline = redis.pipeline();
+    checkPipeline.zremrangebyscore(key, 0, windowStart);
+    checkPipeline.zcard(key);
+    const checkResults = await checkPipeline.exec();
+    const currentCount = (checkResults?.[1]?.[1] as number) ?? 0;
+
+    if (currentCount >= EMAIL_RATE_LIMIT) {
       return { allowed: false, limit: EMAIL_RATE_LIMIT, remaining: 0, reset, retryAfter: Math.ceil(EMAIL_WINDOW_MS / 1000) };
     }
+
+    // Phase 2: add the request now that we know it's within limits.
+    const member = `${now}:${Math.random().toString(36).slice(2)}`;
+    const addPipeline = redis.pipeline();
+    addPipeline.zadd(key, now, member);
+    addPipeline.pexpire(key, EMAIL_WINDOW_MS * 2);
+    await addPipeline.exec();
+
+    const remaining = Math.max(0, EMAIL_RATE_LIMIT - (currentCount + 1));
     return { allowed: true, limit: EMAIL_RATE_LIMIT, remaining, reset };
   } catch (e) {
     logger.warn("Rate limit: Redis error", { error: e instanceof Error ? e.message : String(e) });
@@ -173,19 +182,25 @@ export async function checkErpAccountRateLimit(accountId: string): Promise<RateL
   }
 
   try {
-    const pipeline = redis.pipeline();
-    pipeline.zremrangebyscore(key, 0, windowStart);
-    const member = `${now}:${Math.random().toString(36).slice(2)}`;
-    pipeline.zadd(key, now, member);
-    pipeline.zcard(key);
-    pipeline.pexpire(key, ERP_ACCOUNT_WINDOW_MS * 2);
-    const results = await pipeline.exec();
-    const count = (results?.[2]?.[1] as number) ?? 1;
-    const allowed = count <= ERP_ACCOUNT_LIMIT;
-    const remaining = Math.max(0, ERP_ACCOUNT_LIMIT - count);
-    if (!allowed) {
+    // Phase 1: clean stale entries and check current count BEFORE adding.
+    const checkPipeline = redis.pipeline();
+    checkPipeline.zremrangebyscore(key, 0, windowStart);
+    checkPipeline.zcard(key);
+    const checkResults = await checkPipeline.exec();
+    const currentCount = (checkResults?.[1]?.[1] as number) ?? 0;
+
+    if (currentCount >= ERP_ACCOUNT_LIMIT) {
       return { allowed: false, limit: ERP_ACCOUNT_LIMIT, remaining: 0, reset, retryAfter: Math.ceil(ERP_ACCOUNT_WINDOW_MS / 1000) };
     }
+
+    // Phase 2: add the request now that we know it's within limits.
+    const member = `${now}:${Math.random().toString(36).slice(2)}`;
+    const addPipeline = redis.pipeline();
+    addPipeline.zadd(key, now, member);
+    addPipeline.pexpire(key, ERP_ACCOUNT_WINDOW_MS * 2);
+    await addPipeline.exec();
+
+    const remaining = Math.max(0, ERP_ACCOUNT_LIMIT - (currentCount + 1));
     return { allowed: true, limit: ERP_ACCOUNT_LIMIT, remaining, reset };
   } catch (e) {
     logger.warn("Rate limit: Redis error", { error: e instanceof Error ? e.message : String(e) });

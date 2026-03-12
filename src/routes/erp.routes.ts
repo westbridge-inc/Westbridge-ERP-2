@@ -7,7 +7,7 @@ import { checkTieredRateLimit, checkErpAccountRateLimit, getClientIdentifier, ra
 import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
-import { ALLOWED_DOCTYPES_SET } from "../lib/erp-constants.js";
+import { ALLOWED_DOCTYPES_SET, COMPANY_SCOPED_DOCTYPES } from "../lib/erp-constants.js";
 import { getDoc, createDoc, updateDoc, deleteDoc } from "../lib/services/erp.service.js";
 import { erpDocCreateBodySchema } from "../types/schemas/erp.js";
 import { validateSession } from "../lib/services/session.service.js";
@@ -15,8 +15,6 @@ import { COOKIE } from "../lib/constants.js";
 import { buildDashboardData, DEMO_DATA } from "../lib/services/dashboard.service.js";
 
 const router = Router();
-
-const MAX_BODY_BYTES = 1_048_576;
 
 // ─── GET /erp/list ─────────────────────────────────────────────────────────────
 
@@ -191,14 +189,17 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
     }
 
     // Tenant isolation: verify the doc belongs to the caller's ERPNext company.
-    const account = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
-    if (account?.erpnextCompany) {
-      const doc = result.data as Record<string, unknown>;
-      if (doc.company && doc.company !== account.erpnextCompany) {
-        res.set(responseHeaders());
-        return res.status(403).json(
-          apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
-        );
+    // Only check for doctypes that have a company field; for others, ERPNext SID permissions scope access.
+    if (COMPANY_SCOPED_DOCTYPES.has(doctype)) {
+      const account = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
+      if (account?.erpnextCompany) {
+        const doc = result.data as Record<string, unknown>;
+        if (doc.company && doc.company !== account.erpnextCompany) {
+          res.set(responseHeaders());
+          return res.status(403).json(
+            apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
+          );
+        }
       }
     }
 
@@ -232,14 +233,6 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   try {
-    const contentLength = parseInt(req.headers["content-length"] as string ?? "0", 10);
-    if (contentLength > MAX_BODY_BYTES) {
-      res.set(responseHeaders());
-      return res.status(413).json(
-        apiError("PAYLOAD_TOO_LARGE", "Request body exceeds 1MB limit", undefined, meta())
-      );
-    }
-
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
 
@@ -323,14 +316,6 @@ router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Respo
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   try {
-    const contentLength = parseInt(req.headers["content-length"] as string ?? "0", 10);
-    if (contentLength > MAX_BODY_BYTES) {
-      res.set(responseHeaders());
-      return res.status(413).json(
-        apiError("PAYLOAD_TOO_LARGE", "Request body exceeds 1MB limit", undefined, meta())
-      );
-    }
-
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
 
@@ -383,16 +368,19 @@ router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Respo
     }
 
     // Tenant isolation: verify the doc belongs to the caller's ERPNext company before updating.
-    const accountPut = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
-    if (accountPut?.erpnextCompany) {
-      const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
-      if (existing.ok) {
-        const doc = existing.data as Record<string, unknown>;
-        if (doc.company && doc.company !== accountPut.erpnextCompany) {
-          res.set(responseHeaders());
-          return res.status(403).json(
-            apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
-          );
+    // Only check for doctypes that have a company field; for others, ERPNext SID permissions scope access.
+    if (COMPANY_SCOPED_DOCTYPES.has(doctype)) {
+      const accountPut = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
+      if (accountPut?.erpnextCompany) {
+        const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
+        if (existing.ok) {
+          const doc = existing.data as Record<string, unknown>;
+          if (doc.company && doc.company !== accountPut.erpnextCompany) {
+            res.set(responseHeaders());
+            return res.status(403).json(
+              apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
+            );
+          }
         }
       }
     }
@@ -470,16 +458,19 @@ router.delete("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Re
     }
 
     // Tenant isolation: verify the doc belongs to the caller's ERPNext company before deleting.
-    const accountDel = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
-    if (accountDel?.erpnextCompany) {
-      const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
-      if (existing.ok) {
-        const doc = existing.data as Record<string, unknown>;
-        if (doc.company && doc.company !== accountDel.erpnextCompany) {
-          res.set(responseHeaders());
-          return res.status(403).json(
-            apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
-          );
+    // Only check for doctypes that have a company field; for others, ERPNext SID permissions scope access.
+    if (COMPANY_SCOPED_DOCTYPES.has(doctype)) {
+      const accountDel = await prisma.account.findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } }).catch(() => null);
+      if (accountDel?.erpnextCompany) {
+        const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
+        if (existing.ok) {
+          const doc = existing.data as Record<string, unknown>;
+          if (doc.company && doc.company !== accountDel.erpnextCompany) {
+            res.set(responseHeaders());
+            return res.status(403).json(
+              apiError("FORBIDDEN", "You do not have access to this document", undefined, meta())
+            );
+          }
         }
       }
     }

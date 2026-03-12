@@ -6,7 +6,7 @@
  */
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { validateSession } from "../lib/services/session.service.js";
+import { validateSession, revokeAllUserSessions } from "../lib/services/session.service.js";
 import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
@@ -71,7 +71,7 @@ router.patch("/account/profile", requireCsrf, async (req: Request, res: Response
 // ---------------------------------------------------------------------------
 // GET /account/export — GDPR right to data portability (Article 20)
 // ---------------------------------------------------------------------------
-router.get("/account/export", async (req: Request, res: Response) => {
+router.post("/account/export", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -238,14 +238,15 @@ router.delete("/account/delete", requireCsrf, async (req: Request, res: Response
 
     const ctx = auditContext(toWebRequest(req));
 
-    await prisma.$transaction(async (tx) => {
-      const users = await tx.user.findMany({
-        where: { accountId: session.accountId },
-        select: { id: true },
-      });
-      const userIds = users.map((u) => u.id);
+    // Collect user IDs before the transaction so we can invalidate Redis sessions after.
+    const usersToDelete = await prisma.user.findMany({
+      where: { accountId: session.accountId },
+      select: { id: true },
+    });
+    const userIds = usersToDelete.map((u) => u.id);
 
-      for (const u of users) {
+    await prisma.$transaction(async (tx) => {
+      for (const u of usersToDelete) {
         await tx.user.update({
           where: { id: u.id },
           data: {
@@ -263,6 +264,13 @@ router.delete("/account/delete", requireCsrf, async (req: Request, res: Response
         data: { status: "deleted" },
       });
     });
+
+    // Invalidate all Redis session caches for every user in the deleted account.
+    // DB sessions were already deleted in the transaction above; this flushes
+    // the Redis cache so revoked sessions cannot authenticate during the cache TTL.
+    await Promise.all(
+      userIds.map((uid) => revokeAllUserSessions(uid).catch(() => {}))
+    );
 
     await logAudit({
       accountId: session.accountId,

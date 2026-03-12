@@ -5,6 +5,7 @@ import { logger } from "./lib/logger.js";
 import { startWorkers } from "./workers/index.js";
 import { scheduleCleanupJobs } from "./lib/jobs/queue.js";
 import { prisma } from "./lib/data/prisma.js";
+import { closeRedis } from "./lib/redis.js";
 
 const PORT = env.PORT;
 
@@ -37,6 +38,10 @@ const server = app.listen(PORT, () => {
       // Close all BullMQ workers
       await Promise.all(workers.map((w) => w.close()));
       logger.info("All BullMQ workers closed");
+
+      // Close Redis connection
+      await closeRedis();
+      logger.info("Redis connection closed");
 
       // Disconnect Prisma
       await prisma.$disconnect();

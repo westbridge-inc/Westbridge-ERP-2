@@ -6,6 +6,8 @@
 import { Worker } from "bullmq";
 import type { Job } from "bullmq";
 import { createHmac } from "crypto";
+import dns from "dns/promises";
+import { isIP } from "net";
 import { sendEmail } from "../lib/email/index.js";
 import { prisma } from "../lib/data/prisma.js";
 import { logger } from "../lib/logger.js";
@@ -14,6 +16,71 @@ import { erpGet } from "../lib/data/erpnext.client.js";
 import { decrypt } from "../lib/encryption.js";
 import { publish } from "../lib/realtime.js";
 import { getRedisConfig } from "../lib/redis.js";
+
+// ─── SSRF Protection ──────────────────────────────────────────────────────────
+
+/**
+ * Check if an IP address belongs to a private/reserved range.
+ * Blocks: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
+ *         169.254.0.0/16, 0.0.0.0/8, ::1, fc00::/7, fe80::/10
+ */
+function isPrivateIp(ip: string): boolean {
+  // IPv6 loopback and private ranges
+  if (ip === "::1" || ip === "::") return true;
+  if (ip.startsWith("fc") || ip.startsWith("fd")) return true;  // fc00::/7
+  if (ip.startsWith("fe80")) return true;                        // fe80::/10
+
+  // IPv4 — handle IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  let v4 = ip;
+  if (ip.startsWith("::ffff:")) {
+    v4 = ip.slice(7);
+  }
+
+  const parts = v4.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
+  const [a, b] = parts;
+
+  if (a === 0) return true;                                       // 0.0.0.0/8
+  if (a === 10) return true;                                      // 10.0.0.0/8
+  if (a === 127) return true;                                     // 127.0.0.0/8
+  if (a === 169 && b === 254) return true;                        // 169.254.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true;               // 172.16.0.0/12
+  if (a === 192 && b === 168) return true;                        // 192.168.0.0/16
+  return false;
+}
+
+/**
+ * Resolve the hostname of a URL and verify it does not point to a private IP.
+ * Throws if the URL targets a private/reserved address (SSRF protection).
+ */
+async function assertNotPrivateUrl(url: string): Promise<void> {
+  const parsed = new URL(url);
+  const hostname = parsed.hostname;
+
+  // If hostname is already an IP literal, check directly
+  if (isIP(hostname)) {
+    if (isPrivateIp(hostname)) {
+      throw new Error(`SSRF blocked: ${hostname} resolves to a private IP`);
+    }
+    return;
+  }
+
+  // Resolve DNS and check all returned addresses
+  const { resolve4, resolve6 } = dns;
+  const addresses: string[] = [];
+  try { addresses.push(...(await resolve4(hostname))); } catch { /* no A records */ }
+  try { addresses.push(...(await resolve6(hostname))); } catch { /* no AAAA records */ }
+
+  if (addresses.length === 0) {
+    throw new Error(`SSRF blocked: could not resolve hostname ${hostname}`);
+  }
+
+  for (const addr of addresses) {
+    if (isPrivateIp(addr)) {
+      throw new Error(`SSRF blocked: ${hostname} resolves to private IP ${addr}`);
+    }
+  }
+}
 import type {
   EmailJobData,
   CleanupJobData,
@@ -89,6 +156,9 @@ function createWebhooksWorker(): Worker {
       }
 
       try {
+        // SSRF protection: verify the webhook URL does not target private/reserved IPs
+        await assertNotPrivateUrl(endpoint.url);
+
         const secret = decrypt(endpoint.secret);
         const bodyStr = JSON.stringify(payload);
         const signature = createHmac("sha256", secret).update(bodyStr).digest("hex");
