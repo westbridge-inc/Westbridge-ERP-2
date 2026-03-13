@@ -1,9 +1,45 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+*.tsbuildinfo
+
+# Environment files
 .env
 .env.local
 .env.production
+.env.staging
+.env.test
 !.env.example
 !.env.production.example
+
+# Test artifacts
+coverage/
+
+# Logs
 *.log
+npm-debug.log*
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# IDE / Editor
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+*~
+.cursor/
+
+# Docker
+.docker/
+
+# Package archives
+*.tgz
+
+# Secrets / keys
+*.pem
+*.key

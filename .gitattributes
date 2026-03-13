@@ -1,0 +1,25 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Force LF line endings for source files
+*.ts text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sql text eol=lf
+*.prisma text eol=lf
+
+# Binary files — track with Git LFS if they appear
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+
+# Lock files — do not diff
+package-lock.json -diff
