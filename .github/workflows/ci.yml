@@ -41,7 +41,8 @@ jobs:
           node-version: 20
       - run: npm ci --legacy-peer-deps
       - run: npx prisma generate
-      - run: npm test -- --reporter=verbose
+      - name: Run tests with coverage thresholds
+        run: npm test -- --coverage --reporter=verbose
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -80,9 +81,19 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,7 +102,122 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
-      - run: npx vitest run src/__tests__/integration/ --reporter=verbose
+      - name: Run database integration tests
+        run: npx vitest run src/__tests__/integration/ --reporter=verbose
+      - name: Run rate limiter integration tests
+        run: npx vitest run src/lib/api/__tests__/rate-limit-tiers.test.ts --reporter=verbose
+
+  # ── Load Tests (k6 smoke) ───────────────────────────────────────────────────
+  # Runs the k6 smoke test against the built app to verify performance baselines.
+  # This uses a lightweight smoke test (1 VU, 30s) to catch regressions early.
+  load-test:
+    name: Load Test (Smoke)
+    runs-on: ubuntu-latest
+    needs: [build]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: westbridge
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: production
+      PORT: "4000"
+      SESSION_SECRET: ci-test-secret-not-for-production
+      CSRF_SECRET: ci-test-csrf-not-for-production
+      ENCRYPTION_KEY: ci-test-encryption-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --legacy-peer-deps
+      - run: npx prisma generate
+      - run: npx prisma db push --accept-data-loss
+      - name: Build application
+        run: npm run build
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D68
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+      - name: Start server
+        run: |
+          node dist/server.js &
+          echo "Waiting for server to start..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4000/api/health/live > /dev/null 2>&1; then
+              echo "Server is up!"
+              break
+            fi
+            sleep 1
+          done
+      - name: Run k6 smoke test
+        run: k6 run load-tests/smoke.js
+        env:
+          BASE_URL: http://localhost:4000
+
+  # ── ERPNext Health Check ────────────────────────────────────────────────────
+  # Spins up the full stack via Docker Compose and verifies ERPNext responds.
+  # This is informational — ERPNext takes ~60s to initialise and may not
+  # have a site configured in CI, so failures do not block merges.
+  erpnext-health:
+    name: ERPNext Stack Health
+    runs-on: ubuntu-latest
+    needs: [build]
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start ERPNext stack
+        run: |
+          docker compose up -d mariadb redis-erpnext erpnext
+        env:
+          ENCRYPTION_KEY: ci-test-encryption-key
+          CSRF_SECRET: ci-test-csrf-key
+          SESSION_SECRET: ci-test-session-key
+      - name: Wait for ERPNext to become healthy
+        run: |
+          echo "Waiting for ERPNext to start (up to 120s)..."
+          for i in $(seq 1 24); do
+            STATUS=$(curl -sf http://localhost:8080/api/method/ping 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('message',''))" 2>/dev/null || echo "")
+            if [ "$STATUS" = "pong" ]; then
+              echo "ERPNext is healthy!"
+              exit 0
+            fi
+            echo "  Attempt $i/24 — waiting 5s..."
+            sleep 5
+          done
+          echo "::warning::ERPNext did not respond within 120s — this is expected in CI without site setup"
+      - name: Show container status
+        if: always()
+        run: docker compose ps
+      - name: Show ERPNext logs
+        if: always()
+        run: docker compose logs erpnext --tail=50
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
 
   docker:
     name: Docker Build

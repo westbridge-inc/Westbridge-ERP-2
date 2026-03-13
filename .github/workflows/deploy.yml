@@ -40,6 +40,32 @@ jobs:
       - name: Deploy to Fly.io
         if: env.FLY_API_TOKEN != ''
         run: flyctl deploy --remote-only
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+
+      - name: Set Fly.io secrets (observability)
+        if: env.FLY_API_TOKEN != ''
+        run: |
+          # Only set secrets that are configured — flyctl secrets set is idempotent
+          SECRETS_TO_SET=""
+          if [ -n "${{ secrets.SENTRY_DSN }}" ]; then
+            SECRETS_TO_SET="$SECRETS_TO_SET SENTRY_DSN=${{ secrets.SENTRY_DSN }}"
+          fi
+          if [ -n "${{ secrets.POSTHOG_API_KEY }}" ]; then
+            SECRETS_TO_SET="$SECRETS_TO_SET POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}"
+          fi
+          if [ -n "${{ vars.POSTHOG_HOST }}" ]; then
+            SECRETS_TO_SET="$SECRETS_TO_SET POSTHOG_HOST=${{ vars.POSTHOG_HOST }}"
+          fi
+          if [ -n "$SECRETS_TO_SET" ]; then
+            echo "Setting observability secrets on Fly.io..."
+            flyctl secrets set $SECRETS_TO_SET --stage
+            echo "Secrets staged for next deploy"
+          else
+            echo "::notice::No observability secrets configured — Sentry/PostHog will not be active"
+          fi
 
       - name: Skip notice
         if: env.FLY_API_TOKEN == ''
