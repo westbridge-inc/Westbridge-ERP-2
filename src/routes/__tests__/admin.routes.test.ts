@@ -56,9 +56,9 @@ vi.mock("../../lib/security-monitor.js", () => ({
 }));
 
 vi.mock("../../lib/feature-flags.js", () => ({
-  getAllFlags: vi.fn().mockResolvedValue([
-    { key: "dark_mode", defaultValue: false, description: "Dark mode toggle", rules: [] },
-  ]),
+  getAllFlags: vi
+    .fn()
+    .mockResolvedValue([{ key: "dark_mode", defaultValue: false, description: "Dark mode toggle", rules: [] }]),
   setFlag: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -110,7 +110,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -121,7 +121,16 @@ vi.mock("../../lib/services/invite.service.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -179,9 +188,7 @@ describe("Admin Routes", () => {
     it("returns 403 without admin/owner role", async () => {
       mockSession("member");
 
-      const res = await request(app)
-        .get("/api/admin/flags")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/admin/flags").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe("FORBIDDEN");
@@ -190,9 +197,7 @@ describe("Admin Routes", () => {
     it("returns 403 for viewer role", async () => {
       mockSession("viewer");
 
-      const res = await request(app)
-        .get("/api/admin/flags")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/admin/flags").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -200,9 +205,7 @@ describe("Admin Routes", () => {
     it("returns 403 for manager role (only owner has admin:*)", async () => {
       mockSession("manager");
 
-      const res = await request(app)
-        .get("/api/admin/flags")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/admin/flags").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -210,9 +213,7 @@ describe("Admin Routes", () => {
     it("returns 200 with flags for owner role", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/admin/flags")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/admin/flags").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("data");
@@ -295,9 +296,7 @@ describe("Admin Routes", () => {
     it("returns 403 without owner role", async () => {
       mockSession("member");
 
-      const res = await request(app)
-        .get("/api/admin/jobs")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/admin/jobs").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -305,9 +304,7 @@ describe("Admin Routes", () => {
     it("returns 200 with queue stats for owner", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/admin/jobs")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/admin/jobs").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("queues");

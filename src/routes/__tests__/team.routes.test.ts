@@ -90,7 +90,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -130,7 +130,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -189,9 +198,7 @@ describe("Team Routes", () => {
     it("returns 200 with team members for authenticated owner", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/team")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/team").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("members");
@@ -202,9 +209,7 @@ describe("Team Routes", () => {
     it("returns members with expected fields", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/team")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/team").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       const firstMember = res.body.data.members[0];
@@ -219,23 +224,17 @@ describe("Team Routes", () => {
     it("marks the current user with isYou: true", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/team")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/team").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
-      const currentUser = res.body.data.members.find(
-        (m: { id: string }) => m.id === "usr_1",
-      );
+      const currentUser = res.body.data.members.find((m: { id: string }) => m.id === "usr_1");
       expect(currentUser?.isYou).toBe(true);
     });
 
     it("returns 200 with team members for viewer role (users:read is granted)", async () => {
       mockSession("viewer");
 
-      const res = await request(app)
-        .get("/api/team")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/team").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("members");
@@ -244,14 +243,10 @@ describe("Team Routes", () => {
     it("uses email prefix as name when name is null", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/team")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/team").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
-      const bobMember = res.body.data.members.find(
-        (m: { id: string }) => m.id === "usr_2",
-      );
+      const bobMember = res.body.data.members.find((m: { id: string }) => m.id === "usr_2");
       expect(bobMember?.name).toBe("bob");
     });
   });

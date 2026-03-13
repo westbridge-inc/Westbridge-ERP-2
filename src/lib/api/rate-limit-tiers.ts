@@ -35,7 +35,7 @@ const ENDPOINT_OVERRIDES: Record<string, number> = {
   "/api/ai/chat": 30,
   "/api/audit/export": 5,
   "/api/auth/change-password": 5,
-  "/api/webhooks/2checkout": 100,
+  "/api/webhooks/powertranz": 100,
 };
 
 /** Per-endpoint window in ms (default 60_000). */
@@ -72,7 +72,7 @@ export async function checkTieredRateLimit(
   tier: RateLimitTier,
   endpoint?: string,
   costMultiplier = 1,
-  windowMsOverride?: number
+  windowMsOverride?: number,
 ): Promise<RateLimitResult> {
   const windowMs = windowMsOverride ?? (endpoint ? ENDPOINT_WINDOW_MS[endpoint] : undefined) ?? 60_000;
   const now = Date.now();
@@ -147,7 +147,13 @@ export async function checkEmailRateLimit(email: string): Promise<RateLimitResul
     const currentCount = (checkResults?.[1]?.[1] as number) ?? 0;
 
     if (currentCount >= EMAIL_RATE_LIMIT) {
-      return { allowed: false, limit: EMAIL_RATE_LIMIT, remaining: 0, reset, retryAfter: Math.ceil(EMAIL_WINDOW_MS / 1000) };
+      return {
+        allowed: false,
+        limit: EMAIL_RATE_LIMIT,
+        remaining: 0,
+        reset,
+        retryAfter: Math.ceil(EMAIL_WINDOW_MS / 1000),
+      };
     }
 
     // Phase 2: add the request now that we know it's within limits.
@@ -190,7 +196,13 @@ export async function checkErpAccountRateLimit(accountId: string): Promise<RateL
     const currentCount = (checkResults?.[1]?.[1] as number) ?? 0;
 
     if (currentCount >= ERP_ACCOUNT_LIMIT) {
-      return { allowed: false, limit: ERP_ACCOUNT_LIMIT, remaining: 0, reset, retryAfter: Math.ceil(ERP_ACCOUNT_WINDOW_MS / 1000) };
+      return {
+        allowed: false,
+        limit: ERP_ACCOUNT_LIMIT,
+        remaining: 0,
+        reset,
+        retryAfter: Math.ceil(ERP_ACCOUNT_WINDOW_MS / 1000),
+      };
     }
 
     // Phase 2: add the request now that we know it's within limits.
@@ -244,10 +256,7 @@ export function planToTier(plan: string | null | undefined): RateLimitTier {
  * Get the effective rate limit for a plan + operation combination.
  * Uses RATE_LIMIT_TIERS and RATE_LIMIT_COST from constants as the single source of truth.
  */
-export function getPlanRateLimit(
-  plan: string,
-  operation: string = "default"
-): { limit: number; windowMs: number } {
+export function getPlanRateLimit(plan: string, operation: string = "default"): { limit: number; windowMs: number } {
   const planKey = plan.toLowerCase() as keyof typeof RATE_LIMIT_TIERS;
   const tier = RATE_LIMIT_TIERS[planKey] ?? RATE_LIMIT_TIERS.starter;
   const cost = RATE_LIMIT_COST[operation as keyof typeof RATE_LIMIT_COST] ?? RATE_LIMIT_COST.default;

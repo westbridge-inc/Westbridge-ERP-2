@@ -92,7 +92,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -132,7 +132,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -204,9 +213,7 @@ describe("Auth Routes", () => {
     it("returns 403 when CSRF token is missing", async () => {
       (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await request(app)
-        .post("/api/auth/login")
-        .send({ email: "user@example.com", password: "secret123" });
+      const res = await request(app).post("/api/auth/login").send({ email: "user@example.com", password: "secret123" });
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe("FORBIDDEN");
@@ -362,9 +369,7 @@ describe("Auth Routes", () => {
     it("returns 403 when CSRF token is invalid", async () => {
       (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await request(app)
-        .post("/api/auth/logout")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).post("/api/auth/logout").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe("FORBIDDEN");
@@ -386,9 +391,7 @@ describe("Auth Routes", () => {
         error: "Session expired",
       });
 
-      const res = await request(app)
-        .get("/api/auth/validate")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/auth/validate").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(401);
     });
@@ -403,9 +406,7 @@ describe("Auth Routes", () => {
         email: "user@example.com",
       });
 
-      const res = await request(app)
-        .get("/api/auth/validate")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/auth/validate").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("userId", "usr_1");
@@ -454,9 +455,7 @@ describe("Auth Routes", () => {
     it("returns 403 when CSRF is invalid", async () => {
       (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await request(app)
-        .post("/api/auth/forgot-password")
-        .send({ email: "user@example.com" });
+      const res = await request(app).post("/api/auth/forgot-password").send({ email: "user@example.com" });
 
       expect(res.status).toBe(403);
     });
@@ -495,9 +494,7 @@ describe("Auth Routes", () => {
     });
 
     it("returns 200 for valid reset request", async () => {
-      const { applyPasswordReset } = await import(
-        "../../lib/services/password-reset.service.js"
-      );
+      const { applyPasswordReset } = await import("../../lib/services/password-reset.service.js");
       (applyPasswordReset as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         data: { success: true },
@@ -532,13 +529,10 @@ describe("Auth Routes", () => {
     it("returns 403 when CSRF is invalid", async () => {
       (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await request(app)
-        .post("/api/auth/change-password")
-        .set("Cookie", SESSION_COOKIE)
-        .send({
-          currentPassword: "oldpass",
-          newPassword: "NewPass123!@#",
-        });
+      const res = await request(app).post("/api/auth/change-password").set("Cookie", SESSION_COOKIE).send({
+        currentPassword: "oldpass",
+        newPassword: "NewPass123!@#",
+      });
 
       expect(res.status).toBe(403);
     });

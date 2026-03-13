@@ -20,8 +20,8 @@ model Account {
   currency         String    @default("GYD")     // Default currency (Caribbean-first)
   country          String    @default("GY")      // ISO 3166-1 alpha-2
   timezone         String    @default("America/Guyana")
-  twocoOrderId     String?   @map("twoco_order_id")
-  twocoCustomerId  String?   @map("twoco_customer_id")
+  paymentTransactionId  String?   @map("payment_transaction_id")  // PowerTranz transaction identifier
+  paymentRRN            String?   @map("payment_rrn")             // PowerTranz Retrieval Reference Number
   modulesSelected  String[]  @map("modules_selected") // module ids
   version          Int       @default(1)          // Optimistic concurrency control
   deletedAt        DateTime? @map("deleted_at")   // Soft delete
@@ -96,14 +96,14 @@ model Subscription {
   status                String    // active | canceled | past_due | trialing
   currentPeriodStart    DateTime  @map("current_period_start")
   currentPeriodEnd      DateTime  @map("current_period_end")
-  twocoSubscriptionId   String?   @map("twoco_subscription_id")
+  paymentSubscriptionId String?   @map("payment_subscription_id") // PowerTranz subscription reference
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId])
-  @@index([twocoSubscriptionId])
+  @@index([paymentSubscriptionId])
   @@map("subscriptions")
 }
 

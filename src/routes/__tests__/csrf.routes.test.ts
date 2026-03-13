@@ -68,7 +68,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -108,7 +108,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),

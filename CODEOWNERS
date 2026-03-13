@@ -25,7 +25,7 @@ prisma/ @westbridge-inc/engineering @westbridge-inc/security
 
 # Billing and payments
 src/routes/billing.routes.ts @westbridge-inc/engineering
-src/lib/data/twocheckout.client.ts @westbridge-inc/engineering
+src/lib/data/powertranz.client.ts @westbridge-inc/engineering
 
 # Caribbean regional logic
 src/lib/caribbean/ @westbridge-inc/engineering

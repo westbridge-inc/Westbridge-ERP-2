@@ -99,7 +99,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -139,7 +139,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -190,9 +199,7 @@ describe("Account Routes", () => {
   // ── PATCH /api/account/profile ────────────────────────────────────────────
   describe("PATCH /api/account/profile", () => {
     it("returns 401 without authentication", async () => {
-      const res = await request(app)
-        .patch("/api/account/profile")
-        .send({ name: "New Name" });
+      const res = await request(app).patch("/api/account/profile").send({ name: "New Name" });
 
       expect(res.status).toBe(401);
     });
@@ -265,9 +272,7 @@ describe("Account Routes", () => {
     it("returns 403 when CSRF is invalid", async () => {
       (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await request(app)
-        .delete("/api/account/delete")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).delete("/api/account/delete").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });

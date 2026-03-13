@@ -31,8 +31,9 @@ fly secrets set \
   ERPNEXT_API_SECRET="your-secret" \
   RESEND_API_KEY="re_xxxxx" \
   FRONTEND_URL="https://your-frontend-domain.com" \
-  TWOCO_MERCHANT_CODE="your-merchant-code" \
-  TWOCO_SECRET_WORD="your-secret-word"
+  POWERTRANZ_ID="your-powertranz-id" \
+  POWERTRANZ_PASSWORD="your-powertranz-password" \
+  POWERTRANZ_TEST_MODE="false"
 ```
 
 ## Deploy

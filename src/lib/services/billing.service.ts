@@ -1,14 +1,20 @@
 /**
- * Billing service: signup (create account + payment link), IPN handling.
+ * Billing service: signup (create account + payment session), payment handling.
+ *
+ * Uses PowerTranz (Caribbean-focused payment processor) for the Hosted Payment
+ * Page (HPP) flow. After signup the customer is redirected to PowerTranz's
+ * hosted page; once they pay, PowerTranz POSTs back to our webhook endpoint,
+ * and we activate the account.
  */
 
 import { prisma } from "../data/prisma.js";
 import {
-  getPaymentLinkUrl,
-  verifyIPNSignature,
-  isIPNSuccess,
+  createPaymentSession,
+  isPaymentApproved,
+  verifyCallbackSignature,
   type PlanSlug,
-} from "../data/twocheckout.client.js";
+  type PaymentCallbackData,
+} from "../data/powertranz.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
@@ -20,6 +26,7 @@ export interface CreateAccountInput {
   companyName: string;
   plan: string;
   modulesSelected?: string[];
+  currency?: string;
 }
 
 export interface CreateAccountResult {
@@ -31,9 +38,9 @@ export interface CreateAccountResult {
 
 export async function createAccount(
   input: CreateAccountInput,
-  returnBaseUrl: string
+  returnBaseUrl: string,
 ): Promise<Result<CreateAccountResult, string>> {
-  const { email, companyName, plan, modulesSelected } = input;
+  const { email, companyName, plan, modulesSelected, currency } = input;
   if (!email?.trim() || !companyName?.trim() || !plan?.trim()) {
     return err("Email, company name, and plan are required");
   }
@@ -62,45 +69,63 @@ export async function createAccount(
       });
     });
 
-    const returnUrl = `${returnBaseUrl}/signup?success=true&accountId=${account.id}`;
-    const paymentUrl = getPaymentLinkUrl(planSlug, account.id, returnUrl);
+    // The return URL is where PowerTranz will POST the payment result
+    const returnUrl = `${returnBaseUrl}/api/webhooks/powertranz?accountId=${account.id}`;
+    const session = await createPaymentSession(planSlug, account.id, returnUrl, currency);
+
+    // If PowerTranz is configured, store the transaction ID
+    if (session) {
+      await prisma.account.update({
+        where: { id: account.id },
+        data: { paymentTransactionId: session.transactionId },
+      });
+    }
 
     return ok({
       accountId: account.id,
-      paymentUrl: paymentUrl || null,
+      paymentUrl: session?.redirectUrl ?? null,
       status: "pending" as const,
-      ...(paymentUrl ? {} : { message: "Account created. Payment link not configured; contact support to complete." }),
+      ...(session ? {} : { message: "Account created. Payment gateway not configured; contact support to complete." }),
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to create account");
   }
 }
 
-export interface HandleIPNResult {
+export interface HandlePaymentResult {
   updated: boolean;
   accountId?: string;
 }
 
-export function verifyIPN(params: Record<string, string | undefined>): boolean {
-  return verifyIPNSignature(params);
+/**
+ * Verify the signature of a PowerTranz callback.
+ */
+export function verifyPaymentCallback(rawBody: string, signature: string): boolean {
+  return verifyCallbackSignature(rawBody, signature);
 }
 
-export function isPaymentSuccess(params: Record<string, string | undefined>): boolean {
-  return isIPNSuccess(params);
+/**
+ * Check if a PowerTranz payment callback indicates success.
+ */
+export function isPaymentSuccess(data: PaymentCallbackData): boolean {
+  return isPaymentApproved(data);
 }
 
+/**
+ * Activate an account after confirmed payment.
+ */
 export async function markAccountPaid(
   accountId: string,
-  twocoOrderId?: string,
-  twocoCustomerId?: string
-): Promise<Result<HandleIPNResult, string>> {
+  transactionId?: string,
+  rrn?: string,
+): Promise<Result<HandlePaymentResult, string>> {
   try {
     const result = await prisma.account.updateMany({
       where: { id: accountId },
       data: {
         status: "active",
-        twocoOrderId: twocoOrderId ?? undefined,
-        twocoCustomerId: twocoCustomerId ?? undefined,
+        paymentTransactionId: transactionId ?? undefined,
+        paymentRRN: rrn ?? undefined,
       },
     });
     const updated = (result.count ?? 0) > 0;

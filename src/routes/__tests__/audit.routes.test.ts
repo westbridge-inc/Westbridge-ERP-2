@@ -104,7 +104,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -144,7 +144,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -199,9 +208,7 @@ describe("Audit Routes", () => {
     it("returns 403 for viewer role (no audit_logs:read permission)", async () => {
       mockSession("viewer");
 
-      const res = await request(app)
-        .get("/api/audit")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe("FORBIDDEN");
@@ -210,9 +217,7 @@ describe("Audit Routes", () => {
     it("returns 403 for member role", async () => {
       mockSession("member");
 
-      const res = await request(app)
-        .get("/api/audit")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -220,9 +225,7 @@ describe("Audit Routes", () => {
     it("returns 403 for manager role", async () => {
       mockSession("manager");
 
-      const res = await request(app)
-        .get("/api/audit")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -230,9 +233,7 @@ describe("Audit Routes", () => {
     it("returns 200 with audit logs for admin role", async () => {
       mockSession("admin");
 
-      const res = await request(app)
-        .get("/api/audit")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("logs");
@@ -242,9 +243,7 @@ describe("Audit Routes", () => {
     it("returns 200 with audit logs for owner role", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/audit")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("logs");
@@ -253,9 +252,7 @@ describe("Audit Routes", () => {
     it("includes pagination metadata", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/audit?page=1&per_page=10")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit?page=1&per_page=10").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.meta).toHaveProperty("pagination");
@@ -275,9 +272,7 @@ describe("Audit Routes", () => {
     it("returns 403 for viewer role", async () => {
       mockSession("viewer");
 
-      const res = await request(app)
-        .get("/api/audit/export")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit/export").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -285,9 +280,7 @@ describe("Audit Routes", () => {
     it("returns 403 for member role (no audit_logs:read)", async () => {
       mockSession("member");
 
-      const res = await request(app)
-        .get("/api/audit/export")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit/export").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -298,9 +291,7 @@ describe("Audit Routes", () => {
       // explicitly checks session.role === "owner" || "admin".
       mockSession("admin");
 
-      const res = await request(app)
-        .get("/api/audit/export")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit/export").set("Cookie", SESSION_COOKIE);
 
       // admin should pass both the requirePermission and the handler's role check
       expect(res.status).toBe(200);
@@ -309,9 +300,7 @@ describe("Audit Routes", () => {
     it("returns 200 with CSV data for owner", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/audit/export?format=csv")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit/export?format=csv").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("text/csv");
@@ -320,9 +309,7 @@ describe("Audit Routes", () => {
     it("returns 200 with JSON data for owner", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/audit/export?format=json")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/audit/export?format=json").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("application/json");

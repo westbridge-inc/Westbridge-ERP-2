@@ -74,7 +74,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -115,7 +115,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -258,7 +267,7 @@ describe("Reports Routes", () => {
 
     it("returns 503 when queue is full", async () => {
       (enqueueReport as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-        new Error("Report service temporarily unavailable — queue capacity reached")
+        new Error("Report service temporarily unavailable — queue capacity reached"),
       );
 
       const res = await request(app)
@@ -288,9 +297,7 @@ describe("Reports Routes", () => {
       (prisma.auditLog.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(1);
       (prisma.auditLog.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockReports);
 
-      const res = await request(app)
-        .get("/api/reports")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(200);
       expect(res.body.data.reports).toHaveLength(1);
@@ -304,23 +311,19 @@ describe("Reports Routes", () => {
       (prisma.auditLog.count as ReturnType<typeof vi.fn>).mockResolvedValueOnce(0);
       (prisma.auditLog.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
 
-      await request(app)
-        .get("/api/reports?report_type=audit_export")
-        .set("Cookie", "westbridge_sid=valid-token");
+      await request(app).get("/api/reports?report_type=audit_export").set("Cookie", "westbridge_sid=valid-token");
 
       expect(prisma.auditLog.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ resource: "audit_export" }),
-        })
+        }),
       );
     });
 
     it("returns 403 for viewer role", async () => {
       mockAuth("viewer");
 
-      const res = await request(app)
-        .get("/api/reports")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(403);
     });
@@ -337,9 +340,7 @@ describe("Reports Routes", () => {
         returnvalue: { reportType: "revenue_summary", invoicesCreated: 5 },
       });
 
-      const res = await request(app)
-        .get("/api/reports/job-1")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports/job-1").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe("completed");
@@ -354,9 +355,7 @@ describe("Reports Routes", () => {
         getState: vi.fn().mockResolvedValue("active"),
       });
 
-      const res = await request(app)
-        .get("/api/reports/job-2")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports/job-2").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe("active");
@@ -371,9 +370,7 @@ describe("Reports Routes", () => {
         failedReason: "Database connection lost",
       });
 
-      const res = await request(app)
-        .get("/api/reports/job-3")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports/job-3").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe("failed");
@@ -390,9 +387,7 @@ describe("Reports Routes", () => {
         userId: "user-1",
       });
 
-      const res = await request(app)
-        .get("/api/reports/old-job-1")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports/old-job-1").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe("completed");
@@ -404,9 +399,7 @@ describe("Reports Routes", () => {
       (reportsQueue.getJob as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
       (prisma.auditLog.findFirst as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
 
-      const res = await request(app)
-        .get("/api/reports/nonexistent")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports/nonexistent").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(404);
     });
@@ -420,9 +413,7 @@ describe("Reports Routes", () => {
         returnvalue: {},
       });
 
-      const res = await request(app)
-        .get("/api/reports/job-other")
-        .set("Cookie", "westbridge_sid=valid-token");
+      const res = await request(app).get("/api/reports/job-other").set("Cookie", "westbridge_sid=valid-token");
 
       expect(res.status).toBe(404);
     });

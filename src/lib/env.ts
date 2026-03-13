@@ -17,16 +17,11 @@ import { z } from "zod";
 
 const envSchema = z.object({
   // ── Core ────────────────────────────────────────────────────────────────────
-  NODE_ENV: z
-    .enum(["development", "test", "production"])
-    .default("development"),
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
 
   // ── Database ────────────────────────────────────────────────────────────────
-  DATABASE_URL: z
-    .string()
-    .url()
-    .default("postgresql://user:password@localhost:5432/westbridge?schema=public"),
+  DATABASE_URL: z.string().url().default("postgresql://user:password@localhost:5432/westbridge?schema=public"),
 
   // ── Redis ───────────────────────────────────────────────────────────────────
   REDIS_URL: z.string().default("redis://localhost:6379"),
@@ -61,21 +56,16 @@ const envSchema = z.object({
   // ── AI ──────────────────────────────────────────────────────────────────────
   ANTHROPIC_API_KEY: z.string().optional().default(""),
 
-  // ── Billing ─────────────────────────────────────────────────────────────────
-  TWOCO_SECRET_WORD: z.string().optional().default(""),
-  TWOCO_LINK_STARTER: z.string().optional().default(""),
-  TWOCO_LINK_BUSINESS: z.string().optional().default(""),
-  TWOCO_LINK_ENTERPRISE: z.string().optional().default(""),
-  TWOCHECKOUT_MERCHANT_CODE: z.string().optional().default(""),
-  TWOCHECKOUT_SECRET_KEY: z.string().optional().default(""),
+  // ── Billing (PowerTranz — Caribbean payment gateway) ────────────────────────
+  POWERTRANZ_ID: z.string().optional().default(""),
+  POWERTRANZ_PASSWORD: z.string().optional().default(""),
+  POWERTRANZ_TEST_MODE: z.string().optional().default("true"), // "true" for staging, "false" for production
 
   // ── Observability ───────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional().default(""),
   POSTHOG_API_KEY: z.string().optional().default(""),
   POSTHOG_HOST: z.string().optional().default("https://app.posthog.com"),
-  LOG_LEVEL: z
-    .enum(["trace", "debug", "info", "warn", "error", "fatal"])
-    .default("info"),
+  LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
   METRICS_TOKEN: z.string().optional(),
 
   // ── Multi-tenant ────────────────────────────────────────────────────────────
@@ -96,9 +86,7 @@ function parseEnv() {
   if (!result.success) {
     const formatted = result.error.flatten().fieldErrors;
     console.error("❌ Invalid environment variables:", formatted);
-    throw new Error(
-      `Missing or invalid environment variables:\n${JSON.stringify(formatted, null, 2)}`
-    );
+    throw new Error(`Missing or invalid environment variables:\n${JSON.stringify(formatted, null, 2)}`);
   }
 
   // Production safety checks

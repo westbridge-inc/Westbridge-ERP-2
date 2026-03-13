@@ -76,7 +76,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -116,7 +116,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -175,9 +184,7 @@ describe("Billing Routes", () => {
     it("returns 403 for viewer role (no billing:read permission)", async () => {
       mockSession("viewer");
 
-      const res = await request(app)
-        .get("/api/billing/history")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/billing/history").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe("FORBIDDEN");
@@ -186,9 +193,7 @@ describe("Billing Routes", () => {
     it("returns 403 for member role (no billing:read permission)", async () => {
       mockSession("member");
 
-      const res = await request(app)
-        .get("/api/billing/history")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/billing/history").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
     });
@@ -196,9 +201,7 @@ describe("Billing Routes", () => {
     it("returns 200 with billing data for manager role (has billing:read)", async () => {
       mockSession("manager");
 
-      const res = await request(app)
-        .get("/api/billing/history")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/billing/history").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("items");
@@ -210,9 +213,7 @@ describe("Billing Routes", () => {
     it("returns 200 with billing data for owner role", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/billing/history")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/billing/history").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("items");
@@ -224,9 +225,7 @@ describe("Billing Routes", () => {
     it("returns empty items array (no invoice rows stored yet)", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/billing/history")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/billing/history").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body.data.items).toHaveLength(0);
@@ -235,9 +234,7 @@ describe("Billing Routes", () => {
     it("includes X-Response-Time header", async () => {
       mockSession("owner");
 
-      const res = await request(app)
-        .get("/api/billing/history")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/billing/history").set("Cookie", SESSION_COOKIE);
 
       expect(res.headers["x-response-time"]).toBeDefined();
     });

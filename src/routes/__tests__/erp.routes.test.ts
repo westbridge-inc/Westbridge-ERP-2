@@ -64,7 +64,16 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -87,7 +96,7 @@ vi.mock("../../lib/password-policy.js", () => ({
 }));
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyIPN: vi.fn(),
+  verifyPaymentCallback: vi.fn(),
   isPaymentSuccess: vi.fn(),
   markAccountPaid: vi.fn(),
 }));
@@ -181,9 +190,7 @@ describe("ERP Routes", () => {
     it("returns 400 when doctype is missing", async () => {
       mockAuthenticatedSession();
 
-      const res = await request(app)
-        .get("/api/erp/list")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/list").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toContain("doctype");
@@ -192,9 +199,7 @@ describe("ERP Routes", () => {
     it("returns 400 for an unsupported doctype", async () => {
       mockAuthenticatedSession();
 
-      const res = await request(app)
-        .get("/api/erp/list?doctype=Forbidden+Type")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/list?doctype=Forbidden+Type").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toContain("unsupported");
@@ -203,9 +208,7 @@ describe("ERP Routes", () => {
     it("returns 200 with data for a valid request", async () => {
       mockAuthenticatedSession();
 
-      const res = await request(app)
-        .get("/api/erp/list?doctype=Sales+Invoice")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/list?doctype=Sales+Invoice").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("data");
@@ -215,9 +218,7 @@ describe("ERP Routes", () => {
     it("returns 401 when ERP session is not available", async () => {
       mockAuthenticatedSession({ erpnextSid: null });
 
-      const res = await request(app)
-        .get("/api/erp/list?doctype=Sales+Invoice")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/list?doctype=Sales+Invoice").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(401);
     });
@@ -244,9 +245,7 @@ describe("ERP Routes", () => {
     it("returns 400 when doctype or name is missing", async () => {
       mockAuthenticatedSession();
 
-      const res = await request(app)
-        .get("/api/erp/doc?doctype=Sales+Invoice")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/doc?doctype=Sales+Invoice").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toContain("name");
@@ -255,9 +254,7 @@ describe("ERP Routes", () => {
     it("returns 400 when both doctype and name are missing", async () => {
       mockAuthenticatedSession();
 
-      const res = await request(app)
-        .get("/api/erp/doc")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/doc").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(400);
     });
@@ -277,9 +274,7 @@ describe("ERP Routes", () => {
   // ── POST /api/erp/doc ─────────────────────────────────────────────────────
   describe("POST /api/erp/doc", () => {
     it("returns 401 without authentication", async () => {
-      const res = await request(app)
-        .post("/api/erp/doc")
-        .send({ doctype: "Sales Invoice" });
+      const res = await request(app).post("/api/erp/doc").send({ doctype: "Sales Invoice" });
 
       expect(res.status).toBe(401);
     });
@@ -326,9 +321,7 @@ describe("ERP Routes", () => {
   // ── PUT /api/erp/doc ──────────────────────────────────────────────────────
   describe("PUT /api/erp/doc", () => {
     it("returns 401 without authentication", async () => {
-      const res = await request(app)
-        .put("/api/erp/doc")
-        .send({ doctype: "Sales Invoice", name: "INV-001" });
+      const res = await request(app).put("/api/erp/doc").send({ doctype: "Sales Invoice", name: "INV-001" });
 
       expect(res.status).toBe(401);
     });
@@ -374,8 +367,7 @@ describe("ERP Routes", () => {
   // ── DELETE /api/erp/doc ───────────────────────────────────────────────────
   describe("DELETE /api/erp/doc", () => {
     it("returns 401 without authentication", async () => {
-      const res = await request(app)
-        .delete("/api/erp/doc?doctype=Sales+Invoice&name=INV-001");
+      const res = await request(app).delete("/api/erp/doc?doctype=Sales+Invoice&name=INV-001");
 
       expect(res.status).toBe(401);
     });
@@ -428,9 +420,7 @@ describe("ERP Routes", () => {
         error: "Session expired",
       });
 
-      const res = await request(app)
-        .get("/api/erp/dashboard")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/dashboard").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(401);
     });
@@ -446,9 +436,7 @@ describe("ERP Routes", () => {
         },
       });
 
-      const res = await request(app)
-        .get("/api/erp/dashboard")
-        .set("Cookie", SESSION_COOKIE);
+      const res = await request(app).get("/api/erp/dashboard").set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty("data");
