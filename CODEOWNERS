@@ -2,34 +2,34 @@
 # These owners are automatically requested for review on PRs.
 
 # Default — all changes require at least one team review
-* @westbridgeinc/engineering
+* @westbridge-inc/engineering
 
 # CI/CD and infrastructure
-.github/ @westbridgeinc/platform
-Dockerfile @westbridgeinc/platform
-docker-compose.yml @westbridgeinc/platform
-fly.toml @westbridgeinc/platform
-scripts/ @westbridgeinc/platform
+.github/ @westbridge-inc/platform
+Dockerfile @westbridge-inc/platform
+docker-compose.yml @westbridge-inc/platform
+fly.toml @westbridge-inc/platform
+scripts/ @westbridge-inc/platform
 
 # Security-critical code
-src/lib/encryption.ts @westbridgeinc/security
-src/lib/csrf.ts @westbridgeinc/security
-src/lib/rbac.ts @westbridgeinc/security
-src/lib/security-monitor.ts @westbridgeinc/security
-src/lib/password-policy.ts @westbridgeinc/security
-src/middleware/ @westbridgeinc/security
-src/routes/auth.routes.ts @westbridgeinc/security
+src/lib/encryption.ts @westbridge-inc/security
+src/lib/csrf.ts @westbridge-inc/security
+src/lib/rbac.ts @westbridge-inc/security
+src/lib/security-monitor.ts @westbridge-inc/security
+src/lib/password-policy.ts @westbridge-inc/security
+src/middleware/ @westbridge-inc/security
+src/routes/auth.routes.ts @westbridge-inc/security
 
 # Database schema
-prisma/ @westbridgeinc/engineering @westbridgeinc/security
+prisma/ @westbridge-inc/engineering @westbridge-inc/security
 
 # Billing and payments
-src/routes/billing.routes.ts @westbridgeinc/engineering
-src/lib/data/twocheckout.client.ts @westbridgeinc/engineering
+src/routes/billing.routes.ts @westbridge-inc/engineering
+src/lib/data/twocheckout.client.ts @westbridge-inc/engineering
 
 # Caribbean regional logic
-src/lib/caribbean/ @westbridgeinc/engineering
+src/lib/caribbean/ @westbridge-inc/engineering
 
 # Documentation and policies
-docs/ @westbridgeinc/engineering
-*.md @westbridgeinc/engineering
+docs/ @westbridge-inc/engineering
+*.md @westbridge-inc/engineering
