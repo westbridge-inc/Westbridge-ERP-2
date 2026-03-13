@@ -20,7 +20,8 @@
     "test:load:smoke": "k6 run load-tests/smoke.js",
     "test:load": "k6 run load-tests/average-load.js",
     "test:load:stress": "k6 run load-tests/stress.js",
-    "test:load:spike": "k6 run load-tests/spike.js"
+    "test:load:spike": "k6 run load-tests/spike.js",
+    "prepare": "husky"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -50,7 +51,16 @@
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix --no-warn-ignored"
+    ],
+    "*.{ts,tsx,js,json,md}": [
+      "prettier --write"
+    ]
+  },
   "devDependencies": {
+    "@eslint/js": "^9.21.0",
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
@@ -60,10 +70,12 @@
     "@types/pino": "^7.0.4",
     "@types/supertest": "^7.2.0",
     "@types/uuid": "^10.0.0",
-    "@eslint/js": "^9.21.0",
     "@typescript-eslint/eslint-plugin": "^8.28.0",
     "@typescript-eslint/parser": "^8.28.0",
     "eslint": "^9.21.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.8.1",
     "prisma": "^6.4.1",
     "supertest": "^7.2.2",
     "tsx": "^4.19.3",
