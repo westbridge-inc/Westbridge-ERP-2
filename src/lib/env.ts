@@ -105,6 +105,14 @@ function parseEnv() {
       console.error(`\n⚠️  PRODUCTION SECURITY WARNINGS:\n  • ${warnings.join("\n  • ")}\n`);
       throw new Error("Insecure default secrets detected in production. See warnings above.");
     }
+
+    // Non-fatal warnings for observability & config
+    if (!result.data.SENTRY_DSN) {
+      console.warn("⚠️  SENTRY_DSN not set — error tracking is disabled in production");
+    }
+    if (result.data.FRONTEND_URL && !result.data.FRONTEND_URL.startsWith("https://")) {
+      console.warn(`⚠️  FRONTEND_URL is not HTTPS (${result.data.FRONTEND_URL}) — CORS may allow insecure origins`);
+    }
   }
 
   return result.data;

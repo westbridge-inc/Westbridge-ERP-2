@@ -14,6 +14,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
+import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
 
 // Route imports
@@ -110,8 +111,7 @@ export function createApp(): express.Application {
 
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     logger.error("Unhandled error", { error: err.message, stack: err.stack });
-    // Forward to Sentry (lazy import — avoids circular dependency with server.ts init)
-    import("@sentry/node").then((Sentry) => Sentry.captureException(err)).catch(() => {});
+    Sentry.captureException(err);
     res.status(500).json({ ok: false, error: { code: "SERVER_ERROR", message: "Internal server error" } });
   });
 
