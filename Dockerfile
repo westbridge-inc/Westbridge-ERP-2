@@ -37,11 +37,11 @@ COPY package.json package-lock.json ./
 # --ignore-scripts skips the prepare hook (husky is a devDependency, unavailable here)
 RUN npm ci --legacy-peer-deps --omit=dev --ignore-scripts && npm cache clean --force
 
-# Copy Prisma schema, migrations, generated client, and CLI dependencies
+# Copy Prisma schema, migrations, and generated client
 COPY prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/@prisma/engines ./node_modules/@prisma/engines
 
 # Copy compiled output
 COPY --from=builder /app/dist ./dist
