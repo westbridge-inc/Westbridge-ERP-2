@@ -5,9 +5,9 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node dist/server.js",
+    "startCommand": "node ./node_modules/prisma/build/index.js migrate deploy && node dist/server.js",
     "healthcheckPath": "/api/health",
-    "healthcheckTimeout": 10,
+    "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5
   }
