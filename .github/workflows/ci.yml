@@ -140,7 +140,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge
       REDIS_URL: redis://localhost:6379
-      NODE_ENV: production
       PORT: "4000"
       SESSION_SECRET: ci-test-secret-not-for-production
       CSRF_SECRET: ci-test-csrf-not-for-production
@@ -164,7 +163,7 @@ jobs:
           sudo apt-get install -y k6
       - name: Start server
         run: |
-          node dist/server.js &
+          NODE_ENV=production node dist/server.js &
           echo "Waiting for server to start..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:4000/api/health/live > /dev/null 2>&1; then
