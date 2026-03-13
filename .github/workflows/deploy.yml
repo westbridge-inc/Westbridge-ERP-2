@@ -1,4 +1,4 @@
-name: Deploy to Fly.io
+name: Deploy
 
 on:
   push:
@@ -16,6 +16,7 @@ jobs:
     environment: production
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,18 +28,37 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Generate Prisma client
+        run: npx prisma generate
+
       - name: Type check
         run: npx tsc --noEmit
 
       - name: Run tests
         run: npm test
 
+      # ── Railway deployment ──────────────────────────────────────────────────
+      - name: Install Railway CLI
+        if: env.RAILWAY_TOKEN != ''
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        if: env.RAILWAY_TOKEN != ''
+        run: railway up --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Railway — skip notice
+        if: env.RAILWAY_TOKEN == '' && env.FLY_API_TOKEN == ''
+        run: echo "::notice::Neither RAILWAY_TOKEN nor FLY_API_TOKEN configured — deployment skipped"
+
+      # ── Fly.io deployment (fallback) ────────────────────────────────────────
       - name: Setup Fly.io CLI
-        if: env.FLY_API_TOKEN != ''
+        if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy to Fly.io
-        if: env.FLY_API_TOKEN != ''
+        if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         run: flyctl deploy --remote-only
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
@@ -46,9 +66,8 @@ jobs:
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
 
       - name: Set Fly.io secrets (observability)
-        if: env.FLY_API_TOKEN != ''
+        if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         run: |
-          # Only set secrets that are configured — flyctl secrets set is idempotent
           SECRETS_TO_SET=""
           if [ -n "${{ secrets.SENTRY_DSN }}" ]; then
             SECRETS_TO_SET="$SECRETS_TO_SET SENTRY_DSN=${{ secrets.SENTRY_DSN }}"
@@ -67,15 +86,13 @@ jobs:
             echo "::notice::No observability secrets configured — Sentry/PostHog will not be active"
           fi
 
-      - name: Skip notice
-        if: env.FLY_API_TOKEN == ''
-        run: echo "::notice::FLY_API_TOKEN not configured — deployment skipped"
-
+      # ── Verify deployment ───────────────────────────────────────────────────
       - name: Verify deployment health
-        if: env.FLY_API_TOKEN != ''
+        if: env.RAILWAY_TOKEN != '' || env.FLY_API_TOKEN != ''
         run: |
-          sleep 10
-          STATUS=$(curl -sf https://westbridge-api.fly.dev/api/health | jq -r '.status' || echo "unknown")
+          sleep 15
+          DEPLOY_URL="${{ vars.DEPLOY_URL || 'https://westbridge-api.fly.dev' }}"
+          STATUS=$(curl -sf "${DEPLOY_URL}/api/health" | jq -r '.status' || echo "unknown")
           echo "Health check status: $STATUS"
           if [ "$STATUS" != "healthy" ]; then
             echo "::warning::Health check did not return healthy"
