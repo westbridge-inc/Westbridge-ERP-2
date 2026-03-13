@@ -1,11 +1,25 @@
 import "dotenv/config";
 import { env } from "./lib/env.js"; // Validate env FIRST — crash at startup, not at runtime
+import * as Sentry from "@sentry/node";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { startWorkers } from "./workers/index.js";
 import { scheduleCleanupJobs } from "./lib/jobs/queue.js";
 import { prisma } from "./lib/data/prisma.js";
 import { closeRedis } from "./lib/redis.js";
+
+// ─── Sentry — initialize BEFORE anything else can throw ──────────────────────
+if (env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: env.SENTRY_DSN,
+    environment: env.NODE_ENV,
+    tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
+    // Capture 100 % of errors, sample 10 % of transactions in prod
+  });
+  logger.info("Sentry initialised", { environment: env.NODE_ENV });
+} else {
+  logger.warn("SENTRY_DSN not set — error tracking disabled");
+}
 
 const PORT = env.PORT;
 
@@ -16,13 +30,15 @@ process.on("unhandledRejection", (reason) => {
     error: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined,
   });
+  if (reason instanceof Error) Sentry.captureException(reason);
 });
 process.on("uncaughtException", (err) => {
   logger.error("Uncaught exception — shutting down", {
     error: err.message,
     stack: err.stack,
   });
-  process.exit(1);
+  Sentry.captureException(err);
+  Sentry.flush(2000).finally(() => process.exit(1));
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────

@@ -42,14 +42,18 @@ export function createApp(): express.Application {
 
   // ─── Global Middleware ─────────────────────────────────────────────────────
 
-  app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-  }));
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+    }),
+  );
 
-  app.use(cors({
-    origin: process.env.FRONTEND_URL ?? "http://localhost:3000",
-    credentials: true,
-  }));
+  app.use(
+    cors({
+      origin: process.env.FRONTEND_URL ?? "http://localhost:3000",
+      credentials: true,
+    }),
+  );
 
   app.use(cookieParser());
   app.use(express.json({ limit: "1mb", type: ["application/json", "application/csp-report"] }));
@@ -64,7 +68,12 @@ export function createApp(): express.Application {
     _res.on("finish", () => {
       const duration = Date.now() - start;
       if (process.env.NODE_ENV !== "test") {
-        logger.info("HTTP request", { method: req.method, path: req.path, status: _res.statusCode, duration_ms: duration });
+        logger.info("HTTP request", {
+          method: req.method,
+          path: req.path,
+          status: _res.statusCode,
+          duration_ms: duration,
+        });
       }
     });
     next();
@@ -101,6 +110,8 @@ export function createApp(): express.Application {
 
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     logger.error("Unhandled error", { error: err.message, stack: err.stack });
+    // Forward to Sentry (lazy import — avoids circular dependency with server.ts init)
+    import("@sentry/node").then((Sentry) => Sentry.captureException(err)).catch(() => {});
     res.status(500).json({ ok: false, error: { code: "SERVER_ERROR", message: "Internal server error" } });
   });
 
