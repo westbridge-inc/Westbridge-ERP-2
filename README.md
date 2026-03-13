@@ -6,6 +6,56 @@
 
 Express.js API server for the Westbridge ERP platform.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          Clients                                    │
+│              (Next.js Frontend / Mobile / Third-Party)              │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ HTTPS
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Express.js API Server                           │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────────┐   │
+│  │  Helmet   │  │   CORS   │  │   CSRF   │  │   Rate Limiter    │   │
+│  │ (Headers) │  │          │  │  (HMAC)  │  │ (Redis Sliding W) │   │
+│  └──────────┘  └──────────┘  └──────────┘  └───────────────────┘   │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                    Route Handlers                            │    │
+│  │  auth · signup · erp · team · billing · admin · ai · audit  │    │
+│  └─────────────────────────┬───────────────────────────────────┘    │
+│                            │                                        │
+│  ┌─────────────────────────▼───────────────────────────────────┐    │
+│  │                    Service Layer                              │    │
+│  │  AuthService · SessionService · AuditService · PasswordReset │    │
+│  │  RBAC (5-tier) · Encryption (AES-256-GCM) · PasswordPolicy  │    │
+│  └──────────┬──────────────┬────────────────────┬──────────────┘    │
+│             │              │                    │                    │
+└─────────────┼──────────────┼────────────────────┼───────────────────┘
+              │              │                    │
+              ▼              ▼                    ▼
+┌──────────────────┐ ┌──────────────┐ ┌───────────────────────────┐
+│   PostgreSQL     │ │    Redis     │ │       ERPNext             │
+│   (Prisma ORM)   │ │  (Sessions,  │ │   (Business Data via      │
+│                  │ │  Rate Limits,│ │    REST API)              │
+│  9 Models:       │ │  BullMQ Jobs)│ │                           │
+│  Account, User,  │ │              │ │  Invoices, Inventory,     │
+│  Session, Audit, │ └──────────────┘ │  HR, Procurement, etc.    │
+│  Subscription,   │                  └───────────────────────────┘
+│  ApiKey, Invite, │
+│  PasswordReset,  │        ┌───────────────────────────────┐
+│  Webhook         │        │       Observability           │
+└──────────────────┘        │  Pino (structured logging)    │
+                            │  Sentry (error tracking)      │
+┌──────────────────┐        │  Prometheus (metrics)         │
+│    BullMQ        │        │  OpenTelemetry (tracing)      │
+│  Background Jobs │        │  PostHog (product analytics)  │
+│  (Redis-backed)  │        └───────────────────────────────┘
+└──────────────────┘
+```
+
 ## Setup
 
 ```bash
