@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { createInvite } from "../lib/services/invite.service.js";
+import { createInvite, acceptInvite } from "../lib/services/invite.service.js";
 import { requireAuth, requireCsrf, requirePermission, toWebRequest } from "../middleware/auth.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
@@ -7,7 +7,6 @@ import { checkTieredRateLimit, getClientIdentifier, rateLimitHeaders } from "../
 import * as Sentry from "@sentry/node";
 import { z } from "zod";
 import { prisma } from "../lib/data/prisma.js";
-import { acceptInvite } from "../lib/services/invite.service.js";
 import { validatePassword } from "../lib/password-policy.js";
 import { hashPassword } from "../lib/services/auth.service.js";
 

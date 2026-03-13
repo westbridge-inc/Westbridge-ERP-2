@@ -32,7 +32,7 @@ function createPrismaClient() {
           // We downgrade to findFirst so we can inject the soft-delete filter,
           // then return null (matching findUnique semantics) if the record is soft-deleted.
           const result = await query(args);
-          if (result && (result as { deletedAt?: Date | null }).deletedAt != null) {
+          if (result && (result as { deletedAt?: Date | null }).deletedAt !== null && (result as { deletedAt?: Date | null }).deletedAt !== undefined) {
             return null;
           }
           return result;
@@ -73,7 +73,7 @@ function createPrismaClient() {
         },
         async findUnique({ args, query }) {
           const result = await query(args);
-          if (result && (result as { deletedAt?: Date | null }).deletedAt != null) {
+          if (result && (result as { deletedAt?: Date | null }).deletedAt !== null && (result as { deletedAt?: Date | null }).deletedAt !== undefined) {
             return null;
           }
           return result;

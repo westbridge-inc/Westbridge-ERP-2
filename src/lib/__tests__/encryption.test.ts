@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { encrypt, decrypt } from "../encryption.js";
-import { randomBytes } from "crypto";
+import { randomBytes as _randomBytes } from "crypto";
 
 // Valid 32-byte hex key for testing
 const TEST_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

@@ -2,8 +2,7 @@
  * RBAC unit tests — tests hasPermission, role inheritance, and default-deny behaviour.
  */
 import { describe, it, expect } from "vitest";
-import { hasPermission, getPermissions, ROLES } from "../rbac.js";
-import type { Permission, Role } from "../rbac.js";
+import { hasPermission, getPermissions, ROLES, type Role } from "../rbac.js";
 
 describe("RBAC — hasPermission", () => {
   // ── viewer (base role) ──────────────────────────────────────────────────

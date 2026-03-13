@@ -1,6 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { PlanId } from "../modules.js";
-import { getPlan } from "../modules.js";
+import { getPlan, type PlanId } from "../modules.js";
 
 // Export null when ANTHROPIC_API_KEY is absent so callers can degrade gracefully
 // instead of throwing at construction time.

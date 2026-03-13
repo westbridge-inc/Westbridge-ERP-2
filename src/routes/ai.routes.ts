@@ -17,9 +17,8 @@ import { getRedis } from "../lib/redis.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
 import { toWebRequest } from "../middleware/auth.js";
-import { getPlan } from "../lib/modules.js";
+import { getPlan, type PlanId } from "../lib/modules.js";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { PlanId } from "../lib/modules.js";
 
 const router = Router();
 

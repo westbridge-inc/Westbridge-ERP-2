@@ -181,7 +181,7 @@ export const CSV_HEADER =
 /** Convert a single audit log row to RFC 4180 CSV. */
 export function rowToCsv(row: AuditRow): string {
   const esc = (v: unknown): string => {
-    const s = v == null ? "" : String(v);
+    const s = v === null || v === undefined ? "" : String(v);
     return `"${s.replace(/"/g, '""')}"`;
   };
   return [

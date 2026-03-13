@@ -4,8 +4,7 @@
  */
 
 import { Resend } from "resend";
-import type { Result } from "../utils/result.js";
-import { ok, err } from "../utils/result.js";
+import { ok, err, type Result } from "../utils/result.js";
 
 let _resend: Resend | null = null;
 

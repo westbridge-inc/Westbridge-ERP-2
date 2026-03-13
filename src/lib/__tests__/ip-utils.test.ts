@@ -2,8 +2,7 @@
  * IP utility tests — CIDR matching, IPv4 validation, edge cases.
  */
 import { describe, it, expect } from "vitest";
-import { ipToInt, isInCidr, matchesCidr } from "../ip-utils.js";
-import type { CidrRange } from "../ip-utils.js";
+import { ipToInt, isInCidr, matchesCidr, type CidrRange } from "../ip-utils.js";
 
 describe("ipToInt", () => {
   it("converts 0.0.0.0 to 0", () => {

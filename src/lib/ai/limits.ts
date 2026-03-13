@@ -1,6 +1,5 @@
 import { getRedis } from "../redis.js";
-import { getPlan } from "../modules.js";
-import type { PlanId } from "../modules.js";
+import { getPlan, type PlanId } from "../modules.js";
 import { logger } from "../logger.js";
 
 // Redis key: ai:usage:{accountId}:{YYYY-MM}

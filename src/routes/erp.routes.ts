@@ -1,18 +1,15 @@
 import { Router, Request, Response } from "express";
-import { list } from "../lib/services/erp.service.js";
+import { list, getDoc, createDoc, updateDoc, deleteDoc } from "../lib/services/erp.service.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { validateErpFilters } from "../lib/validation/erp-filters.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, checkErpAccountRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
-import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requireCsrf, toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
 import { ALLOWED_DOCTYPES_SET, COMPANY_SCOPED_DOCTYPES } from "../lib/erp-constants.js";
-import { getDoc, createDoc, updateDoc, deleteDoc } from "../lib/services/erp.service.js";
 import { erpDocCreateBodySchema } from "../types/schemas/erp.js";
-import { validateSession } from "../lib/services/session.service.js";
-import { COOKIE } from "../lib/constants.js";
-import { buildDashboardData, DEMO_DATA } from "../lib/services/dashboard.service.js";
+import { buildDashboardData } from "../lib/services/dashboard.service.js";
 
 const router = Router();
 

@@ -37,8 +37,7 @@ import { prisma } from "../lib/data/prisma.js";
 import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
 import { toWebRequest, requireCsrf } from "../middleware/auth.js";
-import { requestPasswordReset } from "../lib/services/password-reset.service.js";
-import { applyPasswordReset } from "../lib/services/password-reset.service.js";
+import { requestPasswordReset, applyPasswordReset } from "../lib/services/password-reset.service.js";
 import { validatePassword } from "../lib/password-policy.js";
 
 // ---------------------------------------------------------------------------

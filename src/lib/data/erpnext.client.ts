@@ -156,7 +156,7 @@ export async function erpGet(
   );
   if (!result.ok) return err(result.error);
   const body = result.data as { data?: unknown };
-  return body?.data != null ? ok(body.data) : err("Not found");
+  return body?.data !== null && body?.data !== undefined ? ok(body.data) : err("Not found");
 }
 
 export async function erpCreate(

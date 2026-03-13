@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ok, err, appError } from "../utils/result.js";
-import type { Result, AppError } from "../utils/result.js";
+import { ok, err, appError, type Result, type AppError } from "../utils/result.js";
 
 describe("Result type helpers", () => {
   it("ok() creates a success result", () => {

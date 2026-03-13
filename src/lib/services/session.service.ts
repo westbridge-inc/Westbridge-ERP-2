@@ -5,8 +5,7 @@
 import { createHash, randomBytes } from "crypto";
 import { isIP } from "net";
 import { prisma } from "../data/prisma.js";
-import type { Result } from "../utils/result.js";
-import { ok, err } from "../utils/result.js";
+import { ok, err, type Result } from "../utils/result.js";
 import { logAudit, auditContext } from "../services/audit.service.js";
 import { reportSecurityEvent } from "../security-monitor.js";
 import { encrypt, decrypt } from "../encryption.js";
@@ -192,9 +191,9 @@ export async function validateSession(
           }
 
           // Validate fingerprint from cached value.
-          if (parsed.fingerprint != null && request != null) {
+          if (parsed.fingerprint !== null && parsed.fingerprint !== undefined && request !== null && request !== undefined) {
             const currentFingerprint = fingerprintFromRequest(request);
-            if (currentFingerprint == null || currentFingerprint !== parsed.fingerprint) {
+            if (currentFingerprint === null || currentFingerprint === undefined || currentFingerprint !== parsed.fingerprint) {
               const ctx = auditContext(request);
               reportSecurityEvent({
                 type: "session_hijack",
@@ -280,9 +279,9 @@ export async function validateSession(
       return err("Session expired");
     }
 
-    if (session.fingerprint != null && request != null) {
+    if (session.fingerprint !== null && session.fingerprint !== undefined && request !== null && request !== undefined) {
       const currentFingerprint = fingerprintFromRequest(request);
-      if (currentFingerprint == null || currentFingerprint !== session.fingerprint) {
+      if (currentFingerprint === null || currentFingerprint === undefined || currentFingerprint !== session.fingerprint) {
         const ctx = auditContext(request);
         reportSecurityEvent({
           type: "session_hijack",

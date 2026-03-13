@@ -13,8 +13,7 @@ import {
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
-import { matchesCidr } from "../lib/ip-utils.js";
-import type { CidrRange } from "../lib/ip-utils.js";
+import { matchesCidr, type CidrRange } from "../lib/ip-utils.js";
 import { toWebRequest } from "../middleware/auth.js";
 
 const router = Router();

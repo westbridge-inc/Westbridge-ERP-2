@@ -3,8 +3,7 @@
  * Started from server.ts after the HTTP server is listening.
  */
 
-import { Worker } from "bullmq";
-import type { Job } from "bullmq";
+import { Worker, type Job } from "bullmq";
 import { createHmac } from "crypto";
 import dns from "dns/promises";
 import { isIP } from "net";

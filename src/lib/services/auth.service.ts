@@ -4,8 +4,7 @@
  */
 
 import { erpLogin } from "../data/auth.client.js";
-import type { Result } from "../utils/result.js";
-import { ok, err } from "../utils/result.js";
+import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
 import bcrypt from "bcrypt";
 import { prisma } from "../data/prisma.js";
