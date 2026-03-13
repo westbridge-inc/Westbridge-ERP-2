@@ -34,8 +34,8 @@ RUN addgroup -g 1001 -S westbridge && \
 
 # Copy only production dependencies
 COPY package.json package-lock.json ./
-# HUSKY=0 prevents the prepare script from running husky (devDependency)
-RUN HUSKY=0 npm ci --legacy-peer-deps --omit=dev && npm cache clean --force
+# --ignore-scripts skips the prepare hook (husky is a devDependency, unavailable here)
+RUN npm ci --legacy-peer-deps --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy Prisma schema, migrations, and generated client
 COPY prisma ./prisma
