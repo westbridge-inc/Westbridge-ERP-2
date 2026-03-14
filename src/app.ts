@@ -36,6 +36,7 @@ import webhooksRoutes from "./routes/webhooks.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 import miscRoutes from "./routes/misc.routes.js";
 import cspRoutes from "./routes/csp.routes.js";
+import leadsRoutes from "./routes/leads.routes.js";
 
 export function createApp(): express.Application {
   const app = express();
@@ -100,6 +101,7 @@ export function createApp(): express.Application {
   app.use("/api", reportsRoutes);
   app.use("/api", miscRoutes);
   app.use("/api", cspRoutes);
+  app.use("/api", leadsRoutes);
 
   // ─── 404 Handler ───────────────────────────────────────────────────────────
 
