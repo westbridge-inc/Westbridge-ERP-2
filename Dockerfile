@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Stage 1: Install dependencies and build
-FROM node:20-alpine AS builder
+FROM node:20.19-alpine AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ RUN npm run build
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 2: Production image (minimal)
-FROM node:20-alpine AS production
+FROM node:20.19-alpine AS production
 
 WORKDIR /app
 

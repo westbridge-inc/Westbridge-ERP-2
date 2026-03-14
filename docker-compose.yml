@@ -8,6 +8,7 @@
 #   - Westbridge API (Express.js backend)
 #
 # Usage:
+#   cp .env.example .env   # Fill in secrets before first run
 #   docker compose up -d
 #   # Then start the frontend separately: cd ../Westbridge-ERP-1 && npm run dev
 #
@@ -15,6 +16,10 @@
 #   docker compose up -d
 #   docker compose exec api npx prisma migrate deploy
 #   # Set up ERPNext site (see docs/SETUP.md)
+#
+# SECURITY: All passwords and secrets are read from environment variables.
+# Copy .env.example to .env and fill in real values before running.
+# NEVER commit .env files. See .gitignore.
 
 services:
   # ─── PostgreSQL (Westbridge app database) ─────────────────────────────────────
@@ -23,14 +28,14 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: westbridge
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -39,10 +44,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     ports:
-      - "6380:6379"
+      - "${REDIS_PORT:-6380}:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -52,12 +58,12 @@ services:
     image: mariadb:10.11
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD must be set in .env}
       MYSQL_DATABASE: frappe
     volumes:
       - mariadb-data:/var/lib/mysql
     ports:
-      - "3306:3306"
+      - "${MARIADB_PORT:-3306}:3306"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -71,18 +77,18 @@ services:
     restart: unless-stopped
     environment:
       SITE_NAME: site1.local
-      ADMIN_PASSWORD: admin
+      ADMIN_PASSWORD: ${ERPNEXT_ADMIN_PASSWORD:?ERPNEXT_ADMIN_PASSWORD must be set in .env}
       DB_HOST: mariadb
       DB_PORT: "3306"
       DB_ROOT_USER: root
-      DB_ROOT_PASSWORD: admin
+      DB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       FRAPPE_REDIS_CACHE: redis://redis-erpnext:6379/0
       FRAPPE_REDIS_QUEUE: redis://redis-erpnext:6379/1
       FRAPPE_REDIS_SOCKETIO: redis://redis-erpnext:6379/2
     volumes:
       - erpnext-sites:/home/frappe/frappe-bench/sites
     ports:
-      - "8080:8080"
+      - "${ERPNEXT_PORT:-8080}:8080"
     depends_on:
       mariadb:
         condition: service_healthy
@@ -108,19 +114,19 @@ services:
     environment:
       NODE_ENV: production
       PORT: "4000"
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/westbridge
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/westbridge
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       ERPNEXT_URL: http://erpnext:8080
       FRONTEND_URL: http://localhost:3000
-      # SECURITY: These secrets MUST be set via .env file or environment variables.
-      # The defaults below are ONLY safe for local development. In production,
-      # generate cryptographically random values (e.g. openssl rand -hex 32).
-      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set — run: openssl rand -hex 32}"
-      CSRF_SECRET: "${CSRF_SECRET:?CSRF_SECRET must be set — run: openssl rand -hex 32}"
-      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET must be set — run: openssl rand -hex 32}"
+      # SECURITY: These secrets MUST be set via .env file.
+      # Generate with: openssl rand -hex 32
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in .env}
+      CSRF_SECRET: ${CSRF_SECRET:?CSRF_SECRET must be set in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
     ports:
-      - "4000:4000"
+      - "${API_PORT:-4000}:4000"
     depends_on:
       postgres:
         condition: service_healthy
