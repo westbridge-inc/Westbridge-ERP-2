@@ -115,28 +115,36 @@ router.post("/webhooks/powertranz", async (req: Request, res: Response) => {
       .send("Bad Request");
   }
 
-  // ── Verify signature (if PowerTranz sends one) ──────────────────────────
+  // ── Verify HMAC signature ────────────────────────────────────────────────
+  // Signature is always required in production to prevent spoofed callbacks.
+  // In non-production, accept unsigned requests for testing convenience.
   const signature = req.headers["x-powertranz-signature"] as string | undefined;
-  if (signature) {
-    // Use the raw body for signature verification
-    const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-    if (!verifyPaymentCallback(rawBody, signature)) {
-      const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
-      if (systemAccountId) {
-        void logAudit({
-          accountId: systemAccountId,
-          action: "payment.webhook.invalid_signature",
-          ipAddress: ctx.ipAddress,
-          userAgent: ctx.userAgent,
-          severity: "critical",
-          outcome: "failure",
-        });
-      }
-      return res
-        .status(401)
-        .set("X-Response-Time", `${Date.now() - start}ms`)
-        .send("Invalid signature");
+  const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+
+  if (process.env.NODE_ENV === "production" && !signature) {
+    logger.warn("PowerTranz webhook: missing signature in production", { ip: clientIP });
+    return res
+      .status(401)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .send("Missing signature");
+  }
+
+  if (signature && !verifyPaymentCallback(rawBody, signature)) {
+    const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
+    if (systemAccountId) {
+      void logAudit({
+        accountId: systemAccountId,
+        action: "payment.webhook.invalid_signature",
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "critical",
+        outcome: "failure",
+      });
     }
+    return res
+      .status(401)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .send("Invalid signature");
   }
 
   // ── Check payment success ───────────────────────────────────────────────
