@@ -36,12 +36,12 @@ export default defineConfig({
         "src/lib/feature-flags.types.ts",
       ],
       thresholds: {
-        // Raised from 45% baseline after test coverage campaign
+        // Raised from 45% → 63% after test coverage campaign (117 new tests)
         // Target: 80/70/75/80 before GA release
-        statements: 55,
-        branches: 50,
-        functions: 55,
-        lines: 55,
+        statements: 63,
+        branches: 65,
+        functions: 70,
+        lines: 63,
       },
     },
   },
