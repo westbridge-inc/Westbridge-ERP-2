@@ -3,60 +3,138 @@ name: Deploy
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment target"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
 
 concurrency:
-  group: deploy-backend
-  cancel-in-progress: false  # Don't cancel in-progress deploys
+  group: deploy-backend-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy Backend
+  test:
+    name: Pre-deploy Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: westbridge_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --legacy-peer-deps
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - run: npm test -- --coverage
+      - run: npx prisma db push --accept-data-loss
+      - name: Integration tests
+        run: npx vitest run src/__tests__/integration/ --reporter=verbose
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging') ||
+      (github.event_name == 'push')
+    environment: staging
+    env:
+      RAILWAY_TOKEN: ${{ secrets.STAGING_RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - run: npx prisma generate
+      - name: Build
+        run: npm run build
+      - name: Install Railway CLI
+        if: env.RAILWAY_TOKEN != ''
+        run: npm install -g @railway/cli
+      - name: Deploy to staging
+        if: env.RAILWAY_TOKEN != ''
+        run: railway up --detach
+      - name: Verify staging health
+        if: env.RAILWAY_TOKEN != ''
+        run: |
+          sleep 15
+          STAGING_URL="${{ vars.STAGING_URL || 'https://westbridge-api-staging.up.railway.app' }}"
+          STATUS=$(curl -sf "${STAGING_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
+          echo "Staging health: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Staging health check returned $STATUS"
+          fi
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [test, deploy-staging]
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production') ||
+      (github.event_name == 'push')
     environment: production
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Type check
-        run: npx tsc --noEmit
-
-      - name: Run tests
-        run: npm test
-
-      # ── Railway deployment ──────────────────────────────────────────────────
+      - run: npm ci --legacy-peer-deps
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - run: npm test
+      - name: Build
+        run: npm run build
       - name: Install Railway CLI
         if: env.RAILWAY_TOKEN != ''
         run: npm install -g @railway/cli
-
       - name: Deploy to Railway
         if: env.RAILWAY_TOKEN != ''
         run: railway up --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-
       - name: Railway — skip notice
         if: env.RAILWAY_TOKEN == '' && env.FLY_API_TOKEN == ''
         run: echo "::notice::Neither RAILWAY_TOKEN nor FLY_API_TOKEN configured — deployment skipped"
-
-      # ── Fly.io deployment (fallback) ────────────────────────────────────────
       - name: Setup Fly.io CLI
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         uses: superfly/flyctl-actions/setup-flyctl@master
-
       - name: Deploy to Fly.io
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         run: flyctl deploy --remote-only
@@ -64,30 +142,7 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
-
-      - name: Set Fly.io secrets (observability)
-        if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
-        run: |
-          SECRETS_TO_SET=""
-          if [ -n "${{ secrets.SENTRY_DSN }}" ]; then
-            SECRETS_TO_SET="$SECRETS_TO_SET SENTRY_DSN=${{ secrets.SENTRY_DSN }}"
-          fi
-          if [ -n "${{ secrets.POSTHOG_API_KEY }}" ]; then
-            SECRETS_TO_SET="$SECRETS_TO_SET POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}"
-          fi
-          if [ -n "${{ vars.POSTHOG_HOST }}" ]; then
-            SECRETS_TO_SET="$SECRETS_TO_SET POSTHOG_HOST=${{ vars.POSTHOG_HOST }}"
-          fi
-          if [ -n "$SECRETS_TO_SET" ]; then
-            echo "Setting observability secrets on Fly.io..."
-            flyctl secrets set $SECRETS_TO_SET --stage
-            echo "Secrets staged for next deploy"
-          else
-            echo "::notice::No observability secrets configured — Sentry/PostHog will not be active"
-          fi
-
-      # ── Verify deployment ───────────────────────────────────────────────────
-      - name: Verify deployment health
+      - name: Verify production health
         if: env.RAILWAY_TOKEN != '' || env.FLY_API_TOKEN != ''
         run: |
           sleep 15

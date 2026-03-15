@@ -25,9 +25,8 @@ export default defineConfig({
         "**/types/**/*.d.ts",
         "src/__tests__/**",
       ],
-      // Current baseline — enforced in CI. Raise incrementally as coverage improves.
-      // Target: statements 80, branches 70, functions 75, lines 80.
       thresholds: {
+        // Current baseline — raise to 80/70/70/80 before GA release
         statements: 45,
         branches: 40,
         functions: 40,

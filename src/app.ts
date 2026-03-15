@@ -10,7 +10,7 @@
  *   // In server.ts: app.listen(PORT)
  */
 
-import express from "express";
+import express, { Router } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -83,25 +83,33 @@ export function createApp(): express.Application {
 
   // ─── Routes ────────────────────────────────────────────────────────────────
 
-  app.use("/api/auth", authRoutes);
-  app.use("/api", signupRoutes);
-  app.use("/api", csrfRoutes);
-  app.use("/api", erpRoutes);
-  app.use("/api", inviteRoutes);
-  app.use("/api", adminRoutes);
-  app.use("/api", auditRoutes);
-  app.use("/api", teamRoutes);
-  app.use("/api", accountRoutes);
-  app.use("/api", billingRoutes);
-  app.use("/api", aiRoutes);
-  app.use("/api", analyticsRoutes);
-  app.use("/api", healthRoutes);
-  app.use("/api", eventsRoutes);
-  app.use("/api", webhooksRoutes);
-  app.use("/api", reportsRoutes);
-  app.use("/api", miscRoutes);
-  app.use("/api", cspRoutes);
-  app.use("/api", leadsRoutes);
+  // Create a shared router for all API routes
+  const apiRouter = Router();
+  apiRouter.use("/auth", authRoutes);
+  apiRouter.use(signupRoutes);
+  apiRouter.use(csrfRoutes);
+  apiRouter.use(erpRoutes);
+  apiRouter.use(inviteRoutes);
+  apiRouter.use(adminRoutes);
+  apiRouter.use(auditRoutes);
+  apiRouter.use(teamRoutes);
+  apiRouter.use(accountRoutes);
+  apiRouter.use(billingRoutes);
+  apiRouter.use(aiRoutes);
+  apiRouter.use(analyticsRoutes);
+  apiRouter.use(healthRoutes);
+  apiRouter.use(eventsRoutes);
+  apiRouter.use(webhooksRoutes);
+  apiRouter.use(reportsRoutes);
+  apiRouter.use(miscRoutes);
+  apiRouter.use(cspRoutes);
+  apiRouter.use(leadsRoutes);
+
+  // Mount versioned API (canonical)
+  app.use("/api/v1", apiRouter);
+
+  // Mount unversioned API (backwards compatibility — will be deprecated)
+  app.use("/api", apiRouter);
 
   // ─── 404 Handler ───────────────────────────────────────────────────────────
 

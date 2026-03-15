@@ -43,16 +43,33 @@ async function setPrevHash(accountId: string, hash: string): Promise<void> {
     const { getRedis } = await import("../redis.js");
     const redis = getRedis();
     await redis?.set(PREV_HASH_KEY(accountId), hash, "EX", 30 * 24 * 60 * 60);
-  } catch { /* non-critical */ }
+  } catch {
+    /* non-critical */
+  }
 }
 
 const SENSITIVE_KEY_REGEX = /password|secret|token|key|credit|ssn/i;
 
-/** Redact sensitive keys in metadata to avoid storing PII. */
-function sanitizeMetadata(obj: Record<string, unknown>): Record<string, unknown> {
+/** Redact sensitive keys in metadata to avoid storing PII. Works recursively on nested objects. */
+function sanitizeMetadata(obj: Record<string, unknown>, depth = 0): Record<string, unknown> {
+  // Guard against deeply nested or circular structures
+  if (depth > 5) return { _truncated: true };
+
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    out[k] = SENSITIVE_KEY_REGEX.test(k) ? "[REDACTED]" : v;
+    if (SENSITIVE_KEY_REGEX.test(k)) {
+      out[k] = "[REDACTED]";
+    } else if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      out[k] = sanitizeMetadata(v as Record<string, unknown>, depth + 1);
+    } else if (Array.isArray(v)) {
+      out[k] = v.map((item) =>
+        item !== null && typeof item === "object" && !Array.isArray(item)
+          ? sanitizeMetadata(item as Record<string, unknown>, depth + 1)
+          : item,
+      );
+    } else {
+      out[k] = v;
+    }
   }
   return out;
 }
@@ -81,12 +98,12 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
     const accountId = entry.accountId;
     const rawMeta = { ...(entry.metadata ?? {}), ...(entry.meta ?? {}) };
     const meta = sanitizeMetadata(rawMeta as Record<string, unknown>);
-    const ipRedacted = typeof entry.ipAddress === "string"
-      ? entry.ipAddress.replace(/\.\d+$/, ".0")
-      : (entry.ipAddress ?? null);
-    const userAgentHashed = typeof entry.userAgent === "string"
-      ? createHash("sha256").update(entry.userAgent).digest("hex").slice(0, 16)
-      : (entry.userAgent ?? null);
+    const ipRedacted =
+      typeof entry.ipAddress === "string" ? entry.ipAddress.replace(/\.\d+$/, ".0") : (entry.ipAddress ?? null);
+    const userAgentHashed =
+      typeof entry.userAgent === "string"
+        ? createHash("sha256").update(entry.userAgent).digest("hex").slice(0, 16)
+        : (entry.userAgent ?? null);
     const geo = geoFromIp(entry.ipAddress);
     const prevHash = await getPrevHash(accountId);
 
@@ -107,14 +124,14 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
         resourceId: entry.resourceId,
         ipAddress: ipRedacted,
         userAgent: userAgentHashed,
-        metadata: ({
+        metadata: {
           ...meta,
           ...(entry.changes ? { changes: entry.changes } : {}),
           ...(geo ? { geo } : {}),
           ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
           _hash: entryHash,
           _prevHash: prevHash,
-        } as Prisma.InputJsonValue),
+        } as Prisma.InputJsonValue,
         severity: entry.severity ?? "info",
         outcome: entry.outcome ?? "success",
       },
@@ -133,9 +150,7 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
 export function auditContext(request: Request): { ipAddress: string; userAgent: string } {
   return {
     ipAddress:
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip") ??
-      "unknown",
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? request.headers.get("x-real-ip") ?? "unknown",
     userAgent: request.headers.get("user-agent") ?? "unknown",
   };
 }
@@ -175,8 +190,7 @@ export interface AuditRow {
 }
 
 /** CSV header row matching the export spec. */
-export const CSV_HEADER =
-  "timestamp,action,userId,ipAddress,severity,outcome,resource,resourceId,metadata\n";
+export const CSV_HEADER = "timestamp,action,userId,ipAddress,severity,outcome,resource,resourceId,metadata\n";
 
 /** Convert a single audit log row to RFC 4180 CSV. */
 export function rowToCsv(row: AuditRow): string {
@@ -184,15 +198,17 @@ export function rowToCsv(row: AuditRow): string {
     const s = v === null || v === undefined ? "" : String(v);
     return `"${s.replace(/"/g, '""')}"`;
   };
-  return [
-    esc(row.timestamp.toISOString()),
-    esc(row.action),
-    esc(row.userId),
-    esc(row.ipAddress),
-    esc(row.severity),
-    esc(row.outcome),
-    esc(row.resource),
-    esc(row.resourceId),
-    esc(row.metadata ? JSON.stringify(row.metadata) : ""),
-  ].join(",") + "\n";
+  return (
+    [
+      esc(row.timestamp.toISOString()),
+      esc(row.action),
+      esc(row.userId),
+      esc(row.ipAddress),
+      esc(row.severity),
+      esc(row.outcome),
+      esc(row.resource),
+      esc(row.resourceId),
+      esc(row.metadata ? JSON.stringify(row.metadata) : ""),
+    ].join(",") + "\n"
+  );
 }
