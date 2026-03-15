@@ -5,6 +5,12 @@
 app = "westbridge-api"
 primary_region = "iad"
 
+# Secondary region closer to Caribbean users (Miami)
+# Deploy: fly scale count 1 --region mia
+# This ensures low-latency access for Guyana, Trinidad, Jamaica, Barbados
+[regions]
+  mia = 1
+
 [build]
   dockerfile = "Dockerfile"
 
@@ -36,5 +42,5 @@ primary_region = "iad"
   timeout = "5s"
 
 [[vm]]
-  size = "shared-cpu-1x"
+  size = "shared-cpu-2x"
   memory = "1gb"

@@ -1,0 +1,48 @@
+name: Database Backup
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # Daily at 2am UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  backup:
+    name: PostgreSQL Backup
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate secrets
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "::error::PRODUCTION_DATABASE_URL secret is not configured"
+            exit 1
+          fi
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run backup
+        run: |
+          BACKUP_DIR="/tmp/backups" bash scripts/db-backup.sh
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          AWS_S3_BACKUP_BUCKET: ${{ secrets.AWS_S3_BACKUP_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Upload backup as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: /tmp/backups/westbridge-backup-*.sql.gz
+          retention-days: 30
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Database backup failed! Check the logs above."
+          # Add Slack/email notification here when webhook URL is configured

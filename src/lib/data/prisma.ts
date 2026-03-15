@@ -13,8 +13,32 @@
 
 import { PrismaClient } from "@prisma/client";
 
+/**
+ * Production connection pool recommendations:
+ *   DATABASE_POOL_SIZE=20        (default: 10, max depends on your Postgres plan)
+ *   DATABASE_URL should include:  ?connection_limit=20&pool_timeout=10
+ *
+ * For Railway/Fly.io with pgbouncer, use transaction mode and set:
+ *   ?pgbouncer=true&connection_limit=20
+ */
 function createPrismaClient() {
-  const base = new PrismaClient();
+  const poolSize = parseInt(process.env.DATABASE_POOL_SIZE || "10");
+  const base = new PrismaClient({
+    datasourceUrl: process.env.DATABASE_URL,
+    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+    // Connection pool size is configured via DATABASE_URL query params
+    // e.g. ?connection_limit=20&pool_timeout=10
+    // or via DATABASE_POOL_SIZE env var for programmatic override
+    ...(poolSize !== 10
+      ? {
+          datasources: {
+            db: {
+              url: appendPoolSize(process.env.DATABASE_URL ?? "", poolSize),
+            },
+          },
+        }
+      : {}),
+  });
 
   const extended = base.$extends({
     query: {
@@ -32,7 +56,11 @@ function createPrismaClient() {
           // We downgrade to findFirst so we can inject the soft-delete filter,
           // then return null (matching findUnique semantics) if the record is soft-deleted.
           const result = await query(args);
-          if (result && (result as { deletedAt?: Date | null }).deletedAt !== null && (result as { deletedAt?: Date | null }).deletedAt !== undefined) {
+          if (
+            result &&
+            (result as { deletedAt?: Date | null }).deletedAt !== null &&
+            (result as { deletedAt?: Date | null }).deletedAt !== undefined
+          ) {
             return null;
           }
           return result;
@@ -73,7 +101,11 @@ function createPrismaClient() {
         },
         async findUnique({ args, query }) {
           const result = await query(args);
-          if (result && (result as { deletedAt?: Date | null }).deletedAt !== null && (result as { deletedAt?: Date | null }).deletedAt !== undefined) {
+          if (
+            result &&
+            (result as { deletedAt?: Date | null }).deletedAt !== null &&
+            (result as { deletedAt?: Date | null }).deletedAt !== undefined
+          ) {
             return null;
           }
           return result;
@@ -107,6 +139,13 @@ function createPrismaClient() {
   });
 
   return extended;
+}
+
+/** Append connection_limit to DATABASE_URL if not already present. */
+function appendPoolSize(url: string, poolSize: number): string {
+  if (!url || url.includes("connection_limit")) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}connection_limit=${poolSize}`;
 }
 
 type ExtendedPrismaClient = ReturnType<typeof createPrismaClient>;

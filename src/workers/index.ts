@@ -15,6 +15,7 @@ import { erpGet } from "../lib/data/erpnext.client.js";
 import { decrypt } from "../lib/encryption.js";
 import { publish } from "../lib/realtime.js";
 import { getRedisConfig } from "../lib/redis.js";
+import { SECURITY } from "../lib/constants.js";
 
 // ─── SSRF Protection ──────────────────────────────────────────────────────────
 
@@ -26,8 +27,8 @@ import { getRedisConfig } from "../lib/redis.js";
 function isPrivateIp(ip: string): boolean {
   // IPv6 loopback and private ranges
   if (ip === "::1" || ip === "::") return true;
-  if (ip.startsWith("fc") || ip.startsWith("fd")) return true;  // fc00::/7
-  if (ip.startsWith("fe80")) return true;                        // fe80::/10
+  if (ip.startsWith("fc") || ip.startsWith("fd")) return true; // fc00::/7
+  if (ip.startsWith("fe80")) return true; // fe80::/10
 
   // IPv4 — handle IPv4-mapped IPv6 (::ffff:x.x.x.x)
   let v4 = ip;
@@ -39,12 +40,12 @@ function isPrivateIp(ip: string): boolean {
   if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
   const [a, b] = parts;
 
-  if (a === 0) return true;                                       // 0.0.0.0/8
-  if (a === 10) return true;                                      // 10.0.0.0/8
-  if (a === 127) return true;                                     // 127.0.0.0/8
-  if (a === 169 && b === 254) return true;                        // 169.254.0.0/16
-  if (a === 172 && b >= 16 && b <= 31) return true;               // 172.16.0.0/12
-  if (a === 192 && b === 168) return true;                        // 192.168.0.0/16
+  if (a === 0) return true; // 0.0.0.0/8
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 127) return true; // 127.0.0.0/8
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
   return false;
 }
 
@@ -67,8 +68,16 @@ async function assertNotPrivateUrl(url: string): Promise<void> {
   // Resolve DNS and check all returned addresses
   const { resolve4, resolve6 } = dns;
   const addresses: string[] = [];
-  try { addresses.push(...(await resolve4(hostname))); } catch { /* no A records */ }
-  try { addresses.push(...(await resolve6(hostname))); } catch { /* no AAAA records */ }
+  try {
+    addresses.push(...(await resolve4(hostname)));
+  } catch {
+    /* no A records */
+  }
+  try {
+    addresses.push(...(await resolve6(hostname)));
+  } catch {
+    /* no AAAA records */
+  }
 
   if (addresses.length === 0) {
     throw new Error(`SSRF blocked: could not resolve hostname ${hostname}`);
@@ -80,13 +89,7 @@ async function assertNotPrivateUrl(url: string): Promise<void> {
     }
   }
 }
-import type {
-  EmailJobData,
-  CleanupJobData,
-  WebhookJobData,
-  ErpSyncJobData,
-  ReportJobData,
-} from "../lib/jobs/queue.js";
+import type { EmailJobData, CleanupJobData, WebhookJobData, ErpSyncJobData, ReportJobData } from "../lib/jobs/queue.js";
 
 const connection = getRedisConfig();
 
@@ -129,7 +132,11 @@ function createCleanupWorker(): Worker {
         const result = await prisma.auditLog.deleteMany({
           where: { timestamp: { lt: cutoff } },
         });
-        logger.info("Deleted old audit logs", { jobId: job.id, count: result.count, retentionDays: DATA_RETENTION.AUDIT_LOGS_DAYS });
+        logger.info("Deleted old audit logs", {
+          jobId: job.id,
+          count: result.count,
+          retentionDays: DATA_RETENTION.AUDIT_LOGS_DAYS,
+        });
       }
     },
     { connection },
@@ -186,7 +193,7 @@ function createWebhooksWorker(): Worker {
         logger.info("Webhook delivered", { jobId: job.id, url: endpoint.url });
       } catch (err) {
         const newFailures = endpoint.consecutiveFailures + 1;
-        const shouldDisable = newFailures >= 5;
+        const shouldDisable = newFailures >= SECURITY.WEBHOOK_CIRCUIT_BREAKER_THRESHOLD;
 
         await prisma.webhookEndpoint.update({
           where: { id: endpointId },
@@ -197,10 +204,16 @@ function createWebhooksWorker(): Worker {
         });
 
         if (shouldDisable) {
-          logger.warn("Webhook endpoint disabled after consecutive failures", { endpointId, consecutiveFailures: newFailures });
+          logger.warn("Webhook endpoint disabled after consecutive failures", {
+            endpointId,
+            consecutiveFailures: newFailures,
+          });
         }
 
-        logger.error("Webhook delivery failed", { jobId: job.id, error: err instanceof Error ? err.message : String(err) });
+        logger.error("Webhook delivery failed", {
+          jobId: job.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
         throw err;
       }
     },
@@ -223,11 +236,23 @@ function createErpSyncWorker(): Worker {
         if (result.ok) {
           logger.info("ERP document synced", { jobId: job.id, accountId, doctype, name });
         } else {
-          logger.error("ERP sync failed: document fetch error", { jobId: job.id, accountId, doctype, name, error: result.error });
+          logger.error("ERP sync failed: document fetch error", {
+            jobId: job.id,
+            accountId,
+            doctype,
+            name,
+            error: result.error,
+          });
           throw new Error(result.error);
         }
       } catch (err) {
-        logger.error("ERP sync job error", { jobId: job.id, accountId, doctype, name, error: err instanceof Error ? err.message : String(err) });
+        logger.error("ERP sync job error", {
+          jobId: job.id,
+          accountId,
+          doctype,
+          name,
+          error: err instanceof Error ? err.message : String(err),
+        });
         throw err;
       }
     },

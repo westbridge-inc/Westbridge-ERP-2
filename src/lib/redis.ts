@@ -1,6 +1,6 @@
-import { Redis } from "ioredis";
+import { Redis, Cluster } from "ioredis";
 
-let _redis: Redis | null = null;
+let _redis: Redis | Cluster | null = null;
 
 /**
  * Canonical Redis connection config derived from REDIS_URL (preferred) or
@@ -22,15 +22,56 @@ export function getRedisConfig(): { host: string; port: number; password?: strin
   };
 }
 
-export function getRedis(): Redis | null {
+/**
+ * Parse REDIS_CLUSTER_NODES env var into ioredis cluster node configs.
+ * Format: "host1:port1,host2:port2,host3:port3"
+ */
+function parseClusterNodes(): { host: string; port: number }[] | null {
+  const nodes = process.env.REDIS_CLUSTER_NODES;
+  if (!nodes) return null;
+  return nodes.split(",").map((n) => {
+    const [host, port] = n.trim().split(":");
+    return { host, port: parseInt(port || "6379") };
+  });
+}
+
+/**
+ * Exponential backoff retry strategy.
+ * Starts at 200ms, caps at 30s, gives up after 20 retries (~5 min total).
+ */
+function retryStrategy(times: number): number | null {
+  if (times > 20) return null; // stop retrying
+  return Math.min(times * 200, 30_000);
+}
+
+export function getRedis(): Redis | Cluster | null {
   if (!_redis) {
-    const url = process.env.REDIS_URL ?? "redis://localhost:6379";
-    _redis = new Redis(url, {
-      maxRetriesPerRequest: 3,
-      retryStrategy(times: number) {
-        return Math.min(times * 200, 5000);
-      },
-    });
+    const clusterNodes = parseClusterNodes();
+
+    if (clusterNodes) {
+      // Redis Cluster mode
+      const password = process.env.REDIS_PASSWORD;
+      _redis = new Cluster(clusterNodes, {
+        redisOptions: {
+          ...(password ? { password } : {}),
+          maxRetriesPerRequest: 3,
+        },
+        clusterRetryStrategy: retryStrategy,
+        enableReadyCheck: true,
+      });
+    } else {
+      // Single-node mode
+      const url = process.env.REDIS_URL ?? "redis://localhost:6379";
+      _redis = new Redis(url, {
+        maxRetriesPerRequest: 3,
+        retryStrategy,
+        enableReadyCheck: true,
+        reconnectOnError(err) {
+          // Reconnect on READONLY errors (failover scenario)
+          return err.message.includes("READONLY");
+        },
+      });
+    }
   }
   return _redis;
 }

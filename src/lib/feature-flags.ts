@@ -53,7 +53,14 @@ export async function getAllFlags(): Promise<FeatureFlag[]> {
   const redis = getRedis();
   if (!redis) return Object.values(FLAGS_CONFIG);
   try {
-    const keys = await redis.keys(`${FLAG_PREFIX}*`);
+    // Use SCAN instead of KEYS to avoid blocking Redis on large keyspaces
+    const keys: string[] = [];
+    let cursor = "0";
+    do {
+      const [nextCursor, batch] = await redis.scan(cursor, "MATCH", `${FLAG_PREFIX}*`, "COUNT", 100);
+      cursor = nextCursor;
+      keys.push(...batch);
+    } while (cursor !== "0");
     if (keys.length === 0) return Object.values(FLAGS_CONFIG);
     const values = await redis.mget(...keys);
     return values
