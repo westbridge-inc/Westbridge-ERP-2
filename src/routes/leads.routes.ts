@@ -121,20 +121,21 @@ router.post("/leads/demo", async (req: Request, res: Response) => {
         );
     }
 
-    // Store lead in Redis with 90-day TTL
-    const redis = getRedis();
-    if (redis) {
-      const leadId = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
-      const leadData = JSON.stringify({
-        ...parsed.data,
+    // Persist lead to PostgreSQL (Blocker #12 fix — was Redis-only)
+    const { prisma: db } = await import("../lib/data/prisma.js");
+    await db.lead.create({
+      data: {
         type: "demo",
-        createdAt: new Date().toISOString(),
-        requestId,
-      });
-      await redis.set(`lead:demo:${leadId}`, leadData, "EX", 90 * 24 * 60 * 60);
-      // Also add to a sorted set for easy listing
-      await redis.zadd("leads:demo", Date.now(), leadId);
-    }
+        email: parsed.data.email,
+        name: parsed.data.name,
+        company: parsed.data.company,
+        phone: parsed.data.phone ?? null,
+        country: parsed.data.country,
+        source: req.headers.referer ?? null,
+      },
+    }).catch((e: unknown) => {
+      logger.error("Failed to persist demo lead", { error: e instanceof Error ? e.message : String(e) });
+    });
 
     // Send notification email to sales team
     const salesNotification = sendEmail({
@@ -231,11 +232,16 @@ router.post("/leads/newsletter", async (req: Request, res: Response) => {
         );
     }
 
-    // Store email in Redis set
-    const redis = getRedis();
-    if (redis) {
-      await redis.sadd("newsletter:subscribers", parsed.data.email.trim().toLowerCase());
-    }
+    // Persist to PostgreSQL (Blocker #12 fix — was Redis-only)
+    const { prisma: db } = await import("../lib/data/prisma.js");
+    await db.lead.create({
+      data: {
+        type: "newsletter",
+        email: parsed.data.email.trim().toLowerCase(),
+      },
+    }).catch((e: unknown) => {
+      logger.error("Failed to persist newsletter lead", { error: e instanceof Error ? e.message : String(e) });
+    });
 
     // Send welcome email to the subscriber
     void sendEmail({

@@ -32,28 +32,50 @@ const ssoConfigSchema = z.object({
   defaultRole: z.enum(["admin", "member", "viewer"]).default("member"),
 });
 
-// ─── Helper: load SSO config from Redis ─────────────────────────────────────
+// ─── Helper: load SSO config from PostgreSQL (Blocker #11 — migrated from Redis) ──
 
 async function loadSsoConfig(accountId: string): Promise<SsoConfig | null> {
-  const redis = getRedis();
-  if (!redis) return null;
-  const raw = await redis.get(`sso:config:${accountId}`);
-  if (!raw) return null;
+  const row = await prisma.ssoConfig.findUnique({ where: { accountId } });
+  if (!row) return null;
   try {
-    const config = JSON.parse(raw) as SsoConfig;
-    // Decrypt client secret
-    config.clientSecret = decrypt(config.clientSecret);
-    return config;
+    return {
+      accountId: row.accountId,
+      provider: row.provider as "oidc",
+      issuerUrl: row.issuerUrl,
+      clientId: row.clientId,
+      clientSecret: decrypt(row.clientSecret),
+      allowedDomains: row.allowedDomains,
+      autoProvision: row.autoProvision,
+      defaultRole: row.defaultRole,
+    };
   } catch {
     return null;
   }
 }
 
 async function saveSsoConfig(config: SsoConfig): Promise<void> {
-  const redis = getRedis();
-  if (!redis) throw new Error("Redis unavailable");
-  const toStore = { ...config, clientSecret: encrypt(config.clientSecret) };
-  await redis.set(`sso:config:${config.accountId}`, JSON.stringify(toStore));
+  await prisma.ssoConfig.upsert({
+    where: { accountId: config.accountId },
+    update: {
+      provider: config.provider,
+      issuerUrl: config.issuerUrl,
+      clientId: config.clientId,
+      clientSecret: encrypt(config.clientSecret),
+      allowedDomains: config.allowedDomains,
+      autoProvision: config.autoProvision,
+      defaultRole: config.defaultRole,
+    },
+    create: {
+      accountId: config.accountId,
+      provider: config.provider,
+      issuerUrl: config.issuerUrl,
+      clientId: config.clientId,
+      clientSecret: encrypt(config.clientSecret),
+      allowedDomains: config.allowedDomains,
+      autoProvision: config.autoProvision,
+      defaultRole: config.defaultRole,
+    },
+  });
 }
 
 // ─── GET /sso/authorize ─────────────────────────────────────────────────────
