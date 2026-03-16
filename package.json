@@ -29,7 +29,7 @@
     "@opentelemetry/auto-instrumentations-node": "^0.71.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/sdk-node": "^0.213.0",
-    "@prisma/client": "^6.4.1",
+    "@prisma/client": "^7.5.0",
     "@sentry/node": "^9.5.0",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.40.3",
