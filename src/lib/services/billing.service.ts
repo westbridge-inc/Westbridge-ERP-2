@@ -19,7 +19,7 @@ import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
 
-const VALID_PLANS: PlanSlug[] = ["Starter", "Business", "Enterprise"];
+const VALID_PLANS: PlanSlug[] = ["Solo", "Starter", "Business", "Enterprise"];
 
 export interface CreateAccountInput {
   email: string;
