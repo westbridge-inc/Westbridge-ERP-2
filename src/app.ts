@@ -37,6 +37,7 @@ import reportsRoutes from "./routes/reports.routes.js";
 import miscRoutes from "./routes/misc.routes.js";
 import cspRoutes from "./routes/csp.routes.js";
 import leadsRoutes from "./routes/leads.routes.js";
+import ssoRoutes from "./routes/sso.routes.js";
 
 export function createApp(): express.Application {
   const app = express();
@@ -104,6 +105,7 @@ export function createApp(): express.Application {
   apiRouter.use(miscRoutes);
   apiRouter.use(cspRoutes);
   apiRouter.use(leadsRoutes);
+  apiRouter.use(ssoRoutes);
 
   // Mount versioned API (canonical)
   app.use("/api/v1", apiRouter);
