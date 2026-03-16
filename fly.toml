@@ -6,10 +6,8 @@ app = "westbridge-api"
 primary_region = "iad"
 
 # Secondary region closer to Caribbean users (Miami)
-# Deploy: fly scale count 1 --region mia
+# Deploy: fly scale count 2 --region mia
 # This ensures low-latency access for Guyana, Trinidad, Jamaica, Barbados
-[regions]
-  mia = 1
 
 [build]
   dockerfile = "Dockerfile"
@@ -21,26 +19,48 @@ primary_region = "iad"
 [env]
   NODE_ENV = "production"
   PORT = "4000"
+  # Connection pooling for production
+  DATABASE_POOL_SIZE = "20"
 
 [http_service]
   internal_port = 4000
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "suspend"
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
 
   [http_service.concurrency]
     type = "requests"
     hard_limit = 250
     soft_limit = 200
 
+  # Auto-scaling: scale up when soft_limit is reached
+  # Fly.io automatically adds machines when concurrency exceeds soft_limit
+  # min_machines_running = 2 ensures HA (survives single machine failure)
+
 [[http_service.checks]]
-  grace_period = "10s"
+  grace_period = "15s"
+  interval = "15s"
+  method = "GET"
+  path = "/api/health/live"
+  timeout = "5s"
+
+# Readiness check — ensures machine is ready before routing traffic
+[[http_service.checks]]
+  grace_period = "30s"
   interval = "30s"
   method = "GET"
-  path = "/api/health"
-  timeout = "5s"
+  path = "/api/health/ready"
+  timeout = "10s"
 
 [[vm]]
   size = "shared-cpu-2x"
   memory = "1gb"
+  # Auto-scaling config:
+  # fly scale count 2 --region iad   (primary: 2 machines for HA)
+  # fly scale count 2 --region mia   (secondary: 2 machines for Caribbean)
+  # Total: 4 machines across 2 regions
+  #
+  # To scale further:
+  # fly scale count 4 --region iad   (high traffic)
+  # fly autoscale set min=2 max=10   (when Fly supports autoscale policies)
