@@ -32,7 +32,7 @@ function baseUrl(): string {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type PlanSlug = "Starter" | "Business" | "Enterprise";
+export type PlanSlug = "Solo" | "Starter" | "Business" | "Enterprise";
 
 export interface SpiAuthRequest {
   TransactionIdentifier: string;
@@ -100,9 +100,10 @@ export interface PaymentCallbackData {
 // ─── Plan → Amount Mapping ────────────────────────────────────────────────────
 
 const PLAN_AMOUNTS: Record<PlanSlug, number> = {
-  Starter: 500.0,
-  Business: 1000.0,
-  Enterprise: 5000.0,
+  Solo: 49.99,
+  Starter: 199.99,
+  Business: 999.99,
+  Enterprise: 4999.99,
 };
 
 /** ISO 4217 numeric currency codes. */
