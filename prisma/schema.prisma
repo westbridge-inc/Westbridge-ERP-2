@@ -34,6 +34,8 @@ model Account {
   apiKeys            ApiKey[]
   inviteTokens       InviteToken[]
   webhookEndpoints   WebhookEndpoint[]
+  ssoConfig          SsoConfig?
+  billingInvoices    BillingInvoice[]
 
   @@index([createdAt])
   @@index([deletedAt])
@@ -177,6 +179,89 @@ model PasswordResetToken {
 
   @@index([tokenHash])
   @@map("password_reset_tokens")
+}
+
+// ─── Lead Capture (Blocker #12) ─────────────────────────────────────────────
+model Lead {
+  id        String   @id @default(cuid())
+  type      String   // "demo" | "newsletter"
+  email     String   /// @pii
+  name      String?  /// @pii
+  company   String?
+  phone     String?  /// @pii
+  country   String?
+  source    String?  // referrer, campaign, etc.
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([type, createdAt])
+  @@index([email])
+  @@map("leads")
+}
+
+// ─── SSO Configuration (Blocker #11) ────────────────────────────────────────
+model SsoConfig {
+  id             String   @id @default(cuid())
+  accountId      String   @unique @map("account_id")
+  provider       String   @default("oidc") // "oidc" | "saml"
+  issuerUrl      String   @map("issuer_url")
+  clientId       String   @map("client_id")
+  clientSecret   String   @map("client_secret") // encrypted
+  allowedDomains String[] @map("allowed_domains")
+  autoProvision  Boolean  @default(true) @map("auto_provision")
+  defaultRole    String   @default("member") @map("default_role")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("sso_configs")
+}
+
+// ─── Notification Preferences (Blocker #8) ──────────────────────────────────
+model NotificationPreference {
+  id        String  @id @default(cuid())
+  userId    String  @unique @map("user_id")
+  emailInvoices    Boolean @default(true) @map("email_invoices")
+  emailReports     Boolean @default(true) @map("email_reports")
+  emailSecurityAlerts Boolean @default(true) @map("email_security_alerts")
+  emailProductUpdates Boolean @default(false) @map("email_product_updates")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_preferences")
+}
+
+// ─── TOTP 2FA (Blocker #10) ─────────────────────────────────────────────────
+model TotpSecret {
+  id        String   @id @default(cuid())
+  userId    String   @unique @map("user_id")
+  secret    String   // encrypted TOTP secret
+  verified  Boolean  @default(false)
+  backupCodes String[] @map("backup_codes") // hashed backup codes
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("totp_secrets")
+}
+
+// ─── Billing Invoices (Blocker #4) ──────────────────────────────────────────
+model BillingInvoice {
+  id            String   @id @default(cuid())
+  accountId     String   @map("account_id")
+  amount        Float
+  currency      String   @default("USD")
+  status        String   @default("paid") // paid | pending | failed | refunded
+  planId        String   @map("plan_id")
+  periodStart   DateTime @map("period_start")
+  periodEnd     DateTime @map("period_end")
+  transactionId String?  @map("transaction_id") // PowerTranz reference
+  rrn           String?  // Retrieval Reference Number
+  paidAt        DateTime? @map("paid_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@map("billing_invoices")
 }
 
 model WebhookEndpoint {
