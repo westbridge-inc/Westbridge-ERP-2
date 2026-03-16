@@ -11,13 +11,12 @@ import { z } from "zod";
 import { requireAuth, requirePermission, requireCsrf, toWebRequest } from "../middleware/auth.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
-import { buildAuthorizationUrl, handleCallback, findOrCreateSsoUser } from "../lib/services/sso.service.js";
+import { buildAuthorizationUrl, handleCallback, findOrCreateSsoUser, type SsoConfig } from "../lib/services/sso.service.js";
 import { createSession } from "../lib/services/session.service.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 import { getRedis } from "../lib/redis.js";
-import type { SsoConfig } from "../lib/services/sso.service.js";
 
 const router = Router();
 
