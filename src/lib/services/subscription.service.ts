@@ -15,9 +15,10 @@ import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
 
 const PLAN_AMOUNTS: Record<string, number> = {
-  Starter: 500,
-  Business: 1000,
-  Enterprise: 5000,
+  Solo: 49.99,
+  Starter: 199.99,
+  Business: 999.99,
+  Enterprise: 4999.99,
 };
 
 const GRACE_PERIOD_DAYS = 7;
