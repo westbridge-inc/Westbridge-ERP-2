@@ -38,6 +38,9 @@ import miscRoutes from "./routes/misc.routes.js";
 import cspRoutes from "./routes/csp.routes.js";
 import leadsRoutes from "./routes/leads.routes.js";
 import ssoRoutes from "./routes/sso.routes.js";
+import documentRoutes from "./routes/document.routes.js";
+import settingsRoutes from "./routes/settings.routes.js";
+import totpRoutes from "./routes/totp.routes.js";
 
 export function createApp(): express.Application {
   const app = express();
@@ -106,6 +109,9 @@ export function createApp(): express.Application {
   apiRouter.use(cspRoutes);
   apiRouter.use(leadsRoutes);
   apiRouter.use(ssoRoutes);
+  apiRouter.use(documentRoutes);
+  apiRouter.use(settingsRoutes);
+  apiRouter.use("/auth", totpRoutes);
 
   // Mount versioned API (canonical)
   app.use("/api/v1", apiRouter);
