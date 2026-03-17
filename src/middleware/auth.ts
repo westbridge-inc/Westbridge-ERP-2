@@ -17,15 +17,6 @@ import {
   type RateLimitTier,
 } from "../lib/api/rate-limit-tiers.js";
 
-/**
- * Routes that expired/suspended accounts can still access.
- * Users need billing + account + auth routes to reactivate their subscription.
- */
-const SUBSCRIPTION_EXEMPT_PREFIXES = ["/api/auth/", "/api/billing/", "/api/account/", "/api/webhooks/", "/api/csrf"];
-
-/** Account statuses that should block API access. */
-const BLOCKED_STATUSES = new Set(["past_due", "suspended", "canceled", "cancelled"]);
-
 export interface SessionData {
   userId: string;
   accountId: string;
@@ -74,32 +65,6 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
 
     req.session = result.data;
-
-    // Check if the account's subscription is still active (skip for billing/auth routes)
-    const isExempt = SUBSCRIPTION_EXEMPT_PREFIXES.some((prefix) => req.path.startsWith(prefix));
-    if (!isExempt) {
-      try {
-        const account = await prisma.account.findUnique({
-          where: { id: result.data.accountId },
-          select: { status: true },
-        });
-
-        if (account && BLOCKED_STATUSES.has(account.status)) {
-          res.status(403).json({
-            ok: false,
-            error: {
-              code: "SUBSCRIPTION_INACTIVE",
-              message: "Your subscription has expired. Please update your billing to continue.",
-            },
-          });
-          return;
-        }
-      } catch {
-        // If the account lookup fails, let the request through rather than blocking
-        // a paying customer due to a transient DB error.
-      }
-    }
-
     next();
   } catch {
     res.status(500).json({ ok: false, error: { code: "AUTH_ERROR", message: "Authentication check failed" } });
