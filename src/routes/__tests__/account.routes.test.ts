@@ -9,7 +9,17 @@ vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
     account: {
-      findUnique: vi.fn(),
+      findUnique: vi.fn().mockResolvedValue({
+        id: "acc_1",
+        email: "test@co.com",
+        companyName: "Test Co",
+        plan: "starter",
+        status: "active",
+        erpnextCompany: null,
+        modulesSelected: [],
+        createdAt: new Date("2026-01-01"),
+        updatedAt: new Date("2026-01-01"),
+      }),
       update: vi.fn(),
     },
     user: {
@@ -21,7 +31,20 @@ vi.mock("../../lib/data/prisma.js", () => ({
       deleteMany: vi.fn().mockResolvedValue({}),
     },
     inviteToken: {
+      findMany: vi.fn().mockResolvedValue([]),
       deleteMany: vi.fn().mockResolvedValue({}),
+    },
+    auditLog: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    subscription: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    apiKey: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    webhookEndpoint: {
+      findMany: vi.fn().mockResolvedValue([]),
     },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<void>) => {
       await fn({
@@ -46,6 +69,7 @@ vi.mock("../../lib/services/session.service.js", () => ({
   validateSession: vi.fn(),
   createSession: vi.fn(),
   revokeSession: vi.fn(),
+  revokeAllUserSessions: vi.fn().mockResolvedValue({ ok: true, data: { count: 1 } }),
 }));
 
 vi.mock("../../lib/services/audit.service.js", () => ({
@@ -139,16 +163,14 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi
-      .fn()
-      .mockResolvedValue({
-        api_calls: 0,
-        erp_docs_created: 0,
-        ai_tokens_input: 0,
-        ai_tokens_output: 0,
-        active_users_count: 0,
-        period: "2026-03",
-      }),
+    get: vi.fn().mockResolvedValue({
+      api_calls: 0,
+      erp_docs_created: 0,
+      ai_tokens_input: 0,
+      ai_tokens_output: 0,
+      active_users_count: 0,
+      period: "2026-03",
+    }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -310,6 +332,82 @@ describe("Account Routes", () => {
         .set("x-csrf-token", "test-csrf-token");
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  // ── POST /api/account/export ──────────────────────────────────────────────
+  describe("POST /api/account/export", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app)
+        .post("/api/account/export")
+        .set("Cookie", CSRF_COOKIE)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 403 when CSRF is invalid", async () => {
+      (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+      const res = await request(app)
+        .post("/api/account/export")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "bad-token");
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 403 for member role (not owner or admin)", async () => {
+      mockSession("member");
+
+      const res = await request(app)
+        .post("/api/account/export")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.message).toContain("owner or admin");
+    });
+
+    it("returns 200 with export data for owner role", async () => {
+      mockSession("owner");
+      (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          id: "usr_1",
+          name: "Owner",
+          email: "owner@co.com",
+          role: "owner",
+          status: "active",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const res = await request(app)
+        .post("/api/account/export")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("exportedAt");
+      expect(res.body).toHaveProperty("exportVersion", "1.0");
+      expect(res.body).toHaveProperty("account");
+      expect(res.body).toHaveProperty("users");
+      expect(res.body).toHaveProperty("auditLogs");
+      expect(res.headers["content-disposition"]).toMatch(/attachment; filename="westbridge-export-/);
+    });
+
+    it("returns 200 with export data for admin role", async () => {
+      mockSession("admin");
+      (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      const res = await request(app)
+        .post("/api/account/export")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("exportedAt");
     });
   });
 });
