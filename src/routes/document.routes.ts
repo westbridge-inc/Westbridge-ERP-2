@@ -10,7 +10,7 @@
 
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { requireAuth, requireCsrf, requirePermission, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requireCsrf, requirePermission, rateLimit, toWebRequest } from "../middleware/auth.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { sendEmail } from "../lib/email/index.js";
@@ -49,64 +49,69 @@ const pdfQuerySchema = z.object({
   letterhead: z.string().optional(),
 });
 
-router.get("/erp/doc/pdf", requireAuth, async (req: Request, res: Response) => {
-  const session = req.session!;
-  const ctx = auditContext(toWebRequest(req));
+router.get(
+  "/erp/doc/pdf",
+  requireAuth,
+  rateLimit("authenticated", "/api/erp/doc/pdf"),
+  async (req: Request, res: Response) => {
+    const session = req.session!;
+    const ctx = auditContext(toWebRequest(req));
 
-  const parsed = pdfQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json(apiError("VALIDATION", "doctype and name are required"));
-  }
-
-  const { doctype, name, format, letterhead } = parsed.data;
-
-  try {
-    // Use ERPNext's print format API to generate PDF
-    const params = new URLSearchParams({
-      doctype,
-      name,
-      format: format ?? "Standard",
-      no_letterhead: letterhead ? "0" : "1",
-    });
-    if (letterhead) params.set("letterhead", letterhead);
-
-    const pdfRes = await fetch(
-      `${ERPNEXT_URL}/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`,
-      {
-        headers: erpAuthHeaders(session.erpnextSid ?? undefined),
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-
-    if (!pdfRes.ok) {
-      logger.error("ERPNext PDF generation failed", { status: pdfRes.status, doctype, name });
-      return res.status(502).json(apiError("UPSTREAM_ERROR", "Failed to generate PDF"));
+    const parsed = pdfQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json(apiError("VALIDATION", "doctype and name are required"));
     }
 
-    const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+    const { doctype, name, format, letterhead } = parsed.data;
 
-    void logAudit({
-      accountId: session.accountId,
-      userId: session.userId,
-      action: "erp.doc.pdf_generated",
-      resource: doctype,
-      resourceId: name,
-      ...ctx,
-      severity: "info",
-      outcome: "success",
-    });
+    try {
+      // Use ERPNext's print format API to generate PDF
+      const params = new URLSearchParams({
+        doctype,
+        name,
+        format: format ?? "Standard",
+        no_letterhead: letterhead ? "0" : "1",
+      });
+      if (letterhead) params.set("letterhead", letterhead);
 
-    const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const filename = `${doctype.replace(/\s+/g, "-")}-${safeName}.pdf`;
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.setHeader("Content-Length", pdfBuffer.length);
-    return res.send(pdfBuffer);
-  } catch (e) {
-    logger.error("PDF generation error", { error: e instanceof Error ? e.message : String(e) });
-    return res.status(500).json(apiError("SERVER_ERROR", "Failed to generate PDF"));
-  }
-});
+      const pdfRes = await fetch(
+        `${ERPNEXT_URL}/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`,
+        {
+          headers: erpAuthHeaders(session.erpnextSid ?? undefined),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+
+      if (!pdfRes.ok) {
+        logger.error("ERPNext PDF generation failed", { status: pdfRes.status, doctype, name });
+        return res.status(502).json(apiError("UPSTREAM_ERROR", "Failed to generate PDF"));
+      }
+
+      const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "erp.doc.pdf_generated",
+        resource: doctype,
+        resourceId: name,
+        ...ctx,
+        severity: "info",
+        outcome: "success",
+      });
+
+      const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const filename = `${doctype.replace(/\s+/g, "-")}-${safeName}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
+    } catch (e) {
+      logger.error("PDF generation error", { error: e instanceof Error ? e.message : String(e) });
+      return res.status(500).json(apiError("SERVER_ERROR", "Failed to generate PDF"));
+    }
+  },
+);
 
 // ─── POST /erp/doc/email — Email a document ─────────────────────────────────
 
@@ -125,6 +130,7 @@ router.post(
   requireAuth,
   requireCsrf,
   requirePermission("invoices:write"),
+  rateLimit("authenticated", "/api/erp/doc/email"),
   async (req: Request, res: Response) => {
     const requestId = getRequestId(toWebRequest(req));
     const session = req.session!;
@@ -209,34 +215,40 @@ router.post(
 
 // ─── POST /erp/doc/upload — Upload file to ERPNext (Blocker #7) ─────────────
 
-router.post("/erp/doc/upload", requireAuth, requireCsrf, async (req: Request, res: Response) => {
-  const requestId = getRequestId(toWebRequest(req));
-  const session = req.session!;
+router.post(
+  "/erp/doc/upload",
+  requireAuth,
+  requireCsrf,
+  rateLimit("authenticated", "/api/erp/doc/upload"),
+  async (req: Request, res: Response) => {
+    const requestId = getRequestId(toWebRequest(req));
+    const session = req.session!;
 
-  try {
-    // Forward the multipart upload directly to ERPNext's file upload API
-    const erpRes = await fetch(`${ERPNEXT_URL}/api/method/upload_file`, {
-      method: "POST",
-      headers: {
-        ...erpAuthHeaders(session.erpnextSid ?? undefined),
-        // Remove Content-Type so fetch auto-sets boundary for multipart
-        "Content-Type": req.headers["content-type"] ?? "application/octet-stream",
-      },
-      body: req.body,
-      signal: AbortSignal.timeout(60_000),
-    });
+    try {
+      // Forward the multipart upload directly to ERPNext's file upload API
+      const erpRes = await fetch(`${ERPNEXT_URL}/api/method/upload_file`, {
+        method: "POST",
+        headers: {
+          ...erpAuthHeaders(session.erpnextSid ?? undefined),
+          // Remove Content-Type so fetch auto-sets boundary for multipart
+          "Content-Type": req.headers["content-type"] ?? "application/octet-stream",
+        },
+        body: req.body,
+        signal: AbortSignal.timeout(60_000),
+      });
 
-    if (!erpRes.ok) {
-      await erpRes.text().catch(() => "");
-      return res.status(502).json(apiError("UPSTREAM_ERROR", "File upload failed"));
+      if (!erpRes.ok) {
+        await erpRes.text().catch(() => "");
+        return res.status(502).json(apiError("UPSTREAM_ERROR", "File upload failed"));
+      }
+
+      const data = await erpRes.json();
+      return res.json(apiSuccess(data, apiMeta({ request_id: requestId })));
+    } catch (e) {
+      logger.error("File upload error", { error: e instanceof Error ? e.message : String(e) });
+      return res.status(500).json(apiError("SERVER_ERROR", "Upload failed"));
     }
-
-    const data = await erpRes.json();
-    return res.json(apiSuccess(data, apiMeta({ request_id: requestId })));
-  } catch (e) {
-    logger.error("File upload error", { error: e instanceof Error ? e.message : String(e) });
-    return res.status(500).json(apiError("SERVER_ERROR", "Upload failed"));
-  }
-});
+  },
+);
 
 export default router;

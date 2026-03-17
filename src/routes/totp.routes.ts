@@ -9,7 +9,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { randomBytes, createHash, createHmac } from "crypto";
-import { requireAuth, requireCsrf, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
@@ -141,45 +141,51 @@ router.post("/auth/2fa/setup", requireAuth, requireCsrf, async (req: Request, re
 
 const verifySchema = z.object({ code: z.string().length(6).regex(/^\d+$/) });
 
-router.post("/auth/2fa/verify", requireAuth, requireCsrf, async (req: Request, res: Response) => {
-  const session = req.session!;
-  const requestId = getRequestId(toWebRequest(req));
-  const ctx = auditContext(toWebRequest(req));
+router.post(
+  "/auth/2fa/verify",
+  requireAuth,
+  requireCsrf,
+  rateLimit("authenticated", "/api/auth/2fa/verify"),
+  async (req: Request, res: Response) => {
+    const session = req.session!;
+    const requestId = getRequestId(toWebRequest(req));
+    const ctx = auditContext(toWebRequest(req));
 
-  const parsed = verifySchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json(apiError("VALIDATION", "6-digit code required"));
-  }
+    const parsed = verifySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json(apiError("VALIDATION", "6-digit code required"));
+    }
 
-  const totp = await prisma.totpSecret.findUnique({ where: { userId: session.userId } });
-  if (!totp) {
-    return res.status(400).json(apiError("NOT_SETUP", "2FA setup not started. Call /auth/2fa/setup first."));
-  }
+    const totp = await prisma.totpSecret.findUnique({ where: { userId: session.userId } });
+    if (!totp) {
+      return res.status(400).json(apiError("NOT_SETUP", "2FA setup not started. Call /auth/2fa/setup first."));
+    }
 
-  const secretBase32 = decrypt(totp.secret);
-  // Decode base32 to bytes
-  const secretBytes = fromBase32(secretBase32);
+    const secretBase32 = decrypt(totp.secret);
+    // Decode base32 to bytes
+    const secretBytes = fromBase32(secretBase32);
 
-  if (!verifyTotp(secretBytes, parsed.data.code)) {
-    return res.status(401).json(apiError("INVALID_CODE", "Invalid verification code. Try again."));
-  }
+    if (!verifyTotp(secretBytes, parsed.data.code)) {
+      return res.status(401).json(apiError("INVALID_CODE", "Invalid verification code. Try again."));
+    }
 
-  await prisma.totpSecret.update({
-    where: { userId: session.userId },
-    data: { verified: true },
-  });
+    await prisma.totpSecret.update({
+      where: { userId: session.userId },
+      data: { verified: true },
+    });
 
-  void logAudit({
-    accountId: session.accountId,
-    userId: session.userId,
-    action: "auth.2fa.enabled",
-    ...ctx,
-    severity: "info",
-    outcome: "success",
-  });
+    void logAudit({
+      accountId: session.accountId,
+      userId: session.userId,
+      action: "auth.2fa.enabled",
+      ...ctx,
+      severity: "info",
+      outcome: "success",
+    });
 
-  return res.json(apiSuccess({ enabled: true }, apiMeta({ request_id: requestId })));
-});
+    return res.json(apiSuccess({ enabled: true }, apiMeta({ request_id: requestId })));
+  },
+);
 
 // ─── POST /auth/2fa/disable ─────────────────────────────────────────────────
 

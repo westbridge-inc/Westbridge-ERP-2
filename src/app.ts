@@ -18,6 +18,7 @@ import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { requireActiveSubscription } from "./middleware/auth.js";
+import { requireCsrf } from "./middleware/auth.js";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
@@ -69,6 +70,21 @@ export function createApp(): express.Application {
 
   // Also parse text/plain for analytics beacon requests
   app.use(express.text({ type: "text/plain" }));
+
+  // Global CSRF protection: enforce on state-changing requests that carry a session cookie.
+  // Requests without a session cookie have no session to abuse, so CSRF is not applicable.
+  // Explicit exemptions for webhook/OAuth callback endpoints that use their own auth.
+  const CSRF_EXEMPT_PREFIXES = ["/api/webhooks/", "/api/v1/webhooks/"];
+  const CSRF_EXEMPT_PATHS = ["/api/sso/callback", "/api/v1/sso/callback"];
+  app.use((req, res, next) => {
+    const isMutating = ["POST", "PUT", "DELETE", "PATCH"].includes(req.method);
+    if (!isMutating) return next();
+    const hasSessionCookie = !!req.cookies?.["westbridge_sid"];
+    if (!hasSessionCookie) return next();
+    const isExempt = CSRF_EXEMPT_PREFIXES.some((p) => req.path.startsWith(p)) || CSRF_EXEMPT_PATHS.includes(req.path);
+    if (isExempt) return next();
+    return requireCsrf(req, res, next);
+  });
 
   // Per-request logger context — attaches req.log with request ID
   app.use(requestLogger);
