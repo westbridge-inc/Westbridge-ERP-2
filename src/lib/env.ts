@@ -89,8 +89,8 @@ function parseEnv() {
     throw new Error(`Missing or invalid environment variables:\n${JSON.stringify(formatted, null, 2)}`);
   }
 
-  // Production safety checks
-  if (result.data.NODE_ENV === "production") {
+  // Safety checks for non-development/test environments (production, staging, etc.)
+  if (result.data.NODE_ENV !== "development" && result.data.NODE_ENV !== "test") {
     const warnings: string[] = [];
     if (result.data.SESSION_SECRET === "change-me-in-production") {
       warnings.push("SESSION_SECRET is still the default — generate with: openssl rand -hex 32");

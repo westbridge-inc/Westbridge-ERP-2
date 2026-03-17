@@ -49,12 +49,17 @@ router.get("/settings/notifications", requireAuth, async (req: Request, res: Res
     };
   }
 
-  return res.json(apiSuccess({
-    emailInvoices: prefs.emailInvoices,
-    emailReports: prefs.emailReports,
-    emailSecurityAlerts: prefs.emailSecurityAlerts,
-    emailProductUpdates: prefs.emailProductUpdates,
-  }, apiMeta({ request_id: requestId })));
+  return res.json(
+    apiSuccess(
+      {
+        emailInvoices: prefs.emailInvoices,
+        emailReports: prefs.emailReports,
+        emailSecurityAlerts: prefs.emailSecurityAlerts,
+        emailProductUpdates: prefs.emailProductUpdates,
+      },
+      apiMeta({ request_id: requestId }),
+    ),
+  );
 });
 
 router.put("/settings/notifications", requireAuth, requireCsrf, async (req: Request, res: Response) => {
@@ -94,81 +99,98 @@ router.get("/settings/api-keys", requireAuth, requirePermission("admin:*"), asyn
   return res.json(apiSuccess({ keys }, apiMeta({ request_id: requestId })));
 });
 
-router.post("/settings/api-keys", requireAuth, requireCsrf, requirePermission("admin:*"), async (req: Request, res: Response) => {
-  const session = req.session!;
-  const requestId = getRequestId(toWebRequest(req));
-  const ctx = auditContext(toWebRequest(req));
+router.post(
+  "/settings/api-keys",
+  requireAuth,
+  requireCsrf,
+  requirePermission("admin:*"),
+  async (req: Request, res: Response) => {
+    const session = req.session!;
+    const requestId = getRequestId(toWebRequest(req));
+    const ctx = auditContext(toWebRequest(req));
 
-  const parsed = apiKeySchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json(apiError("VALIDATION", "Invalid request"));
-  }
+    const parsed = apiKeySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json(apiError("VALIDATION", "Invalid request"));
+    }
 
-  // Generate API key: wb_live_<random>
-  const raw = `wb_live_${randomBytes(24).toString("base64url")}`;
-  const prefix = raw.slice(0, 12) + "...";
-  const keyHash = createHash("sha256").update(raw).digest("hex");
+    // Generate API key: wb_live_<random>
+    const raw = `wb_live_${randomBytes(24).toString("base64url")}`;
+    const prefix = raw.slice(0, 12) + "...";
+    const keyHash = createHash("sha256").update(raw).digest("hex");
 
-  const expiresAt = new Date();
-  expiresAt.setFullYear(expiresAt.getFullYear() + 1); // 1 year expiry
+    const expiresAt = new Date();
+    expiresAt.setFullYear(expiresAt.getFullYear() + 1); // 1 year expiry
 
-  await prisma.apiKey.create({
-    data: {
+    await prisma.apiKey.create({
+      data: {
+        accountId: session.accountId,
+        keyHash,
+        prefix,
+        label: parsed.data.label ?? null,
+        expiresAt,
+      },
+    });
+
+    void logAudit({
       accountId: session.accountId,
-      keyHash,
-      prefix,
-      label: parsed.data.label ?? null,
-      expiresAt,
-    },
-  });
+      userId: session.userId,
+      action: "settings.api_key_created",
+      meta: { prefix },
+      ...ctx,
+      severity: "info",
+      outcome: "success",
+    });
 
-  void logAudit({
-    accountId: session.accountId,
-    userId: session.userId,
-    action: "settings.api_key_created",
-    meta: { prefix },
-    ...ctx,
-    severity: "info",
-    outcome: "success",
-  });
+    // Return the full key ONCE — it cannot be retrieved again
+    return res.status(201).json(
+      apiSuccess(
+        {
+          key: raw,
+          prefix,
+          expiresAt,
+          label: parsed.data.label ?? null,
+          warning: "Store this key securely — it will not be shown again.",
+        },
+        apiMeta({ request_id: requestId }),
+      ),
+    );
+  },
+);
 
-  // Return the full key ONCE — it cannot be retrieved again
-  return res.status(201).json(apiSuccess({
-    key: raw,
-    prefix,
-    expiresAt,
-    label: parsed.data.label ?? null,
-    warning: "Store this key securely — it will not be shown again.",
-  }, apiMeta({ request_id: requestId })));
-});
+router.delete(
+  "/settings/api-keys/:id",
+  requireAuth,
+  requireCsrf,
+  requirePermission("admin:*"),
+  async (req: Request, res: Response) => {
+    const session = req.session!;
+    const requestId = getRequestId(toWebRequest(req));
+    const ctx = auditContext(toWebRequest(req));
 
-router.delete("/settings/api-keys/:id", requireAuth, requireCsrf, requirePermission("admin:*"), async (req: Request, res: Response) => {
-  const session = req.session!;
-  const requestId = getRequestId(toWebRequest(req));
-  const ctx = auditContext(toWebRequest(req));
+    const keyId = req.params.id as string;
+    const key = await prisma.apiKey.findFirst({
+      where: { id: keyId, accountId: session.accountId },
+    });
 
-  const keyId = req.params.id as string;
-  const key = await prisma.apiKey.findFirst({
-    where: { id: keyId },
-  });
+    if (!key) {
+      return res.status(404).json(apiError("NOT_FOUND", "API key not found"));
+    }
 
-  if (!key) {
-    return res.status(404).json(apiError("NOT_FOUND", "API key not found"));
-  }
+    await prisma.apiKey.delete({ where: { id: key.id } });
 
-  await prisma.apiKey.delete({ where: { id: key.id } });
+    void logAudit({
+      accountId: session.accountId,
+      userId: session.userId,
+      action: "settings.api_key_revoked",
+      meta: { prefix: key.prefix },
+      ...ctx,
+      severity: "warn",
+      outcome: "success",
+    });
 
-  void logAudit({
-    accountId: session.accountId,
-    userId: session.userId,
-    action: "settings.api_key_revoked",
-    meta: { prefix: key.prefix },
-    ...ctx,
-    severity: "warn",
-    outcome: "success",
-  });
-
-  return res.json(apiSuccess({ revoked: true }, apiMeta({ request_id: requestId })));
-});
+    return res.json(apiSuccess({ revoked: true }, apiMeta({ request_id: requestId })));
+  },
+);
 
 export default router;

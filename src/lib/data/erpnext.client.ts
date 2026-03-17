@@ -16,11 +16,7 @@ const ERPNEXT_URL = (() => {
     }
     return "http://localhost:8080";
   }
-  if (
-    process.env.NODE_ENV === "production" &&
-    !isBuildPhase &&
-    !url.startsWith("https://")
-  ) {
+  if (process.env.NODE_ENV === "production" && !isBuildPhase && !url.startsWith("https://")) {
     throw new Error("ERPNEXT_URL must use HTTPS in production");
   }
   return url;
@@ -44,13 +40,20 @@ async function fetchErp(
   endpoint: string,
   sessionId: string | undefined,
   options?: RequestInit,
-  accountId?: string
+  accountId?: string,
 ): Promise<Result<unknown, string>> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options?.headers as Record<string, string>),
   };
-  if (sessionId) headers["Cookie"] = `sid=${sessionId}`;
+  // In dev mode with local auth fallback, use API key/secret instead of user SID
+  const apiKey = process.env.ERPNEXT_API_KEY;
+  const apiSecret = process.env.ERPNEXT_API_SECRET;
+  if (sessionId && sessionId !== "dev-local-session") {
+    headers["Cookie"] = `sid=${sessionId}`;
+  } else if (apiKey && apiSecret) {
+    headers["Authorization"] = `token ${apiKey}:${apiSecret}`;
+  }
   if (accountId) headers[ACCOUNT_HEADER] = accountId;
 
   let lastError = "";
@@ -64,6 +67,11 @@ async function fetchErp(
       if (res.ok) {
         const data = await res.json();
         return ok(data);
+      }
+      // 404 from ERPNext means the doctype doesn't exist (e.g. HRMS not installed)
+      // or no records — treat as empty result, not an error
+      if (res.status === 404) {
+        return ok({ data: [] });
       }
       lastError = `Service error ${res.status}: ${res.statusText}`;
       if (!isRetryable(res.status)) return err(lastError);
@@ -99,7 +107,7 @@ export async function erpList(
   sessionId: string,
   params?: ListParams,
   accountId?: string,
-  erpnextCompany?: string | null
+  erpnextCompany?: string | null,
 ): Promise<Result<unknown[], string>> {
   const queryParams: Record<string, string> = {
     limit_page_length: "20",
@@ -146,13 +154,13 @@ export async function erpGet(
   doctype: string,
   name: string,
   sessionId: string,
-  accountId?: string
+  accountId?: string,
 ): Promise<Result<unknown, string>> {
   const result = await fetchErp(
     `/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`,
     sessionId,
     undefined,
-    accountId
+    accountId,
   );
   if (!result.ok) return err(result.error);
   const body = result.data as { data?: unknown };
@@ -163,13 +171,13 @@ export async function erpCreate(
   doctype: string,
   sessionId: string,
   body: Record<string, unknown>,
-  accountId?: string
+  accountId?: string,
 ): Promise<Result<unknown, string>> {
   return fetchErp(
     `/resource/${encodeURIComponent(doctype)}`,
     sessionId,
     { method: "POST", body: JSON.stringify(body) },
-    accountId
+    accountId,
   );
 }
 
@@ -178,13 +186,13 @@ export async function erpUpdate(
   name: string,
   sessionId: string,
   updates: Record<string, unknown>,
-  accountId?: string
+  accountId?: string,
 ): Promise<Result<unknown, string>> {
   return fetchErp(
     `/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`,
     sessionId,
     { method: "PUT", body: JSON.stringify(updates) },
-    accountId
+    accountId,
   );
 }
 
@@ -192,12 +200,12 @@ export async function erpDelete(
   doctype: string,
   name: string,
   sessionId: string,
-  accountId?: string
+  accountId?: string,
 ): Promise<Result<unknown, string>> {
   return fetchErp(
     `/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`,
     sessionId,
     { method: "DELETE" },
-    accountId
+    accountId,
   );
 }

@@ -55,6 +55,10 @@ const DEMO_ACCOUNT = {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Seed script cannot run in production");
+  }
+
   console.log("🌱 Seeding database with Caribbean defaults...\n");
 
   const passwordHash = await hashPassword(SEED_PASSWORD);

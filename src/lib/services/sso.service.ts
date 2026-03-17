@@ -97,7 +97,7 @@ export interface AuthorizationParams {
 }
 
 export async function buildAuthorizationUrl(
-  params: AuthorizationParams
+  params: AuthorizationParams,
 ): Promise<Result<{ url: string; state: string; codeVerifier: string }, string>> {
   const { redirectUri, accountId, config } = params;
 
@@ -112,7 +112,7 @@ export async function buildAuthorizationUrl(
   const nonce = randomBytes(16).toString("hex");
   const statePayload = `${accountId}:${nonce}`;
   const stateSecret = process.env.SESSION_SECRET ?? "dev-secret";
-  const stateSig = createHmac("sha256", stateSecret).update(statePayload).digest("hex").slice(0, 16);
+  const stateSig = createHmac("sha256", stateSecret).update(statePayload).digest("hex").slice(0, 32);
   const state = `${statePayload}:${stateSig}`;
 
   // Store code verifier and nonce in Redis (5 min TTL)
@@ -144,7 +144,7 @@ export interface CallbackParams {
 }
 
 export async function handleCallback(
-  params: CallbackParams
+  params: CallbackParams,
 ): Promise<Result<{ email: string; name: string; sub: string; accountId: string }, string>> {
   const { code, state, redirectUri, config } = params;
 
@@ -170,7 +170,7 @@ export async function handleCallback(
   const expectedSig = createHmac("sha256", stateSecret)
     .update(`${stateAccountId}:${stateNonce}`)
     .digest("hex")
-    .slice(0, 16);
+    .slice(0, 32);
   if (stateSig !== expectedSig) return err("SSO state signature mismatch");
 
   // Exchange code for tokens
@@ -236,7 +236,7 @@ export async function findOrCreateSsoUser(
   accountId: string,
   email: string,
   name: string,
-  config: SsoConfig
+  config: SsoConfig,
 ): Promise<Result<{ userId: string; isNew: boolean }, string>> {
   const user = await prisma.user.findUnique({
     where: { accountId_email: { accountId, email } },
