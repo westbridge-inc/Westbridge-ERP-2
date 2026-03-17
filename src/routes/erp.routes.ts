@@ -10,6 +10,7 @@ import {
   rateLimitHeaders,
 } from "../lib/api/rate-limit-tiers.js";
 import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
+import { publish } from "../lib/realtime.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
 import { ALLOWED_DOCTYPES_SET, COMPANY_SCOPED_DOCTYPES } from "../lib/erp-constants.js";
@@ -339,6 +340,11 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
+    });
+    void publish(session.accountId, {
+      type: "erp.doc_updated",
+      payload: { title: `${doctype} created`, message: `${created?.name ?? "New document"} was created` },
+      timestamp: new Date().toISOString(),
     });
     // Meter billable doc creation — fire-and-forget
     const { meter } = await import("../lib/metering.js");

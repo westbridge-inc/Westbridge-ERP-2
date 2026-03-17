@@ -13,6 +13,7 @@ import { hashPassword } from "../lib/services/auth.service.js";
 import { sendEmail } from "../lib/email/index.js";
 import { inviteEmail } from "../lib/email/templates.js";
 import { PLAN_USER_LIMITS } from "../lib/constants.js";
+import { publish } from "../lib/realtime.js";
 
 const router = Router();
 
@@ -277,6 +278,12 @@ router.post("/invite/accept", requireCsrf, async (req: Request, res: Response) =
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
+    });
+
+    void publish(result.data.accountId, {
+      type: "notification.new",
+      payload: { title: "New team member", message: `${name} joined the team` },
+      timestamp: new Date().toISOString(),
     });
 
     res.set(responseHeaders());
