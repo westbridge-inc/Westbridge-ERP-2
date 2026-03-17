@@ -18,6 +18,7 @@ import {
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
+import { publish } from "../realtime.js";
 
 const VALID_PLANS: PlanSlug[] = ["Solo", "Starter", "Business", "Enterprise"];
 
@@ -149,6 +150,12 @@ export async function markAccountPaid(
           html: accountActivatedEmail({ companyName: account.companyName, plan: account.plan, loginUrl }),
         });
       }
+
+      void publish(accountId, {
+        type: "notification.new",
+        payload: { title: "Payment received", message: "Your subscription has been renewed" },
+        timestamp: new Date().toISOString(),
+      });
     }
     return ok({ updated, accountId });
   } catch (e) {
