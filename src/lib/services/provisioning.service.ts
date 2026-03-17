@@ -10,6 +10,7 @@ import { randomBytes } from "crypto";
 import { ok, err, type Result } from "../utils/result.js";
 import { prisma } from "../data/prisma.js";
 import { logger } from "../logger.js";
+import { logAudit } from "./audit.service.js";
 import { sendEmail } from "../email/index.js";
 import * as Sentry from "@sentry/node";
 
@@ -162,7 +163,30 @@ export async function provisionWithRetry(accountId: string): Promise<Result<Prov
     }
   }
 
-  // All retries exhausted — notify account owner and ops
+  // All retries exhausted — log audit event, flag account, notify owner and ops
+  logger.error("ERPNext provisioning failed after all retries", { accountId, maxRetries: MAX_RETRIES });
+
+  void logAudit({
+    accountId,
+    action: "provisioning.failed",
+    severity: "critical",
+    outcome: "failure",
+    meta: { maxRetries: MAX_RETRIES, reason: "All provisioning retries exhausted" },
+  });
+
+  // Flag the account so support/ops can identify accounts with failed provisioning
+  await prisma.account
+    .update({
+      where: { id: accountId },
+      data: { erpnextCompany: "__PROVISIONING_FAILED__" },
+    })
+    .catch((e: unknown) => {
+      logger.error("Failed to flag account after provisioning failure", {
+        accountId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    });
+
   const account = await prisma.account.findUnique({
     where: { id: accountId },
     select: { email: true, companyName: true },
