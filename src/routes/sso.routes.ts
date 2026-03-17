@@ -11,12 +11,16 @@ import { z } from "zod";
 import { requireAuth, requirePermission, requireCsrf, toWebRequest } from "../middleware/auth.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
-import { buildAuthorizationUrl, handleCallback, findOrCreateSsoUser, type SsoConfig } from "../lib/services/sso.service.js";
+import {
+  buildAuthorizationUrl,
+  handleCallback,
+  findOrCreateSsoUser,
+  type SsoConfig,
+} from "../lib/services/sso.service.js";
 import { createSession } from "../lib/services/session.service.js";
 import { encrypt, decrypt } from "../lib/encryption.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
-import { getRedis } from "../lib/redis.js";
 
 const router = Router();
 
@@ -191,51 +195,75 @@ router.get("/sso/config", requireAuth, requirePermission("admin:*"), async (req:
   }
 
   // Never return the client secret
-  return res.json(apiSuccess({
-    configured: true,
-    provider: config.provider,
-    issuerUrl: config.issuerUrl,
-    clientId: config.clientId,
-    allowedDomains: config.allowedDomains,
-    autoProvision: config.autoProvision,
-    defaultRole: config.defaultRole,
-  }, apiMeta({ request_id: requestId })));
+  return res.json(
+    apiSuccess(
+      {
+        configured: true,
+        provider: config.provider,
+        issuerUrl: config.issuerUrl,
+        clientId: config.clientId,
+        allowedDomains: config.allowedDomains,
+        autoProvision: config.autoProvision,
+        defaultRole: config.defaultRole,
+      },
+      apiMeta({ request_id: requestId }),
+    ),
+  );
 });
 
 // ─── PUT /sso/config (admin only) ───────────────────────────────────────────
 
-router.put("/sso/config", requireAuth, requireCsrf, requirePermission("admin:*"), async (req: Request, res: Response) => {
-  const requestId = getRequestId(toWebRequest(req));
-  const session = req.session!;
-  const ctx = auditContext(toWebRequest(req));
+router.put(
+  "/sso/config",
+  requireAuth,
+  requireCsrf,
+  requirePermission("admin:*"),
+  async (req: Request, res: Response) => {
+    const requestId = getRequestId(toWebRequest(req));
+    const session = req.session!;
+    const ctx = auditContext(toWebRequest(req));
 
-  const parsed = ssoConfigSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json(apiError("VALIDATION", parsed.error.flatten().fieldErrors.toString(), undefined, apiMeta({ request_id: requestId })));
-  }
+    const parsed = ssoConfigSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .json(
+          apiError(
+            "VALIDATION",
+            parsed.error.flatten().fieldErrors.toString(),
+            undefined,
+            apiMeta({ request_id: requestId }),
+          ),
+        );
+    }
 
-  const config: SsoConfig = {
-    accountId: session.accountId,
-    ...parsed.data,
-  };
-
-  try {
-    await saveSsoConfig(config);
-
-    void logAudit({
+    const config: SsoConfig = {
       accountId: session.accountId,
-      userId: session.userId,
-      action: "sso.config.updated",
-      meta: { provider: config.provider, issuerUrl: config.issuerUrl },
-      ...ctx,
-      severity: "info",
-      outcome: "success",
-    });
+      ...parsed.data,
+    };
 
-    return res.json(apiSuccess({ configured: true }, apiMeta({ request_id: requestId })));
-  } catch (e) {
-    return res.status(500).json(apiError("SERVER_ERROR", "Failed to save SSO configuration", undefined, apiMeta({ request_id: requestId })));
-  }
-});
+    try {
+      await saveSsoConfig(config);
+
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "sso.config.updated",
+        meta: { provider: config.provider, issuerUrl: config.issuerUrl },
+        ...ctx,
+        severity: "info",
+        outcome: "success",
+      });
+
+      return res.json(apiSuccess({ configured: true }, apiMeta({ request_id: requestId })));
+    } catch {
+      return res
+        .status(500)
+        .json(
+          apiError("SERVER_ERROR", "Failed to save SSO configuration", undefined, apiMeta({ request_id: requestId })),
+        );
+    }
+  },
+);
 
 export default router;

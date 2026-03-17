@@ -13,7 +13,7 @@ vi.mock("../../logger.js", () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
-import { logAudit, safeLogAudit, rowToCsv, CSV_HEADER, auditContext } from "../audit.service.js";
+import { logAudit, safeLogAudit, rowToCsv, CSV_HEADER } from "../audit.service.js";
 import { prisma } from "../../data/prisma.js";
 
 describe("audit.service", () => {
