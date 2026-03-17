@@ -16,7 +16,7 @@ import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { getRedis } from "../lib/redis.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
-import { toWebRequest } from "../middleware/auth.js";
+import { toWebRequest, requireAuth } from "../middleware/auth.js";
 import { getPlan, type PlanId } from "../lib/modules.js";
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -24,7 +24,9 @@ const router = Router();
 
 const chatSchema = z.object({
   message: z.string().min(1).max(4000),
-  module: z.enum(["finance", "crm", "inventory", "hr", "manufacturing", "projects", "biztools", "general"]).default("general"),
+  module: z
+    .enum(["finance", "crm", "inventory", "hr", "manufacturing", "projects", "biztools", "general"])
+    .default("general"),
   conversationId: z.string().uuid().optional(),
 });
 
@@ -63,7 +65,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
 
   // CSRF validation — AI chat is a state-mutating endpoint
   const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-  const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
+  const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
   if (!validateCsrf(csrfHeader, csrfCookie)) {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: "Invalid or missing CSRF token" } });
   }
@@ -93,10 +95,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
 
   // Normalise plan to known PlanId
   const rawPlan = account.plan.toLowerCase();
-  const planId: PlanId =
-    rawPlan === "enterprise" ? "enterprise" :
-    rawPlan === "business" ? "business" :
-    "starter";
+  const planId: PlanId = rawPlan === "enterprise" ? "enterprise" : rawPlan === "business" ? "business" : "starter";
 
   // Plan AI quota check
   const limitCheck = await checkAiLimit(session.accountId, planId);
@@ -122,14 +121,20 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     select: { name: true },
   });
 
-  const messages: Anthropic.MessageParam[] = [
-    ...history,
-    { role: "user", content: message },
-  ];
+  const messages: Anthropic.MessageParam[] = [...history, { role: "user", content: message }];
 
   // Validate module against known allowlist at runtime — TypeScript casts do not exist
   // at runtime, so an attacker could send an arbitrary string without this check.
-  const VALID_AI_MODULES: readonly AiModule[] = ["finance", "crm", "inventory", "hr", "manufacturing", "projects", "biztools", "general"];
+  const VALID_AI_MODULES: readonly AiModule[] = [
+    "finance",
+    "crm",
+    "inventory",
+    "hr",
+    "manufacturing",
+    "projects",
+    "biztools",
+    "general",
+  ];
   const moduleContext: AiModule = (VALID_AI_MODULES as readonly string[]).includes(rawModule)
     ? (rawModule as AiModule)
     : "general";
@@ -177,9 +182,9 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
             tb.input,
             session.erpnextSid ?? "",
             session.accountId,
-            account.erpnextCompany ?? null
+            account.erpnextCompany ?? null,
           ),
-        }))
+        })),
       );
       currentMessages.push({ role: "user", content: toolResults });
     }
@@ -190,10 +195,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   const textBlock = finalResponse?.content.find((b): b is Anthropic.TextBlock => b.type === "text");
   const reply = textBlock?.text ?? "I couldn't generate a response. Please try again.";
 
-  await saveHistory(conversationId, [
-    ...messages,
-    { role: "assistant", content: reply },
-  ]);
+  await saveHistory(conversationId, [...messages, { role: "assistant", content: reply }]);
 
   return res.json({
     data: {
@@ -210,17 +212,8 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /ai/usage — get AI usage stats for the current account
 // ---------------------------------------------------------------------------
-router.get("/ai/usage", async (req: Request, res: Response) => {
-  const token = req.cookies?.[COOKIE.SESSION_NAME];
-  if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  const sessionResult = await validateSession(token, toWebRequest(req));
-  if (!sessionResult.ok) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  const session = sessionResult.data;
+router.get("/ai/usage", requireAuth, async (req: Request, res: Response) => {
+  const session = req.session!;
 
   const account = await prisma.account.findUnique({
     where: { id: session.accountId },
@@ -231,10 +224,7 @@ router.get("/ai/usage", async (req: Request, res: Response) => {
   }
 
   const rawPlan = account.plan.toLowerCase();
-  const planId: PlanId =
-    rawPlan === "enterprise" ? "enterprise" :
-    rawPlan === "business" ? "business" :
-    "starter";
+  const planId: PlanId = rawPlan === "enterprise" ? "enterprise" : rawPlan === "business" ? "business" : "starter";
 
   const usage = await getAiUsage(session.accountId);
   const plan = getPlan(planId);
