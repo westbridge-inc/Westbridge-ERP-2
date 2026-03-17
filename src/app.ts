@@ -17,8 +17,7 @@ import helmet from "helmet";
 import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
 import { requestLogger } from "./middleware/request-logger.js";
-import { requireActiveSubscription } from "./middleware/auth.js";
-import { requireCsrf } from "./middleware/auth.js";
+import { requireActiveSubscription, requireCsrf } from "./middleware/auth.js";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
