@@ -26,6 +26,20 @@ export interface SendEmailOptions {
 
 export async function sendEmail(opts: SendEmailOptions): Promise<Result<{ id: string }, string>> {
   const from = opts.from ?? process.env.EMAIL_FROM ?? "Westbridge <noreply@westbridge.app>";
+
+  // In development/test without RESEND_API_KEY, log instead of silently failing
+  if (!process.env.RESEND_API_KEY) {
+    const isDev = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+    if (isDev) {
+      console.warn(
+        `[email] RESEND_API_KEY not set — skipping email send in ${process.env.NODE_ENV}. ` +
+          `To: ${opts.to}, Subject: ${opts.subject}`,
+      );
+      return ok({ id: `dev-skipped-${Date.now()}` });
+    }
+    return err("RESEND_API_KEY is not configured. Email cannot be sent.");
+  }
+
   try {
     const resend = getResend();
     const { data, error } = await resend.emails.send({
