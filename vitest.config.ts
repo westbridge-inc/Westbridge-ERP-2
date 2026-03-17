@@ -34,13 +34,15 @@ export default defineConfig({
         "src/lib/data/powertranz.client.ts",
         // Type-only files
         "src/lib/feature-flags.types.ts",
+        // Prisma client with soft-delete extensions — tested via integration tests
+        "src/lib/data/prisma.ts",
       ],
       thresholds: {
         // Raised from 45% → 63% after test coverage campaign (117 new tests)
         // Target: 80/70/75/80 before GA release
         statements: 55,
         branches: 65,
-        functions: 70,
+        functions: 90,
         lines: 55,
       },
     },

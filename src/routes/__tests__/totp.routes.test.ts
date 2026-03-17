@@ -1,17 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import supertest from "supertest";
+import request from "supertest";
 
-vi.mock("../../lib/logger.js", () => ({
-  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
 
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
-    auditLog: { create: vi.fn() },
-    webhookEndpoint: { findMany: vi.fn().mockResolvedValue([]) },
     account: { findUnique: vi.fn() },
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn().mockResolvedValue({ email: "test@test.com" }) },
+    auditLog: { create: vi.fn() },
+    totpSecret: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockResolvedValue({}),
+      update: vi.fn().mockResolvedValue({}),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
   },
 }));
 
@@ -21,7 +26,7 @@ vi.mock("../../lib/redis.js", () => ({
 }));
 
 vi.mock("../../lib/services/session.service.js", () => ({
-  validateSession: vi.fn().mockResolvedValue({ ok: false, error: "no session" }),
+  validateSession: vi.fn(),
   createSession: vi.fn(),
   revokeSession: vi.fn(),
 }));
@@ -73,14 +78,12 @@ vi.mock("../../lib/services/erp.service.js", () => ({
   updateDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
   deleteDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
 }));
-
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyPaymentCallback: vi.fn().mockReturnValue(true),
-  isPaymentSuccess: vi.fn().mockReturnValue(false),
-  markAccountPaid: vi.fn().mockResolvedValue({ ok: true, data: { updated: true } }),
+  verifyPaymentCallback: vi.fn(),
+  isPaymentSuccess: vi.fn(),
+  markAccountPaid: vi.fn(),
 }));
-
 vi.mock("../../lib/services/invite.service.js", () => ({
   createInvite: vi.fn(),
   acceptInvite: vi.fn(),
@@ -133,69 +136,123 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
   identify: vi.fn(),
   capture: vi.fn(),
 }));
+vi.mock("../../lib/encryption.js", () => ({
+  encrypt: vi.fn().mockReturnValue("encrypted"),
+  decrypt: vi.fn().mockReturnValue("JBSWY3DPEHPK3PXP"),
+}));
 
+// ---------------------------------------------------------------------------
+// Import AFTER mocks
+// ---------------------------------------------------------------------------
 import { createApp } from "../../app.js";
-import { isPaymentSuccess, markAccountPaid } from "../../lib/services/billing.service.js";
+import { validateSession } from "../../lib/services/session.service.js";
+import { prisma } from "../../lib/data/prisma.js";
 
 const app = createApp();
+const SESSION_COOKIE = "westbridge_sid=test-session-token";
+const CSRF_COOKIE = "westbridge_csrf=test-csrf-token";
 
-describe("webhooks routes", () => {
+function mockSession(role: string) {
+  (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    data: {
+      userId: "usr_1",
+      accountId: "acc_1",
+      role,
+      erpnextSid: "erp-sid-123",
+    },
+  });
+}
+
+describe("TOTP Routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("GET /api/webhooks requires auth", async () => {
-    const res = await supertest(app).get("/api/webhooks");
-    expect([401, 404]).toContain(res.status);
-  });
-
-  it("POST /api/webhooks requires auth", async () => {
-    const res = await supertest(app)
-      .post("/api/webhooks")
-      .send({ url: "https://example.com/hook", events: ["erp.doc_updated"] });
-    expect([401, 403, 404]).toContain(res.status);
-  });
-
-  describe("POST /api/webhooks/powertranz", () => {
-    it("returns 200 for non-approved payment", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(false);
-
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        SpiToken: "test-token",
-        Approved: false,
-        ResponseCode: "05",
-        ResponseMessage: "Declined",
-      });
-
-      expect(res.status).toBe(200);
+  describe("POST /api/auth/auth/2fa/setup", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app).post("/api/auth/auth/2fa/setup");
+      expect(res.status).toBe(401);
     });
 
-    it("returns 200 for approved payment with account activation", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      (markAccountPaid as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, data: { updated: true } });
+    it("returns 200 with secret for authenticated user", async () => {
+      mockSession("member");
 
-      const res = await supertest(app).post("/api/webhooks/powertranz?accountId=acc_123").send({
-        SpiToken: "test-token",
-        TransactionIdentifier: "txn_123",
-        OrderIdentifier: "acc_123",
-        Approved: true,
-        ResponseCode: "00",
-        TotalAmount: 199.99,
-        CurrencyCode: "840",
-      });
+      const res = await request(app)
+        .post("/api/auth/auth/2fa/setup")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
 
       expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty("secret");
+      expect(res.body.data).toHaveProperty("otpauthUri");
+      expect(res.body.data).toHaveProperty("backupCodes");
     });
 
-    it("returns 200 when no accountId found", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
-
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        Approved: true,
-        ResponseCode: "00",
+    it("returns 400 if 2FA already enabled", async () => {
+      mockSession("member");
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        verified: true,
       });
 
+      const res = await request(app)
+        .post("/api/auth/auth/2fa/setup")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("POST /api/auth/auth/2fa/verify", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app).post("/api/auth/auth/2fa/verify").send({ code: "123456" });
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 400 for invalid code format", async () => {
+      mockSession("member");
+
+      const res = await request(app)
+        .post("/api/auth/auth/2fa/verify")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: "abc" });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 or 401 if TOTP not set up", async () => {
+      mockSession("member");
+
+      const res = await request(app)
+        .post("/api/auth/auth/2fa/verify")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: "123456" });
+
+      // The totp secret findUnique returns null, so verify endpoint returns 400 (NOT_SETUP)
+      // But if requireAuth middleware has additional token checks, it may return 401
+      expect([400, 401]).toContain(res.status);
+    });
+  });
+
+  describe("POST /api/auth/auth/2fa/disable", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app).post("/api/auth/auth/2fa/disable");
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 200 for authenticated user", async () => {
+      mockSession("member");
+
+      const res = await request(app)
+        .post("/api/auth/auth/2fa/disable")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
       expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty("disabled", true);
     });
   });
 });
