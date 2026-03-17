@@ -9,7 +9,7 @@ import {
   getClientIdentifier,
   rateLimitHeaders,
 } from "../lib/api/rate-limit-tiers.js";
-import { requireAuth, requireCsrf, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
 import { ALLOWED_DOCTYPES_SET, COMPANY_SCOPED_DOCTYPES } from "../lib/erp-constants.js";
@@ -26,16 +26,18 @@ const router = Router();
  * Verify that a document belongs to the caller's ERPNext company.
  * Returns `true` if access is denied (caller should 403), `false` if OK.
  *
- * For doctypes without a company field, always returns `false` (access OK).
- * If the doc needs to be fetched first (PUT/DELETE), pass `existingDoc` as
- * null and provide `erpnextSid` + `accountId` so the helper can fetch it.
+ * Checks the document's actual data (not the user-supplied doctype) to
+ * determine whether tenant isolation applies. If the document has no
+ * `company` field, access is always allowed.
  */
 async function verifyTenantAccess(
-  doctype: string,
+  _doctype: string,
   accountId: string,
   docData: Record<string, unknown>,
 ): Promise<boolean> {
-  if (!COMPANY_SCOPED_DOCTYPES.has(doctype)) return false;
+  // Tenant isolation is based on the document's actual company field,
+  // not the user-supplied doctype — prevents bypass via crafted doctype.
+  if (!docData.company) return false;
 
   const account = await prisma.account
     .findUnique({ where: { id: accountId }, select: { erpnextCompany: true } })
@@ -43,7 +45,7 @@ async function verifyTenantAccess(
 
   if (!account?.erpnextCompany) return false;
 
-  return !!docData.company && docData.company !== account.erpnextCompany;
+  return docData.company !== account.erpnextCompany;
 }
 
 // ─── GET /erp/list ─────────────────────────────────────────────────────────────
@@ -196,7 +198,7 @@ router.get("/erp/list", requireAuth, async (req: Request, res: Response) => {
 
 // ─── GET /erp/doc ──────────────────────────────────────────────────────────────
 
-router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
+router.get("/erp/doc", requireAuth, rateLimit("authenticated", "/api/erp/doc"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -211,17 +213,6 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
         .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
     }
     const ctx = auditContext(toWebRequest(req));
-    const rateLimitGet = await checkTieredRateLimit(
-      getClientIdentifier(toWebRequest(req)),
-      "authenticated",
-      "/api/erp/doc",
-    );
-    if (!rateLimitGet.allowed) {
-      res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitGet) });
-      return res
-        .status(429)
-        .json(apiError("RATE_LIMIT", "Too many requests. Try again in a minute.", undefined, meta()));
-    }
 
     const doctype = req.query.doctype as string | undefined;
     const name = req.query.name as string | undefined;
@@ -362,72 +353,64 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
 
 // ─── PUT /erp/doc ──────────────────────────────────────────────────────────────
 
-router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Response) => {
-  const start = Date.now();
-  const requestId = getRequestId(toWebRequest(req));
-  const meta = () => apiMeta({ request_id: requestId });
-  const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
+router.put(
+  "/erp/doc",
+  requireAuth,
+  requireCsrf,
+  rateLimit("authenticated", "/api/erp/doc"),
+  async (req: Request, res: Response) => {
+    const start = Date.now();
+    const requestId = getRequestId(toWebRequest(req));
+    const meta = () => apiMeta({ request_id: requestId });
+    const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
-  try {
-    const session = req.session!;
-    const ctx = auditContext(toWebRequest(req));
+    try {
+      const session = req.session!;
+      const ctx = auditContext(toWebRequest(req));
 
-    if (!session.erpnextSid) {
-      res.set(responseHeaders());
-      return res
-        .status(401)
-        .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
-    }
+      if (!session.erpnextSid) {
+        res.set(responseHeaders());
+        return res
+          .status(401)
+          .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
+      }
 
-    const rateLimitPut = await checkTieredRateLimit(
-      getClientIdentifier(toWebRequest(req)),
-      "authenticated",
-      "/api/erp/doc",
-    );
-    if (!rateLimitPut.allowed) {
-      res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitPut) });
-      return res
-        .status(429)
-        .json(apiError("RATE_LIMIT", "Too many requests. Try again in a minute.", undefined, meta()));
-    }
+      const body = req.body;
 
-    const body = req.body;
+      const parsed = erpDocCreateBodySchema.safeParse(body);
+      if (!parsed.success) {
+        const first = parsed.error.flatten().fieldErrors;
+        const message = (first.doctype as string[])?.[0] ?? "Invalid request";
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("VALIDATION_ERROR", message, undefined, meta()));
+      }
 
-    const parsed = erpDocCreateBodySchema.safeParse(body);
-    if (!parsed.success) {
-      const first = parsed.error.flatten().fieldErrors;
-      const message = (first.doctype as string[])?.[0] ?? "Invalid request";
-      res.set(responseHeaders());
-      return res.status(400).json(apiError("VALIDATION_ERROR", message, undefined, meta()));
-    }
+      const FORBIDDEN_FIELDS = new Set([
+        "docstatus",
+        "owner",
+        "modified_by",
+        "creation",
+        "modified",
+        "idx",
+        "parent",
+        "parentfield",
+        "parenttype",
+        "amended_from",
+      ]);
+      const { doctype, name, ...rawData } = parsed.data as { doctype: string; name: string; [k: string]: unknown };
+      const data = Object.fromEntries(Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k)));
 
-    const FORBIDDEN_FIELDS = new Set([
-      "docstatus",
-      "owner",
-      "modified_by",
-      "creation",
-      "modified",
-      "idx",
-      "parent",
-      "parentfield",
-      "parenttype",
-      "amended_from",
-    ]);
-    const { doctype, name, ...rawData } = parsed.data as { doctype: string; name: string; [k: string]: unknown };
-    const data = Object.fromEntries(Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k)));
+      if (!name) {
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("BAD_REQUEST", "name is required for update", undefined, meta()));
+      }
 
-    if (!name) {
-      res.set(responseHeaders());
-      return res.status(400).json(apiError("BAD_REQUEST", "name is required for update", undefined, meta()));
-    }
+      if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
+      }
 
-    if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
-      res.set(responseHeaders());
-      return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
-    }
-
-    // Tenant isolation: fetch existing doc and verify ownership before updating
-    if (COMPANY_SCOPED_DOCTYPES.has(doctype)) {
+      // Tenant isolation: always fetch and verify ownership before updating
       const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
       if (
         existing.ok &&
@@ -438,86 +421,78 @@ router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Respo
           .status(403)
           .json(apiError("FORBIDDEN", "You do not have access to this document", undefined, meta()));
       }
-    }
 
-    const result = await updateDoc(
-      doctype,
-      name,
-      session.erpnextSid as string,
-      data as Record<string, unknown>,
-      session.accountId,
-    );
-    if (!result.ok) {
+      const result = await updateDoc(
+        doctype,
+        name,
+        session.erpnextSid as string,
+        data as Record<string, unknown>,
+        session.accountId,
+      );
+      if (!result.ok) {
+        res.set(responseHeaders());
+        return res.status(502).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      }
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "erp.doc.update",
+        resource: doctype,
+        resourceId: name,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "info",
+        outcome: "success",
+      });
+      // Meter billable doc update — fire-and-forget
+      const { meter } = await import("../lib/metering.js");
+      meter.increment(session.accountId, "erp_docs_updated").catch(() => {});
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      return res.json(apiSuccess(result.data, meta()));
+    } catch (error) {
+      Sentry.captureException(error, { extra: { request_id: requestId } });
+      return res.status(500).json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
     }
-    void logAudit({
-      accountId: session.accountId,
-      userId: session.userId,
-      action: "erp.doc.update",
-      resource: doctype,
-      resourceId: name,
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-      severity: "info",
-      outcome: "success",
-    });
-    // Meter billable doc update — fire-and-forget
-    const { meter } = await import("../lib/metering.js");
-    meter.increment(session.accountId, "erp_docs_updated").catch(() => {});
-    res.set(responseHeaders());
-    return res.json(apiSuccess(result.data, meta()));
-  } catch (error) {
-    Sentry.captureException(error, { extra: { request_id: requestId } });
-    return res.status(500).json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
-  }
-});
+  },
+);
 
 // ─── DELETE /erp/doc ────────────────────────────────────────────────────────────
 
-router.delete("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Response) => {
-  const start = Date.now();
-  const requestId = getRequestId(toWebRequest(req));
-  const meta = () => apiMeta({ request_id: requestId });
-  const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
+router.delete(
+  "/erp/doc",
+  requireAuth,
+  requireCsrf,
+  rateLimit("authenticated", "/api/erp/doc"),
+  async (req: Request, res: Response) => {
+    const start = Date.now();
+    const requestId = getRequestId(toWebRequest(req));
+    const meta = () => apiMeta({ request_id: requestId });
+    const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
-  try {
-    const session = req.session!;
-    const ctx = auditContext(toWebRequest(req));
+    try {
+      const session = req.session!;
+      const ctx = auditContext(toWebRequest(req));
 
-    if (!session.erpnextSid) {
-      res.set(responseHeaders());
-      return res
-        .status(401)
-        .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
-    }
+      if (!session.erpnextSid) {
+        res.set(responseHeaders());
+        return res
+          .status(401)
+          .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
+      }
 
-    const rateLimitDelete = await checkTieredRateLimit(
-      getClientIdentifier(toWebRequest(req)),
-      "authenticated",
-      "/api/erp/doc",
-    );
-    if (!rateLimitDelete.allowed) {
-      res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitDelete) });
-      return res
-        .status(429)
-        .json(apiError("RATE_LIMIT", "Too many requests. Try again in a minute.", undefined, meta()));
-    }
+      const doctype = req.query.doctype as string | undefined;
+      const name = req.query.name as string | undefined;
+      if (!doctype || !name) {
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("BAD_REQUEST", "doctype and name required", undefined, meta()));
+      }
 
-    const doctype = req.query.doctype as string | undefined;
-    const name = req.query.name as string | undefined;
-    if (!doctype || !name) {
-      res.set(responseHeaders());
-      return res.status(400).json(apiError("BAD_REQUEST", "doctype and name required", undefined, meta()));
-    }
+      if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
+      }
 
-    if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
-      res.set(responseHeaders());
-      return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
-    }
-
-    // Tenant isolation: fetch existing doc and verify ownership before deleting
-    if (COMPANY_SCOPED_DOCTYPES.has(doctype)) {
+      // Tenant isolation: always fetch and verify ownership before deleting
       const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
       if (
         existing.ok &&
@@ -528,31 +503,31 @@ router.delete("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Re
           .status(403)
           .json(apiError("FORBIDDEN", "You do not have access to this document", undefined, meta()));
       }
-    }
 
-    const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);
-    if (!result.ok) {
+      const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);
+      if (!result.ok) {
+        res.set(responseHeaders());
+        return res.status(502).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      }
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "erp.doc.delete",
+        resource: doctype,
+        resourceId: name,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "info",
+        outcome: "success",
+      });
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      return res.json(apiSuccess(result.data, meta()));
+    } catch (error) {
+      Sentry.captureException(error, { extra: { request_id: requestId } });
+      return res.status(500).json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
     }
-    void logAudit({
-      accountId: session.accountId,
-      userId: session.userId,
-      action: "erp.doc.delete",
-      resource: doctype,
-      resourceId: name,
-      ipAddress: ctx.ipAddress,
-      userAgent: ctx.userAgent,
-      severity: "info",
-      outcome: "success",
-    });
-    res.set(responseHeaders());
-    return res.json(apiSuccess(result.data, meta()));
-  } catch (error) {
-    Sentry.captureException(error, { extra: { request_id: requestId } });
-    return res.status(500).json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
-  }
-});
+  },
+);
 
 // ─── GET /erp/dashboard ────────────────────────────────────────────────────────
 

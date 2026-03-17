@@ -35,6 +35,13 @@ const ENDPOINT_OVERRIDES: Record<string, number> = {
   "/api/ai/chat": 30,
   "/api/audit/export": 5,
   "/api/auth/change-password": 5,
+  "/api/auth/2fa/verify": 5,
+  "/api/auth/2fa/setup": 5,
+  "/api/auth/2fa/disable": 5,
+  "/api/sso/authorize": 10,
+  "/api/erp/doc/pdf": 10,
+  "/api/erp/doc/email": 5,
+  "/api/erp/doc/upload": 10,
   "/api/webhooks/powertranz": 100,
 };
 
