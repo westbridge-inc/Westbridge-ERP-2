@@ -14,7 +14,6 @@
  */
 
 import { Router, Request, Response } from "express";
-import { createHash } from "crypto";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 
@@ -24,12 +23,8 @@ import {
   getClientIdentifier,
   rateLimitHeaders,
 } from "../lib/api/rate-limit-tiers.js";
-import { login, hashPassword, verifyPassword } from "../lib/services/auth.service.js";
-import {
-  createSession,
-  validateSession,
-  revokeSession,
-} from "../lib/services/session.service.js";
+import { login, changePassword } from "../lib/services/auth.service.js";
+import { createSession, validateSession, revokeSession } from "../lib/services/session.service.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { loginBodySchema, changePasswordBodySchema } from "../types/schemas/auth.js";
@@ -62,31 +57,17 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
 
   try {
     // --- Payload size guard ---
-    const contentLength = parseInt(
-      (req.headers["content-length"] as string) ?? "0",
-      10,
-    );
+    const contentLength = parseInt((req.headers["content-length"] as string) ?? "0", 10);
     if (contentLength > MAX_BODY_BYTES) {
       return res
         .status(413)
         .set(responseTime())
-        .json(
-          apiError(
-            "PAYLOAD_TOO_LARGE",
-            "Request body exceeds 1MB limit",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("PAYLOAD_TOO_LARGE", "Request body exceeds 1MB limit", undefined, meta()));
     }
 
     // --- IP / anonymous rate limit ---
     const id = getClientIdentifier(toWebRequest(req));
-    const rateLimit = await checkTieredRateLimit(
-      id,
-      "anonymous",
-      "/api/auth/login",
-    );
+    const rateLimit = await checkTieredRateLimit(id, "anonymous", "/api/auth/login");
     if (!rateLimit.allowed) {
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
       if (systemAccountId) {
@@ -102,28 +83,18 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
       return res
         .status(429)
         .set({ ...responseTime(), ...rateLimitHeaders(rateLimit) })
-        .json(
-          apiError(
-            "RATE_LIMIT",
-            "Too many attempts. Try again in a minute.",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("RATE_LIMIT", "Too many attempts. Try again in a minute.", undefined, meta()));
     }
 
     // --- Body validation via Zod schema ---
     const parsed = loginBodySchema.safeParse(req.body);
     if (!parsed.success) {
       const first = parsed.error.flatten().fieldErrors;
-      const message =
-        first.email?.[0] ?? first.password?.[0] ?? "Invalid request";
+      const message = first.email?.[0] ?? first.password?.[0] ?? "Invalid request";
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError("VALIDATION_ERROR", message, undefined, meta()),
-        );
+        .json(apiError("VALIDATION_ERROR", message, undefined, meta()));
     }
 
     // --- Per-email rate limit ---
@@ -144,32 +115,16 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
       return res
         .status(429)
         .set({ ...responseTime(), ...rateLimitHeaders(emailRateLimit) })
-        .json(
-          apiError(
-            "RATE_LIMIT",
-            "Too many attempts. Try again in a minute.",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("RATE_LIMIT", "Too many attempts. Try again in a minute.", undefined, meta()));
     }
 
     // --- Account lookup ---
-    const account = await prisma.account
-      .findUnique({ where: { email } })
-      .catch(() => null);
+    const account = await prisma.account.findUnique({ where: { email } }).catch(() => null);
     if (!account) {
       return res
         .status(401)
         .set(responseTime())
-        .json(
-          apiError(
-            "AUTH_FAILED",
-            "Invalid email or password.",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("AUTH_FAILED", "Invalid email or password.", undefined, meta()));
     }
 
     // --- User lookup / auto-create first owner ---
@@ -194,14 +149,7 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
         return res
           .status(401)
           .set(responseTime())
-          .json(
-            apiError(
-              "AUTH_FAILED",
-              "Invalid email or password.",
-              undefined,
-              meta(),
-            ),
-          );
+          .json(apiError("AUTH_FAILED", "Invalid email or password.", undefined, meta()));
       }
       // First user for this account -- create as owner
       user = await prisma.user.create({
@@ -226,19 +174,12 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
         severity: "warn",
         outcome: "failure",
       });
-      const mins = Math.ceil(
-        (user.lockedUntil.getTime() - Date.now()) / 60_000,
-      );
+      const mins = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
       return res
         .status(423)
         .set(responseTime())
         .json(
-          apiError(
-            "ACCOUNT_LOCKED",
-            `Account temporarily locked. Try again in ${mins} minutes.`,
-            undefined,
-            meta(),
-          ),
+          apiError("ACCOUNT_LOCKED", `Account temporarily locked. Try again in ${mins} minutes.`, undefined, meta()),
         );
     }
 
@@ -252,10 +193,7 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
         request_id: requestId,
       });
       const nextAttempts = (user.failedLoginAttempts ?? 0) + 1;
-      const lockedUntil =
-        nextAttempts >= 5
-          ? new Date(Date.now() + 15 * 60 * 1000)
-          : null;
+      const lockedUntil = nextAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
       await prisma.user.update({
         where: { id: user.id },
         data: {
@@ -295,14 +233,7 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
       return res
         .status(401)
         .set(responseTime())
-        .json(
-          apiError(
-            "AUTH_FAILED",
-            "Invalid email or password.",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("AUTH_FAILED", "Invalid email or password.", undefined, meta()));
     }
 
     // --- Reset failed login counter ---
@@ -313,30 +244,16 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
 
     // --- Create session ---
     const erpnextSid = loginResult.data;
-    const sessionResult = await createSession(
-      user.id,
-      toWebRequest(req),
-      erpnextSid,
-    );
+    const sessionResult = await createSession(user.id, toWebRequest(req), erpnextSid);
     if (!sessionResult.ok) {
       return res
         .status(500)
         .set(responseTime())
-        .json(
-          apiError(
-            "SESSION_ERROR",
-            sessionResult.error,
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("SESSION_ERROR", sessionResult.error, undefined, meta()));
     }
 
     const { token, expiresAt } = sessionResult.data;
-    const maxAge = Math.max(
-      0,
-      Math.floor((expiresAt.getTime() - Date.now()) / 1000),
-    );
+    const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
 
     // --- Audit success ---
     void logAudit({
@@ -381,14 +298,7 @@ router.post("/login", requireCsrf, async (req: Request, res: Response) => {
     return res
       .status(500)
       .set(responseTime())
-      .json(
-        apiError(
-          "SERVER_ERROR",
-          "An unexpected error occurred",
-          undefined,
-          meta(),
-        ),
-      );
+      .json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
   }
 });
 
@@ -401,10 +311,7 @@ router.post("/logout", requireCsrf, async (req: Request, res: Response) => {
   const ctx = auditContext(toWebRequest(req));
   const sid = req.cookies?.[COOKIE.SESSION_NAME] ?? undefined;
   if (sid) {
-    const sessionResult = await validateSession(
-      sid,
-      toWebRequest(req),
-    );
+    const sessionResult = await validateSession(sid, toWebRequest(req));
     if (sessionResult.ok) {
       void logAudit({
         accountId: sessionResult.data.accountId,
@@ -450,15 +357,10 @@ router.get("/validate", async (req: Request, res: Response) => {
     return res
       .status(401)
       .set(responseTime())
-      .json(
-        apiError("UNAUTHORIZED", "Missing session", undefined, meta()),
-      );
+      .json(apiError("UNAUTHORIZED", "Missing session", undefined, meta()));
   }
 
-  const result = await validateSession(
-    token,
-    toWebRequest(req),
-  );
+  const result = await validateSession(token, toWebRequest(req));
   if (!result.ok) {
     const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
     if (systemAccountId) {
@@ -474,9 +376,7 @@ router.get("/validate", async (req: Request, res: Response) => {
     return res
       .status(401)
       .set(responseTime())
-      .json(
-        apiError("UNAUTHORIZED", result.error, undefined, meta()),
-      );
+      .json(apiError("UNAUTHORIZED", result.error, undefined, meta()));
   }
 
   // Fetch name + email so the sidebar footer can show the real user
@@ -533,9 +433,7 @@ router.post("/forgot-password", requireCsrf, async (req: Request, res: Response)
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError("INVALID_JSON", "Invalid request body", undefined, meta()),
-        );
+        .json(apiError("INVALID_JSON", "Invalid request body", undefined, meta()));
     }
 
     const parsed = bodySchema.safeParse(body);
@@ -543,14 +441,7 @@ router.post("/forgot-password", requireCsrf, async (req: Request, res: Response)
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError(
-            "VALIDATION_ERROR",
-            "Valid email required",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("VALIDATION_ERROR", "Valid email required", undefined, meta()));
     }
 
     // --- Per-email rate limit ---
@@ -603,14 +494,7 @@ router.post("/reset-password", requireCsrf, async (req: Request, res: Response) 
       return res
         .status(429)
         .set({ ...responseTime(), ...rateLimitHeaders(rateLimit) })
-        .json(
-          apiError(
-            "RATE_LIMIT",
-            "Too many attempts. Try again later.",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("RATE_LIMIT", "Too many attempts. Try again later.", undefined, meta()));
     }
 
     // --- Body validation ---
@@ -619,9 +503,7 @@ router.post("/reset-password", requireCsrf, async (req: Request, res: Response) 
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError("INVALID_JSON", "Invalid request body", undefined, meta()),
-        );
+        .json(apiError("INVALID_JSON", "Invalid request body", undefined, meta()));
     }
 
     const parsed = bodySchema.safeParse(body);
@@ -629,14 +511,7 @@ router.post("/reset-password", requireCsrf, async (req: Request, res: Response) 
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError(
-            "VALIDATION_ERROR",
-            "token and password are required",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("VALIDATION_ERROR", "token and password are required", undefined, meta()));
     }
 
     const { token, password } = parsed.data;
@@ -645,14 +520,7 @@ router.post("/reset-password", requireCsrf, async (req: Request, res: Response) 
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError(
-            "VALIDATION_ERROR",
-            pwCheck.errors[0] ?? "Invalid password",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("VALIDATION_ERROR", pwCheck.errors[0] ?? "Invalid password", undefined, meta()));
     }
 
     const result = await applyPasswordReset({
@@ -663,9 +531,7 @@ router.post("/reset-password", requireCsrf, async (req: Request, res: Response) 
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError("RESET_FAILED", result.error, undefined, meta()),
-        );
+        .json(apiError("RESET_FAILED", result.error, undefined, meta()));
     }
 
     return res
@@ -677,14 +543,7 @@ router.post("/reset-password", requireCsrf, async (req: Request, res: Response) 
     return res
       .status(500)
       .set(responseTime())
-      .json(
-        apiError(
-          "SERVER_ERROR",
-          "An unexpected error occurred",
-          undefined,
-          meta(),
-        ),
-      );
+      .json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
   }
 });
 
@@ -702,46 +561,23 @@ router.post("/change-password", requireCsrf, async (req: Request, res: Response)
       return res
         .status(401)
         .set(responseTime())
-        .json(
-          apiError(
-            "UNAUTHORIZED",
-            "Not authenticated",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));
     }
-    const session = await validateSession(
-      token,
-      toWebRequest(req),
-    );
+    const session = await validateSession(token, toWebRequest(req));
     if (!session.ok) {
       return res
         .status(401)
         .set(responseTime())
-        .json(
-          apiError("UNAUTHORIZED", session.error, undefined, meta()),
-        );
+        .json(apiError("UNAUTHORIZED", session.error, undefined, meta()));
     }
 
     // --- Rate limit (authenticated) ---
-    const rateLimit = await checkTieredRateLimit(
-      session.data.userId,
-      "authenticated",
-      "/api/auth/change-password",
-    );
+    const rateLimit = await checkTieredRateLimit(session.data.userId, "authenticated", "/api/auth/change-password");
     if (!rateLimit.allowed) {
       return res
         .status(429)
         .set({ ...responseTime(), ...rateLimitHeaders(rateLimit) })
-        .json(
-          apiError(
-            "RATE_LIMIT",
-            "Too many attempts. Please wait before trying again.",
-            undefined,
-            meta(),
-          ),
-        );
+        .json(apiError("RATE_LIMIT", "Too many attempts. Please wait before trying again.", undefined, meta()));
     }
 
     // --- Body validation via Zod schema ---
@@ -755,118 +591,37 @@ router.post("/change-password", requireCsrf, async (req: Request, res: Response)
       return res
         .status(400)
         .set(responseTime())
-        .json(
-          apiError("VALIDATION", message, undefined, meta()),
-        );
-    }
-    const { currentPassword, newPassword } = bodyParsed.data;
-
-    // --- Validate new password policy ---
-    const { valid, errors } = validatePassword(newPassword);
-    if (!valid) {
-      return res
-        .status(400)
-        .set(responseTime())
-        .json(
-          apiError("VALIDATION", errors.join(". "), undefined, meta()),
-        );
+        .json(apiError("VALIDATION", message, undefined, meta()));
     }
 
-    // --- Verify current password ---
-    const user = await prisma.user.findUnique({
-      where: { id: session.data.userId },
-      select: { id: true, email: true, passwordHash: true },
+    // --- Delegate to service ---
+    const result = await changePassword({
+      userId: session.data.userId,
+      currentPassword: bodyParsed.data.currentPassword,
+      newPassword: bodyParsed.data.newPassword,
+      sessionToken: token,
     });
-    if (!user) {
+
+    if (!result.ok) {
+      const statusMap: Record<string, number> = {
+        VALIDATION: 400,
+        NOT_FOUND: 404,
+        UNAUTHORIZED: 401,
+      };
+      const status = statusMap[result.error.code] ?? 500;
       return res
-        .status(404)
+        .status(status)
         .set(responseTime())
-        .json(
-          apiError("NOT_FOUND", "User not found", undefined, meta()),
-        );
+        .json(apiError(result.error.code, result.error.message, undefined, meta()));
     }
 
-    const match = await verifyPassword(currentPassword, user.passwordHash ?? "");
-    if (!match) {
-      return res
-        .status(401)
-        .set(responseTime())
-        .json(
-          apiError(
-            "UNAUTHORIZED",
-            "Current password is incorrect",
-            undefined,
-            meta(),
-          ),
-        );
-    }
-
-    // --- Update password in ERPNext ---
-    const erpUrl = process.env.ERPNEXT_URL ?? "http://localhost:8080";
-    const erpApiKey = process.env.ERPNEXT_API_KEY ?? "";
-    const erpApiSecret = process.env.ERPNEXT_API_SECRET ?? "";
-    const erpRes = await fetch(
-      `${erpUrl}/api/method/frappe.core.doctype.user.user.update_password`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(erpApiKey && erpApiSecret
-            ? { Authorization: `token ${erpApiKey}:${erpApiSecret}` }
-            : {}),
-        },
-        body: JSON.stringify({
-          new_password: newPassword,
-          logout_all_sessions: 0,
-          user: user.email,
-        }),
-        signal: AbortSignal.timeout(10_000),
-      },
-    ).catch(() => null);
-
-    // ERPNext unavailable is non-fatal -- still update our DB hash
-    if (erpRes && !erpRes.ok) {
-      const text = await erpRes.text().catch(() => "");
-      Sentry.captureMessage("change-password: ERPNext update failed", {
-        extra: { status: erpRes.status, body: text },
-      });
-    }
-
-    // --- Update hash and revoke all other sessions (keep current only) ---
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const newHash = await hashPassword(newPassword);
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: newHash },
-      }),
-      prisma.session.deleteMany({
-        where: { userId: user.id, token: { not: tokenHash } },
-      }),
-    ]);
-
-    return res
-      .status(200)
-      .set(responseTime())
-      .json(
-        apiSuccess(
-          { message: "Password updated successfully" },
-          meta(),
-        ),
-      );
+    return res.status(200).set(responseTime()).json(apiSuccess(result.data, meta()));
   } catch (err) {
     Sentry.captureException(err);
     return res
       .status(500)
       .set(responseTime())
-      .json(
-        apiError(
-          "INTERNAL",
-          "An unexpected error occurred",
-          undefined,
-          meta(),
-        ),
-      );
+      .json(apiError("INTERNAL", "An unexpected error occurred", undefined, meta()));
   }
 });
 
