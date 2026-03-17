@@ -17,6 +17,10 @@ vi.mock("../../lib/data/prisma.js", () => ({
     },
     user: { findUnique: vi.fn() },
     billingInvoice: { findMany: vi.fn().mockResolvedValue([]) },
+    subscription: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 
@@ -85,6 +89,10 @@ vi.mock("../../lib/services/invite.service.js", () => ({
   createInvite: vi.fn(),
   acceptInvite: vi.fn(),
 }));
+vi.mock("../../lib/services/subscription.service.js", () => ({
+  changePlan: vi.fn(),
+  cancelSubscription: vi.fn(),
+}));
 vi.mock("../../lib/feature-flags.js", () => ({
   getAllFlags: vi.fn().mockResolvedValue([]),
   setFlag: vi.fn(),
@@ -117,16 +125,14 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi
-      .fn()
-      .mockResolvedValue({
-        api_calls: 0,
-        erp_docs_created: 0,
-        ai_tokens_input: 0,
-        ai_tokens_output: 0,
-        active_users_count: 0,
-        period: "2026-03",
-      }),
+    get: vi.fn().mockResolvedValue({
+      api_calls: 0,
+      erp_docs_created: 0,
+      ai_tokens_input: 0,
+      ai_tokens_output: 0,
+      active_users_count: 0,
+      period: "2026-03",
+    }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -145,6 +151,8 @@ vi.mock("@sentry/node", () => ({
 // ---------------------------------------------------------------------------
 import { createApp } from "../../app.js";
 import { validateSession } from "../../lib/services/session.service.js";
+import { validateCsrf } from "../../lib/csrf.js";
+import { changePlan, cancelSubscription } from "../../lib/services/subscription.service.js";
 
 const app = createApp();
 
@@ -152,6 +160,7 @@ const app = createApp();
 // Helpers
 // ---------------------------------------------------------------------------
 const SESSION_COOKIE = "westbridge_sid=test-session-token";
+const CSRF_COOKIE = "westbridge_csrf=test-csrf-token";
 
 function mockSession(role: string) {
   (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -238,6 +247,169 @@ describe("Billing Routes", () => {
       const res = await request(app).get("/api/billing/history").set("Cookie", SESSION_COOKIE);
 
       expect(res.headers["x-response-time"]).toBeDefined();
+    });
+  });
+
+  // ── POST /api/billing/change-plan ─────────────────────────────────────────
+  describe("POST /api/billing/change-plan", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app)
+        .post("/api/billing/change-plan")
+        .set("Cookie", CSRF_COOKIE)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ planId: "Business" });
+
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 403 when CSRF is invalid", async () => {
+      (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValueOnce(false);
+      mockSession("owner");
+
+      const res = await request(app)
+        .post("/api/billing/change-plan")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "bad-token")
+        .send({ planId: "Business" });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 403 for member role (no billing:manage permission)", async () => {
+      mockSession("member");
+
+      const res = await request(app)
+        .post("/api/billing/change-plan")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ planId: "Business" });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 400 for invalid planId", async () => {
+      mockSession("owner");
+
+      const res = await request(app)
+        .post("/api/billing/change-plan")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ planId: "InvalidPlan" });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when missing planId", async () => {
+      mockSession("owner");
+
+      const res = await request(app)
+        .post("/api/billing/change-plan")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({});
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 200 on valid plan change", async () => {
+      mockSession("owner");
+      (changePlan as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        data: { planId: "Business", status: "active" },
+      });
+
+      const res = await request(app)
+        .post("/api/billing/change-plan")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ planId: "Business" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty("planId", "Business");
+    });
+
+    it("returns 400 when changePlan service returns error", async () => {
+      mockSession("owner");
+      (changePlan as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        error: "Already on this plan",
+      });
+
+      const res = await request(app)
+        .post("/api/billing/change-plan")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ planId: "Starter" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("BILLING_ERROR");
+    });
+  });
+
+  // ── POST /api/billing/cancel ──────────────────────────────────────────────
+  describe("POST /api/billing/cancel", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app)
+        .post("/api/billing/cancel")
+        .set("Cookie", CSRF_COOKIE)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 403 when CSRF is invalid", async () => {
+      (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValueOnce(false);
+      mockSession("owner");
+
+      const res = await request(app)
+        .post("/api/billing/cancel")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "bad-token");
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 403 for member role (no billing:manage permission)", async () => {
+      mockSession("member");
+
+      const res = await request(app)
+        .post("/api/billing/cancel")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 200 on successful cancellation", async () => {
+      mockSession("owner");
+      (cancelSubscription as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        data: { status: "canceled" },
+      });
+
+      const res = await request(app)
+        .post("/api/billing/cancel")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty("status", "canceled");
+    });
+
+    it("returns 500 when cancelSubscription service fails", async () => {
+      mockSession("owner");
+      (cancelSubscription as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        error: "No active subscription",
+      });
+
+      const res = await request(app)
+        .post("/api/billing/cancel")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe("BILLING_ERROR");
     });
   });
 });
