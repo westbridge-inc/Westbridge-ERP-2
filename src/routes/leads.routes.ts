@@ -10,6 +10,15 @@ import * as Sentry from "@sentry/node";
 
 const router = Router();
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ─── Zod Schemas ────────────────────────────────────────────────────────────────
 
 const demoLeadSchema = z.object({
@@ -123,19 +132,21 @@ router.post("/leads/demo", async (req: Request, res: Response) => {
 
     // Persist lead to PostgreSQL (Blocker #12 fix — was Redis-only)
     const { prisma: db } = await import("../lib/data/prisma.js");
-    await db.lead.create({
-      data: {
-        type: "demo",
-        email: parsed.data.email,
-        name: parsed.data.name,
-        company: parsed.data.company,
-        phone: parsed.data.phone ?? null,
-        country: parsed.data.country,
-        source: req.headers.referer ?? null,
-      },
-    }).catch((e: unknown) => {
-      logger.error("Failed to persist demo lead", { error: e instanceof Error ? e.message : String(e) });
-    });
+    await db.lead
+      .create({
+        data: {
+          type: "demo",
+          email: parsed.data.email,
+          name: parsed.data.name,
+          company: parsed.data.company,
+          phone: parsed.data.phone ?? null,
+          country: parsed.data.country,
+          source: req.headers.referer ?? null,
+        },
+      })
+      .catch((e: unknown) => {
+        logger.error("Failed to persist demo lead", { error: e instanceof Error ? e.message : String(e) });
+      });
 
     // Send notification email to sales team
     const salesNotification = sendEmail({
@@ -144,11 +155,11 @@ router.post("/leads/demo", async (req: Request, res: Response) => {
       html: `
         <h2>New Demo Request</h2>
         <table>
-          <tr><td><strong>Name:</strong></td><td>${parsed.data.name}</td></tr>
-          <tr><td><strong>Email:</strong></td><td>${parsed.data.email}</td></tr>
-          <tr><td><strong>Company:</strong></td><td>${parsed.data.company}</td></tr>
-          <tr><td><strong>Phone:</strong></td><td>${parsed.data.phone ?? "N/A"}</td></tr>
-          <tr><td><strong>Country:</strong></td><td>${parsed.data.country}</td></tr>
+          <tr><td><strong>Name:</strong></td><td>${escapeHtml(parsed.data.name)}</td></tr>
+          <tr><td><strong>Email:</strong></td><td>${escapeHtml(parsed.data.email)}</td></tr>
+          <tr><td><strong>Company:</strong></td><td>${escapeHtml(parsed.data.company)}</td></tr>
+          <tr><td><strong>Phone:</strong></td><td>${escapeHtml(parsed.data.phone ?? "N/A")}</td></tr>
+          <tr><td><strong>Country:</strong></td><td>${escapeHtml(parsed.data.country)}</td></tr>
         </table>
         <p><em>Submitted at ${new Date().toISOString()}</em></p>
       `,
@@ -159,7 +170,7 @@ router.post("/leads/demo", async (req: Request, res: Response) => {
       to: parsed.data.email,
       subject: "We received your demo request - Westbridge",
       html: `
-        <h2>Thank you for your interest, ${parsed.data.name}!</h2>
+        <h2>Thank you for your interest, ${escapeHtml(parsed.data.name)}!</h2>
         <p>We've received your demo request and our team will be in touch within 1 business day.</p>
         <p>In the meantime, feel free to explore our documentation at <a href="https://westbridge.gy">westbridge.gy</a>.</p>
         <br>
@@ -234,14 +245,16 @@ router.post("/leads/newsletter", async (req: Request, res: Response) => {
 
     // Persist to PostgreSQL (Blocker #12 fix — was Redis-only)
     const { prisma: db } = await import("../lib/data/prisma.js");
-    await db.lead.create({
-      data: {
-        type: "newsletter",
-        email: parsed.data.email.trim().toLowerCase(),
-      },
-    }).catch((e: unknown) => {
-      logger.error("Failed to persist newsletter lead", { error: e instanceof Error ? e.message : String(e) });
-    });
+    await db.lead
+      .create({
+        data: {
+          type: "newsletter",
+          email: parsed.data.email.trim().toLowerCase(),
+        },
+      })
+      .catch((e: unknown) => {
+        logger.error("Failed to persist newsletter lead", { error: e instanceof Error ? e.message : String(e) });
+      });
 
     // Send welcome email to the subscriber
     void sendEmail({

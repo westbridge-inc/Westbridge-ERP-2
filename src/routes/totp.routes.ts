@@ -42,8 +42,24 @@ function generateTotp(secret: Buffer, timeStep = 30, digits = 6): string {
   timeBuffer.writeBigInt64BE(BigInt(time));
   const hmac = createHmac("sha1", secret).update(timeBuffer).digest();
   const offset = hmac[hmac.length - 1]! & 0xf;
-  const code = ((hmac[offset]! & 0x7f) << 24) | (hmac[offset + 1]! << 16) | (hmac[offset + 2]! << 8) | hmac[offset + 3]!;
+  const code =
+    ((hmac[offset]! & 0x7f) << 24) | (hmac[offset + 1]! << 16) | (hmac[offset + 2]! << 8) | hmac[offset + 3]!;
   return String(code % 10 ** digits).padStart(digits, "0");
+}
+
+function fromBase32(str: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const c of str.toUpperCase()) {
+    const idx = alphabet.indexOf(c);
+    if (idx === -1) continue;
+    bits += idx.toString(2).padStart(5, "0");
+  }
+  const bytes: number[] = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(parseInt(bits.substring(i, i + 8), 2));
+  }
+  return Buffer.from(bytes);
 }
 
 // Verify with ±1 time step window
@@ -69,7 +85,9 @@ router.post("/auth/2fa/setup", requireAuth, requireCsrf, async (req: Request, re
   // Check if already set up
   const existing = await prisma.totpSecret.findUnique({ where: { userId: session.userId } });
   if (existing?.verified) {
-    return res.status(400).json(apiError("ALREADY_ENABLED", "2FA is already enabled. Disable it first to reconfigure."));
+    return res
+      .status(400)
+      .json(apiError("ALREADY_ENABLED", "2FA is already enabled. Disable it first to reconfigure."));
   }
 
   // Generate secret
@@ -106,12 +124,17 @@ router.post("/auth/2fa/setup", requireAuth, requireCsrf, async (req: Request, re
   const issuer = "Westbridge";
   const otpauthUri = `otpauth://totp/${issuer}:${encodeURIComponent(user?.email ?? session.userId)}?secret=${base32Secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
 
-  return res.json(apiSuccess({
-    secret: base32Secret,
-    otpauthUri,
-    backupCodes,
-    qrHint: "Scan the QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.)",
-  }, apiMeta({ request_id: requestId })));
+  return res.json(
+    apiSuccess(
+      {
+        secret: base32Secret,
+        otpauthUri,
+        backupCodes,
+        qrHint: "Scan the QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.)",
+      },
+      apiMeta({ request_id: requestId }),
+    ),
+  );
 });
 
 // ─── POST /auth/2fa/verify ──────────────────────────────────────────────────
@@ -135,9 +158,9 @@ router.post("/auth/2fa/verify", requireAuth, requireCsrf, async (req: Request, r
 
   const secretBase32 = decrypt(totp.secret);
   // Decode base32 to bytes
-  const secretBytes = Buffer.from(secretBase32, "base64"); // simplified — in production use proper base32 decode
+  const secretBytes = fromBase32(secretBase32);
 
-  if (!verifyTotp(Buffer.from(secretBase32), parsed.data.code)) {
+  if (!verifyTotp(secretBytes, parsed.data.code)) {
     return res.status(401).json(apiError("INVALID_CODE", "Invalid verification code. Try again."));
   }
 

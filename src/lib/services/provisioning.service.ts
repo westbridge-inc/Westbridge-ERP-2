@@ -6,6 +6,7 @@
  * Called from billing.service.ts after payment is confirmed.
  */
 
+import { randomBytes } from "crypto";
 import { ok, err, type Result } from "../utils/result.js";
 import { prisma } from "../data/prisma.js";
 import { logger } from "../logger.js";
@@ -32,9 +33,7 @@ export interface ProvisionResult {
  * 2. Creates a User in ERPNext linked to the account email
  * 3. Updates the Account record with the erpnextCompany name
  */
-export async function provisionErpnextAccount(
-  accountId: string,
-): Promise<Result<ProvisionResult, string>> {
+export async function provisionErpnextAccount(accountId: string): Promise<Result<ProvisionResult, string>> {
   const account = await prisma.account.findUnique({
     where: { id: accountId },
     select: { email: true, companyName: true, currency: true, country: true },
@@ -43,11 +42,12 @@ export async function provisionErpnextAccount(
   if (!account) return err("Account not found");
 
   const companyName = account.companyName;
-  const abbr = companyName
-    .split(/\s+/)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("")
-    .slice(0, 5) || "WB";
+  const abbr =
+    companyName
+      .split(/\s+/)
+      .map((w) => w[0]?.toUpperCase() ?? "")
+      .join("")
+      .slice(0, 5) || "WB";
 
   try {
     // 1. Create Company in ERPNext
@@ -84,7 +84,7 @@ export async function provisionErpnextAccount(
           email: account.email,
           first_name: companyName,
           send_welcome_email: 0,
-          new_password: `WB-${Date.now()}-${Math.random().toString(36).slice(2)}`, // temp password, user resets via Westbridge
+          new_password: `WB-${Date.now()}-${randomBytes(16).toString("base64url")}`, // temp password, user resets via Westbridge
           roles: [
             { role: "System Manager" },
             { role: "Accounts Manager" },
