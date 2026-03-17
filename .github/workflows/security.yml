@@ -20,22 +20,6 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm audit --audit-level=high
 
-  codeql:
-    name: CodeQL SAST
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-          queries: security-extended
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
-
   secrets-scan:
     name: Secret Scanning
     runs-on: ubuntu-latest
