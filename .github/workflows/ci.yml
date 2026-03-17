@@ -217,6 +217,10 @@ jobs:
           ENCRYPTION_KEY: ci-test-encryption-key
           CSRF_SECRET: ci-test-csrf-key
           SESSION_SECRET: ci-test-session-key
+          POSTGRES_PASSWORD: ci-test-postgres
+          REDIS_PASSWORD: ""
+          MARIADB_ROOT_PASSWORD: ci-test-mariadb
+          ERPNEXT_ADMIN_PASSWORD: ci-test-admin
       - name: Wait for ERPNext to become healthy
         run: |
           echo "Waiting for ERPNext to start (up to 120s)..."
