@@ -8,7 +8,7 @@
  */
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { requireAuth, requirePermission, requireCsrf, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requirePermission, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import {
@@ -84,7 +84,7 @@ async function saveSsoConfig(config: SsoConfig): Promise<void> {
 
 // ─── GET /sso/authorize ─────────────────────────────────────────────────────
 
-router.get("/sso/authorize", async (req: Request, res: Response) => {
+router.get("/sso/authorize", rateLimit("anonymous", "/api/sso/authorize"), async (req: Request, res: Response) => {
   const accountId = req.query.account_id as string;
   if (!accountId) {
     return res.status(400).json(apiError("VALIDATION", "account_id query parameter required"));
