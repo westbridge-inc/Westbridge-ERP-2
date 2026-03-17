@@ -132,7 +132,15 @@ export async function markAccountPaid(
     const updated = (result.count ?? 0) > 0;
     if (updated) {
       // Auto-provision ERPNext company + create subscription (fire-and-forget with retries)
-      void import("./provisioning.service.js").then(({ provisionWithRetry }) => provisionWithRetry(accountId));
+      void import("./provisioning.service.js")
+        .then(({ provisionWithRetry }) => provisionWithRetry(accountId))
+        .catch(async (e: unknown) => {
+          const { logger } = await import("../logger.js");
+          logger.error("ERPNext provisioning failed", {
+            accountId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
 
       void import("./subscription.service.js")
         .then(async ({ createSubscription }) => {
