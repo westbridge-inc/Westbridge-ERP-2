@@ -6,13 +6,13 @@
  */
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { validateSession, revokeAllUserSessions } from "../lib/services/session.service.js";
+import { revokeAllUserSessions } from "../lib/services/session.service.js";
 import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { COOKIE } from "../lib/constants.js";
-import { toWebRequest, requireCsrf } from "../middleware/auth.js";
+import { toWebRequest, requireAuth, requireCsrf } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
 const router = Router();
@@ -24,38 +24,27 @@ const profileSchema = z.object({
 // ---------------------------------------------------------------------------
 // PATCH /account/profile — update the current user's profile (name)
 // ---------------------------------------------------------------------------
-router.patch("/account/profile", requireCsrf, async (req: Request, res: Response) => {
+router.patch("/account/profile", requireCsrf, requireAuth, async (req: Request, res: Response) => {
   const requestId = getRequestId(toWebRequest(req));
   const meta = { request_id: requestId };
 
-  // Session validation
-  const token = req.cookies?.[COOKIE.SESSION_NAME];
-  if (!token) {
-    return res.status(401).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta));
-  }
-  const sessionResult = await validateSession(token, toWebRequest(req));
-  if (!sessionResult.ok) {
-    return res.status(401).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta));
-  }
-  const session = sessionResult.data;
+  const session = req.session!;
 
   const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/account/profile");
   if (!rateLimit.allowed) {
     return res
       .status(429)
       .set(rateLimitHeaders(rateLimit) as Record<string, string>)
-      .json(
-        apiError("RATE_LIMITED", "Too many requests. Please try again shortly.", undefined, meta)
-      );
+      .json(apiError("RATE_LIMITED", "Too many requests. Please try again shortly.", undefined, meta));
   }
 
   // Parse and validate body
   const body = req.body;
   const parsed = profileSchema.safeParse(body);
   if (!parsed.success) {
-    return res.status(400).json(
-      apiError("INVALID_REQUEST", "Name is required and must be under 120 characters.", undefined, meta)
-    );
+    return res
+      .status(400)
+      .json(apiError("INVALID_REQUEST", "Name is required and must be under 120 characters.", undefined, meta));
   }
 
   const { name } = parsed.data;
@@ -71,26 +60,19 @@ router.patch("/account/profile", requireCsrf, async (req: Request, res: Response
 // ---------------------------------------------------------------------------
 // GET /account/export — GDPR right to data portability (Article 20)
 // ---------------------------------------------------------------------------
-router.post("/account/export", requireCsrf, async (req: Request, res: Response) => {
+router.post("/account/export", requireCsrf, requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const token = req.cookies?.[COOKIE.SESSION_NAME];
-    if (!token) {
-      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta()));
-    }
-    const sessionResult = await validateSession(token, toWebRequest(req));
-    if (!sessionResult.ok) {
-      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta()));
-    }
-    const session = sessionResult.data;
+    const session = req.session!;
 
     if (session.role !== "owner" && session.role !== "admin") {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(
-        apiError("FORBIDDEN", "Only account owner or admin can export account data", undefined, meta())
-      );
+      return res
+        .status(403)
+        .set("X-Response-Time", `${Date.now() - start}ms`)
+        .json(apiError("FORBIDDEN", "Only account owner or admin can export account data", undefined, meta()));
     }
 
     const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/account/export");
@@ -109,16 +91,27 @@ router.post("/account/export", requireCsrf, async (req: Request, res: Response) 
       prisma.account.findUnique({
         where: { id: session.accountId },
         select: {
-          id: true, email: true, companyName: true, plan: true,
-          status: true, erpnextCompany: true, modulesSelected: true,
-          createdAt: true, updatedAt: true,
+          id: true,
+          email: true,
+          companyName: true,
+          plan: true,
+          status: true,
+          erpnextCompany: true,
+          modulesSelected: true,
+          createdAt: true,
+          updatedAt: true,
         },
       }),
       prisma.user.findMany({
         where: { accountId: session.accountId },
         select: {
-          id: true, name: true, email: true, role: true,
-          status: true, createdAt: true, updatedAt: true,
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
         },
       }),
       prisma.auditLog.findMany({
@@ -126,36 +119,57 @@ router.post("/account/export", requireCsrf, async (req: Request, res: Response) 
         orderBy: { timestamp: "desc" },
         take: 10_000,
         select: {
-          id: true, action: true, resource: true, resourceId: true,
-          userId: true, severity: true, outcome: true, timestamp: true,
+          id: true,
+          action: true,
+          resource: true,
+          resourceId: true,
+          userId: true,
+          severity: true,
+          outcome: true,
+          timestamp: true,
         },
       }),
       prisma.subscription.findMany({
         where: { accountId: session.accountId },
         select: {
-          id: true, planId: true, status: true, currentPeriodStart: true,
-          currentPeriodEnd: true, createdAt: true,
+          id: true,
+          planId: true,
+          status: true,
+          currentPeriodStart: true,
+          currentPeriodEnd: true,
+          createdAt: true,
         },
       }),
       prisma.apiKey.findMany({
         where: { accountId: session.accountId },
         select: {
-          id: true, prefix: true, label: true, createdAt: true,
-          lastUsedAt: true, expiresAt: true,
+          id: true,
+          prefix: true,
+          label: true,
+          createdAt: true,
+          lastUsedAt: true,
+          expiresAt: true,
         },
       }),
       prisma.webhookEndpoint.findMany({
         where: { accountId: session.accountId },
         select: {
-          id: true, url: true, events: true, enabled: true,
+          id: true,
+          url: true,
+          events: true,
+          enabled: true,
           createdAt: true,
         },
       }),
       prisma.inviteToken.findMany({
         where: { accountId: session.accountId },
         select: {
-          id: true, email: true, role: true, usedAt: true,
-          createdAt: true, expiresAt: true,
+          id: true,
+          email: true,
+          role: true,
+          usedAt: true,
+          createdAt: true,
+          expiresAt: true,
         },
       }),
     ]);
@@ -194,35 +208,29 @@ router.post("/account/export", requireCsrf, async (req: Request, res: Response) 
       .json(exportData);
   } catch (err) {
     Sentry.captureException(err);
-    return res.status(500).set("X-Response-Time", `${Date.now() - start}ms`).json(
-      apiError("INTERNAL", "An unexpected error occurred", undefined, meta())
-    );
+    return res
+      .status(500)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .json(apiError("INTERNAL", "An unexpected error occurred", undefined, meta()));
   }
 });
 
 // ---------------------------------------------------------------------------
 // DELETE /account/delete — GDPR right-to-deletion (owner only)
 // ---------------------------------------------------------------------------
-router.delete("/account/delete", requireCsrf, async (req: Request, res: Response) => {
+router.delete("/account/delete", requireCsrf, requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const token = req.cookies?.[COOKIE.SESSION_NAME];
-    if (!token) {
-      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));
-    }
-    const sessionResult = await validateSession(token, toWebRequest(req));
-    if (!sessionResult.ok) {
-      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", sessionResult.error, undefined, meta()));
-    }
-    const session = sessionResult.data;
+    const session = req.session!;
 
     if (session.role !== "owner") {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(
-        apiError("FORBIDDEN", "Only the account owner can delete the account", undefined, meta())
-      );
+      return res
+        .status(403)
+        .set("X-Response-Time", `${Date.now() - start}ms`)
+        .json(apiError("FORBIDDEN", "Only the account owner can delete the account", undefined, meta()));
     }
 
     const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/account/delete");
@@ -231,9 +239,7 @@ router.delete("/account/delete", requireCsrf, async (req: Request, res: Response
         .status(429)
         .set("X-Response-Time", `${Date.now() - start}ms`)
         .set(rateLimitHeaders(rateLimit) as Record<string, string>)
-        .json(
-          apiError("RATE_LIMIT", "Too many attempts. Please wait before trying again.", undefined, meta())
-        );
+        .json(apiError("RATE_LIMIT", "Too many attempts. Please wait before trying again.", undefined, meta()));
     }
 
     const ctx = auditContext(toWebRequest(req));
@@ -268,9 +274,7 @@ router.delete("/account/delete", requireCsrf, async (req: Request, res: Response
     // Invalidate all Redis session caches for every user in the deleted account.
     // DB sessions were already deleted in the transaction above; this flushes
     // the Redis cache so revoked sessions cannot authenticate during the cache TTL.
-    await Promise.all(
-      userIds.map((uid) => revokeAllUserSessions(uid).catch(() => {}))
-    );
+    await Promise.all(userIds.map((uid) => revokeAllUserSessions(uid).catch(() => {})));
 
     await logAudit({
       accountId: session.accountId,
@@ -282,12 +286,15 @@ router.delete("/account/delete", requireCsrf, async (req: Request, res: Response
       outcome: "success",
     });
 
-    return res.set("X-Response-Time", `${Date.now() - start}ms`).json(apiSuccess({ message: "Account deleted" }, meta()));
+    return res
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .json(apiSuccess({ message: "Account deleted" }, meta()));
   } catch (err) {
     Sentry.captureException(err);
-    return res.status(500).set("X-Response-Time", `${Date.now() - start}ms`).json(
-      apiError("INTERNAL", "An unexpected error occurred", undefined, meta())
-    );
+    return res
+      .status(500)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .json(apiError("INTERNAL", "An unexpected error occurred", undefined, meta()));
   }
 });
 
