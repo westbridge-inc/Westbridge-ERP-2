@@ -12,7 +12,6 @@ vi.mock("../../logger.js", () => ({
 
 import { hashPassword, verifyPassword, login } from "../auth.service.js";
 import { erpLogin } from "../../data/auth.client.js";
-import { prisma } from "../../data/prisma.js";
 
 describe("auth.service", () => {
   beforeEach(() => {

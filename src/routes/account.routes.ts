@@ -11,7 +11,6 @@ import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-ti
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
-import { COOKIE } from "../lib/constants.js";
 import { toWebRequest, requireAuth, requireCsrf } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
