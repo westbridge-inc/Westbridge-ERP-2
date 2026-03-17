@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import supertest from "supertest";
+import request from "supertest";
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
 
 vi.mock("../../lib/logger.js", () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -8,10 +12,9 @@ vi.mock("../../lib/logger.js", () => ({
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
-    auditLog: { create: vi.fn() },
-    webhookEndpoint: { findMany: vi.fn().mockResolvedValue([]) },
     account: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
+    auditLog: { create: vi.fn() },
   },
 }));
 
@@ -21,7 +24,7 @@ vi.mock("../../lib/redis.js", () => ({
 }));
 
 vi.mock("../../lib/services/session.service.js", () => ({
-  validateSession: vi.fn().mockResolvedValue({ ok: false, error: "no session" }),
+  validateSession: vi.fn(),
   createSession: vi.fn(),
   revokeSession: vi.fn(),
 }));
@@ -58,7 +61,9 @@ vi.mock("@sentry/node", () => ({
   captureMessage: vi.fn(),
 }));
 
-vi.mock("../../lib/services/auth.service.js", () => ({ login: vi.fn() }));
+vi.mock("../../lib/services/auth.service.js", () => ({
+  login: vi.fn(),
+}));
 vi.mock("../../lib/services/password-reset.service.js", () => ({
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { sent: true } }),
   applyPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { success: true } }),
@@ -73,14 +78,12 @@ vi.mock("../../lib/services/erp.service.js", () => ({
   updateDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
   deleteDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
 }));
-
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyPaymentCallback: vi.fn().mockReturnValue(true),
-  isPaymentSuccess: vi.fn().mockReturnValue(false),
-  markAccountPaid: vi.fn().mockResolvedValue({ ok: true, data: { updated: true } }),
+  verifyPaymentCallback: vi.fn(),
+  isPaymentSuccess: vi.fn(),
+  markAccountPaid: vi.fn(),
 }));
-
 vi.mock("../../lib/services/invite.service.js", () => ({
   createInvite: vi.fn(),
   acceptInvite: vi.fn(),
@@ -134,68 +137,97 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
   capture: vi.fn(),
 }));
 
+vi.mock("../../lib/ai/claude.js", () => ({
+  anthropic: null, // AI not configured
+  AI_MODELS: { chat: "claude-sonnet-4-5", analysis: "claude-opus-4-5" },
+  hasUnlimitedAi: vi.fn(),
+  isAiConfigured: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock("../../lib/ai/tools.js", () => ({
+  ERP_TOOLS: [],
+  executeTool: vi.fn(),
+}));
+
+vi.mock("../../lib/ai/context.js", () => ({
+  buildSystemPrompt: vi.fn().mockReturnValue("system prompt"),
+}));
+
+vi.mock("../../lib/ai/limits.js", () => ({
+  checkAiLimit: vi
+    .fn()
+    .mockResolvedValue({ allowed: true, usage: { queries: 0, tokens: 0 }, remaining: { queries: 50, tokens: 100000 } }),
+  recordAiUsage: vi.fn(),
+  getAiUsage: vi.fn().mockResolvedValue({ queries: 5, tokens: 10000 }),
+}));
+
+// ---------------------------------------------------------------------------
+// Import app AFTER mocks
+// ---------------------------------------------------------------------------
 import { createApp } from "../../app.js";
-import { isPaymentSuccess, markAccountPaid } from "../../lib/services/billing.service.js";
+import { validateSession } from "../../lib/services/session.service.js";
+import { prisma } from "../../lib/data/prisma.js";
 
 const app = createApp();
 
-describe("webhooks routes", () => {
+const SESSION_COOKIE = "westbridge_sid=test-session-token";
+
+function mockSession(role: string) {
+  (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    data: {
+      userId: "usr_1",
+      accountId: "acc_1",
+      role,
+      erpnextSid: "erp-sid-123",
+    },
+  });
+}
+
+describe("AI Routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("GET /api/webhooks requires auth", async () => {
-    const res = await supertest(app).get("/api/webhooks");
-    expect([401, 404]).toContain(res.status);
+  describe("POST /api/ai/chat", () => {
+    it("returns 200 with AI not configured message when anthropic is null", async () => {
+      const res = await request(app)
+        .post("/api/ai/chat")
+        .set("Cookie", `${SESSION_COOKIE}; westbridge_csrf=test-csrf-token`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ message: "Hello", module: "general" });
+
+      // anthropic is null, so it should return graceful degradation
+      expect(res.status).toBe(200);
+      expect(res.body.data.reply).toContain("not configured");
+    });
   });
 
-  it("POST /api/webhooks requires auth", async () => {
-    const res = await supertest(app)
-      .post("/api/webhooks")
-      .send({ url: "https://example.com/hook", events: ["erp.doc_updated"] });
-    expect([401, 403, 404]).toContain(res.status);
-  });
-
-  describe("POST /api/webhooks/powertranz", () => {
-    it("returns 200 for non-approved payment", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(false);
-
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        SpiToken: "test-token",
-        Approved: false,
-        ResponseCode: "05",
-        ResponseMessage: "Declined",
-      });
-
-      expect(res.status).toBe(200);
+  describe("GET /api/ai/usage", () => {
+    it("returns 401 without session", async () => {
+      const res = await request(app).get("/api/ai/usage");
+      expect(res.status).toBe(401);
     });
 
-    it("returns 200 for approved payment with account activation", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      (markAccountPaid as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, data: { updated: true } });
-
-      const res = await supertest(app).post("/api/webhooks/powertranz?accountId=acc_123").send({
-        SpiToken: "test-token",
-        TransactionIdentifier: "txn_123",
-        OrderIdentifier: "acc_123",
-        Approved: true,
-        ResponseCode: "00",
-        TotalAmount: 199.99,
-        CurrencyCode: "840",
+    it("returns 200 with usage data", async () => {
+      mockSession("member");
+      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        plan: "Starter",
       });
 
+      const res = await request(app).get("/api/ai/usage").set("Cookie", SESSION_COOKIE);
+
       expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty("ai");
     });
 
-    it("returns 200 when no accountId found", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    it("returns 404 when account not found", async () => {
+      mockSession("member");
+      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        Approved: true,
-        ResponseCode: "00",
-      });
+      const res = await request(app).get("/api/ai/usage").set("Cookie", SESSION_COOKIE);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(404);
     });
   });
 });

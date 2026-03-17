@@ -1,17 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import supertest from "supertest";
+import request from "supertest";
 
-vi.mock("../../lib/logger.js", () => ({
-  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
 
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
-    auditLog: { create: vi.fn() },
-    webhookEndpoint: { findMany: vi.fn().mockResolvedValue([]) },
     account: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
+    auditLog: { create: vi.fn() },
+    ssoConfig: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn(),
+    },
   },
 }));
 
@@ -21,7 +24,7 @@ vi.mock("../../lib/redis.js", () => ({
 }));
 
 vi.mock("../../lib/services/session.service.js", () => ({
-  validateSession: vi.fn().mockResolvedValue({ ok: false, error: "no session" }),
+  validateSession: vi.fn(),
   createSession: vi.fn(),
   revokeSession: vi.fn(),
 }));
@@ -73,14 +76,12 @@ vi.mock("../../lib/services/erp.service.js", () => ({
   updateDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
   deleteDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
 }));
-
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyPaymentCallback: vi.fn().mockReturnValue(true),
-  isPaymentSuccess: vi.fn().mockReturnValue(false),
-  markAccountPaid: vi.fn().mockResolvedValue({ ok: true, data: { updated: true } }),
+  verifyPaymentCallback: vi.fn(),
+  isPaymentSuccess: vi.fn(),
+  markAccountPaid: vi.fn(),
 }));
-
 vi.mock("../../lib/services/invite.service.js", () => ({
   createInvite: vi.fn(),
   acceptInvite: vi.fn(),
@@ -133,69 +134,106 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
   identify: vi.fn(),
   capture: vi.fn(),
 }));
+vi.mock("../../lib/encryption.js", () => ({
+  encrypt: vi.fn().mockReturnValue("encrypted"),
+  decrypt: vi.fn().mockReturnValue("decrypted"),
+}));
+vi.mock("../../lib/services/sso.service.js", () => ({
+  buildAuthorizationUrl: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
+  handleCallback: vi.fn().mockResolvedValue({ ok: false, error: "invalid" }),
+  findOrCreateSsoUser: vi.fn(),
+}));
 
+// ---------------------------------------------------------------------------
+// Import AFTER mocks
+// ---------------------------------------------------------------------------
 import { createApp } from "../../app.js";
-import { isPaymentSuccess, markAccountPaid } from "../../lib/services/billing.service.js";
+import { validateSession } from "../../lib/services/session.service.js";
 
 const app = createApp();
+const SESSION_COOKIE = "westbridge_sid=test-session-token";
 
-describe("webhooks routes", () => {
+function mockSession(role: string) {
+  (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    data: {
+      userId: "usr_1",
+      accountId: "acc_1",
+      role,
+      erpnextSid: "erp-sid-123",
+    },
+  });
+}
+
+describe("SSO Routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("GET /api/webhooks requires auth", async () => {
-    const res = await supertest(app).get("/api/webhooks");
-    expect([401, 404]).toContain(res.status);
-  });
-
-  it("POST /api/webhooks requires auth", async () => {
-    const res = await supertest(app)
-      .post("/api/webhooks")
-      .send({ url: "https://example.com/hook", events: ["erp.doc_updated"] });
-    expect([401, 403, 404]).toContain(res.status);
-  });
-
-  describe("POST /api/webhooks/powertranz", () => {
-    it("returns 200 for non-approved payment", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(false);
-
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        SpiToken: "test-token",
-        Approved: false,
-        ResponseCode: "05",
-        ResponseMessage: "Declined",
-      });
-
-      expect(res.status).toBe(200);
+  describe("GET /api/sso/authorize", () => {
+    it("returns 400 without account_id", async () => {
+      const res = await request(app).get("/api/sso/authorize");
+      expect(res.status).toBe(400);
     });
 
-    it("returns 200 for approved payment with account activation", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      (markAccountPaid as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, data: { updated: true } });
+    it("returns 404 when SSO not configured", async () => {
+      const res = await request(app).get("/api/sso/authorize?account_id=acc_1");
+      expect(res.status).toBe(404);
+    });
+  });
 
-      const res = await supertest(app).post("/api/webhooks/powertranz?accountId=acc_123").send({
-        SpiToken: "test-token",
-        TransactionIdentifier: "txn_123",
-        OrderIdentifier: "acc_123",
-        Approved: true,
-        ResponseCode: "00",
-        TotalAmount: 199.99,
-        CurrencyCode: "840",
-      });
-
-      expect(res.status).toBe(200);
+  describe("GET /api/sso/callback", () => {
+    it("redirects on error from IdP", async () => {
+      const res = await request(app).get("/api/sso/callback?error=access_denied");
+      expect(res.status).toBe(302);
     });
 
-    it("returns 200 when no accountId found", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    it("redirects on missing code/state", async () => {
+      const res = await request(app).get("/api/sso/callback");
+      expect(res.status).toBe(302);
+    });
 
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        Approved: true,
-        ResponseCode: "00",
-      });
+    it("redirects on missing accountId in state", async () => {
+      const res = await request(app).get("/api/sso/callback?code=abc&state=:");
+      // state.split(":")[0] is empty string => falsy
+      expect(res.status).toBe(302);
+    });
+  });
 
+  describe("GET /api/sso/config", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app).get("/api/sso/config");
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 403 for non-admin", async () => {
+      mockSession("member");
+      const res = await request(app).get("/api/sso/config").set("Cookie", SESSION_COOKIE);
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 200 with not configured for owner", async () => {
+      mockSession("owner");
+      const res = await request(app).get("/api/sso/config").set("Cookie", SESSION_COOKIE);
       expect(res.status).toBe(200);
+      expect(res.body.data.configured).toBe(false);
+    });
+  });
+
+  describe("PUT /api/sso/config", () => {
+    it("returns 401 without authentication", async () => {
+      const res = await request(app).put("/api/sso/config").send({});
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 403 for non-admin", async () => {
+      mockSession("member");
+      const res = await request(app)
+        .put("/api/sso/config")
+        .set("Cookie", `${SESSION_COOKIE}; westbridge_csrf=test-csrf-token`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({});
+      expect(res.status).toBe(403);
     });
   });
 });
