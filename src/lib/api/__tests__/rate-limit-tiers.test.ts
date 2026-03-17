@@ -6,7 +6,7 @@
  * Integration tests (Redis required): checkTieredRateLimit, checkEmailRateLimit, checkErpAccountRateLimit
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import {
   getClientIdentifier,
   rateLimitHeaders,

@@ -14,7 +14,6 @@ import { requireAuth, requireCsrf, requirePermission, toWebRequest } from "../mi
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { sendEmail } from "../lib/email/index.js";
-import { COOKIE } from "../lib/constants.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
@@ -51,7 +50,6 @@ const pdfQuerySchema = z.object({
 });
 
 router.get("/erp/doc/pdf", requireAuth, async (req: Request, res: Response) => {
-  const requestId = getRequestId(toWebRequest(req));
   const session = req.session!;
   const ctx = auditContext(toWebRequest(req));
 
@@ -154,8 +152,9 @@ router.post(
         return res.status(502).json(apiError("UPSTREAM_ERROR", "Failed to generate PDF for email"));
       }
 
-      const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
-      const filename = `${doctype.replace(/\s+/g, "-")}-${name}.pdf`;
+      // TODO: wire pdfBuffer+filename into sendEmail once Resend attachment support is added
+      const _pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+      const _filename = `${doctype.replace(/\s+/g, "-")}-${name}.pdf`;
 
       // Get account info for "from" branding
       const account = await (
@@ -228,7 +227,7 @@ router.post("/erp/doc/upload", requireAuth, requireCsrf, async (req: Request, re
     });
 
     if (!erpRes.ok) {
-      const text = await erpRes.text().catch(() => "");
+      await erpRes.text().catch(() => "");
       return res.status(502).json(apiError("UPSTREAM_ERROR", "File upload failed"));
     }
 

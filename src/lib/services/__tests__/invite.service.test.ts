@@ -20,7 +20,7 @@ vi.mock("../../email/templates.js", () => ({
   inviteEmail: vi.fn(() => "<html>invite</html>"),
 }));
 
-import { createInvite, validateInviteToken, acceptInvite } from "../invite.service.js";
+import { createInvite, validateInviteToken } from "../invite.service.js";
 import { prisma } from "../../data/prisma.js";
 import { sendEmail } from "../../email/index.js";
 

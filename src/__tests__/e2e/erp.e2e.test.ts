@@ -6,7 +6,7 @@
  * HTTP server.
  */
 
-import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before any app import so vi.mock hoisting works

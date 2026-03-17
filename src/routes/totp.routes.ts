@@ -35,8 +35,8 @@ function toBase32(buffer: Buffer): string {
   return output;
 }
 
-// TOTP generation (RFC 6238)
-function generateTotp(secret: Buffer, timeStep = 30, digits = 6): string {
+// TOTP generation (RFC 6238) — used by verifyTotp's inline variant; kept for programmatic token generation
+function _generateTotp(secret: Buffer, timeStep = 30, digits = 6): string {
   const time = Math.floor(Date.now() / 1000 / timeStep);
   const timeBuffer = Buffer.alloc(8);
   timeBuffer.writeBigInt64BE(BigInt(time));

@@ -5,7 +5,7 @@
  * session validation, rate limiting) for authentication-related endpoints.
  */
 
-import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before any app import so vi.mock hoisting works
@@ -158,7 +158,6 @@ import { createApp } from "../../app.js";
 import { startServer } from "./setup.js";
 import { prisma } from "../../lib/data/prisma.js";
 import { validateCsrf } from "../../lib/csrf.js";
-import { login } from "../../lib/services/auth.service.js";
 
 // ---------------------------------------------------------------------------
 // Boot a real HTTP server
