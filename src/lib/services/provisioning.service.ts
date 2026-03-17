@@ -10,6 +10,8 @@ import { randomBytes } from "crypto";
 import { ok, err, type Result } from "../utils/result.js";
 import { prisma } from "../data/prisma.js";
 import { logger } from "../logger.js";
+import { sendEmail } from "../email/index.js";
+import * as Sentry from "@sentry/node";
 
 const ERPNEXT_URL = process.env.ERPNEXT_URL ?? "http://localhost:8080";
 const ERPNEXT_API_KEY = process.env.ERPNEXT_API_KEY ?? "";
@@ -129,6 +131,61 @@ export async function provisionErpnextAccount(accountId: string): Promise<Result
       accountId,
       error: e instanceof Error ? e.message : String(e),
     });
+    Sentry.captureException(e, { extra: { accountId, step: "provisioning" } });
     return err(e instanceof Error ? e.message : "Provisioning failed");
   }
+}
+
+/**
+ * Provision with retries and error notification.
+ * Retries up to 3 times with exponential backoff (5s, 15s, 45s).
+ * On final failure, sends an alert email to the account owner and reports to Sentry.
+ */
+export async function provisionWithRetry(accountId: string): Promise<Result<ProvisionResult, string>> {
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 5000;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const result = await provisionErpnextAccount(accountId);
+    if (result.ok) return result;
+
+    logger.warn("ERPNext provisioning attempt failed", {
+      accountId,
+      attempt,
+      maxRetries: MAX_RETRIES,
+      error: result.error,
+    });
+
+    if (attempt < MAX_RETRIES) {
+      const delay = BASE_DELAY_MS * Math.pow(3, attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  // All retries exhausted — notify account owner and ops
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { email: true, companyName: true },
+  });
+
+  if (account) {
+    void sendEmail({
+      to: account.email,
+      subject: "Action needed: Your Westbridge account setup is incomplete",
+      html: `
+        <h2>Setup Incomplete</h2>
+        <p>We were unable to automatically set up the backend services for <strong>${account.companyName}</strong>.</p>
+        <p>Your account is active and your payment was processed successfully, but some modules may not work correctly until setup completes.</p>
+        <p>Our team has been notified and will resolve this shortly. If you need immediate assistance, please reply to this email.</p>
+        <p>We apologise for the inconvenience.</p>
+      `,
+    });
+  }
+
+  Sentry.captureMessage("ERPNext provisioning failed after all retries", {
+    level: "error",
+    extra: { accountId, email: account?.email },
+  });
+
+  return err("Provisioning failed after all retries. Support has been notified.");
 }

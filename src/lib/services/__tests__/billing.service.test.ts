@@ -32,6 +32,7 @@ vi.mock("../../email/templates.js", () => ({
 
 vi.mock("../provisioning.service.js", () => ({
   provisionErpnextAccount: vi.fn().mockResolvedValue({ ok: true }),
+  provisionWithRetry: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("../subscription.service.js", () => ({

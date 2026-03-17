@@ -15,6 +15,7 @@ vi.mock("../../lib/data/prisma.js", () => ({
     user: {
       findUnique: vi.fn().mockResolvedValue({ id: "usr_1", name: "Test User", email: "test@co.com" }),
       findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(1),
       update: vi.fn().mockResolvedValue({}),
     },
     session: {
@@ -23,6 +24,7 @@ vi.mock("../../lib/data/prisma.js", () => ({
     inviteToken: {
       findUnique: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
       deleteMany: vi.fn().mockResolvedValue({}),
     },
     auditLog: {

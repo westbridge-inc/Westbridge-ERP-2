@@ -106,6 +106,19 @@ function parseEnv() {
       throw new Error("Insecure default secrets detected in production. See warnings above.");
     }
 
+    // Email is critical: password resets, invites, and payment receipts all require it
+    if (!result.data.RESEND_API_KEY && !result.data.SMTP_HOST) {
+      throw new Error(
+        "RESEND_API_KEY (or SMTP_HOST) is required in production. " +
+          "Password resets, invites, and payment receipts will silently fail without it.",
+      );
+    }
+
+    // AI is optional but warn if not configured
+    if (!result.data.ANTHROPIC_API_KEY) {
+      console.warn("⚠️  ANTHROPIC_API_KEY not set — AI assistant will show 'coming soon' to users");
+    }
+
     // Non-fatal warnings for observability & config
     if (!result.data.SENTRY_DSN) {
       console.warn("⚠️  SENTRY_DSN not set — error tracking is disabled in production");
