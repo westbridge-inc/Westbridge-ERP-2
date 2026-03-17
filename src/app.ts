@@ -17,6 +17,7 @@ import helmet from "helmet";
 import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
 import { requestLogger } from "./middleware/request-logger.js";
+import { requireActiveSubscription } from "./middleware/auth.js";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
@@ -93,6 +94,10 @@ export function createApp(): express.Application {
 
   // Create a shared router for all API routes
   const apiRouter = Router();
+
+  // Block past_due/canceled accounts from accessing non-billing endpoints
+  apiRouter.use(requireActiveSubscription);
+
   apiRouter.use("/auth", authRoutes);
   apiRouter.use(signupRoutes);
   apiRouter.use(csrfRoutes);
