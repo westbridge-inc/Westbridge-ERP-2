@@ -47,7 +47,7 @@ model User {
   accountId            String    @map("account_id")
   email                String    /// @pii - Personal Identifiable Information
   name                 String?   /// @pii - Personal Identifiable Information
-  role                 String    // "owner" | "admin" | "member"
+  role                 String    // "owner" | "admin" | "manager" | "member" | "viewer"
   passwordHash         String?   @map("password_hash")
   status               String    @default("active") // active | suspended | invited
   failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
@@ -153,7 +153,7 @@ model InviteToken {
   id        String    @id @default(cuid())
   accountId String    @map("account_id")
   email     String    /// @pii - Personal Identifiable Information
-  role      String    @default("member") // owner | admin | member
+  role      String    @default("member") // owner | admin | manager | member | viewer
   tokenHash String    @unique @map("token_hash") // SHA-256 of raw token
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")

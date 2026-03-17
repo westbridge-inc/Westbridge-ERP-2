@@ -9,6 +9,7 @@ import { hasPermission, type Permission } from "../lib/rbac.js";
 import { logAudit } from "../lib/services/audit.service.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { apiError } from "../types/api.js";
+import { prisma } from "../lib/data/prisma.js";
 import {
   checkTieredRateLimit,
   getClientIdentifier,
@@ -67,6 +68,74 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     next();
   } catch {
     res.status(500).json({ ok: false, error: { code: "AUTH_ERROR", message: "Authentication check failed" } });
+  }
+}
+
+/**
+ * Middleware that checks the account's subscription is active.
+ * Blocks access when the account is past_due or canceled, except for
+ * billing, auth, and health endpoints so users can still pay or log out.
+ *
+ * Must be used AFTER requireAuth (which attaches req.session).
+ */
+const SUBSCRIPTION_EXEMPT_PREFIXES = [
+  "/api/billing/",
+  "/api/v1/billing/",
+  "/api/auth/",
+  "/api/v1/auth/",
+  "/api/health/",
+  "/api/v1/health/",
+  "/api/account/",
+  "/api/v1/account/",
+  "/api/usage",
+  "/api/v1/usage",
+];
+
+export async function requireActiveSubscription(req: Request, res: Response, next: NextFunction): Promise<void> {
+  // Allow billing/auth/health endpoints through so users can pay or log out
+  if (SUBSCRIPTION_EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) {
+    next();
+    return;
+  }
+
+  const session = req.session;
+  if (!session) {
+    next();
+    return;
+  }
+
+  try {
+    const account = await prisma.account.findUnique({
+      where: { id: session.accountId },
+      select: { status: true },
+    });
+
+    if (account?.status === "past_due") {
+      res.status(402).json({
+        ok: false,
+        error: {
+          code: "SUBSCRIPTION_PAST_DUE",
+          message: "Your subscription is past due. Please update your payment method to continue.",
+        },
+      });
+      return;
+    }
+
+    if (account?.status === "canceled") {
+      res.status(402).json({
+        ok: false,
+        error: {
+          code: "SUBSCRIPTION_CANCELED",
+          message: "Your subscription has been canceled. Please resubscribe to continue.",
+        },
+      });
+      return;
+    }
+
+    next();
+  } catch {
+    // Don't block access on DB errors — fail open for availability
+    next();
   }
 }
 
@@ -150,9 +219,10 @@ export function rateLimit(tier: RateLimitTier, endpoint: string) {
     const identifier = req.session?.userId ?? req.session?.accountId ?? getClientIdentifier(toWebRequest(req));
     const result = await checkTieredRateLimit(identifier, tier, endpoint);
     if (!result.allowed) {
-      res.status(429).set(rateLimitHeaders(result)).json(
-        apiError("RATE_LIMITED", "Too many requests. Please try again shortly.")
-      );
+      res
+        .status(429)
+        .set(rateLimitHeaders(result))
+        .json(apiError("RATE_LIMITED", "Too many requests. Please try again shortly."));
       return;
     }
     next();

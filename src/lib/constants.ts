@@ -21,11 +21,11 @@ export const RATE_LIMIT = {
 
 /** Per-plan rate limit tiers. Values are max requests per windowMs. */
 export const RATE_LIMIT_TIERS = {
-  anonymous:    { requests: 20,   windowMs: 60_000 },
-  starter:      { requests: 60,   windowMs: 60_000 },
-  business:     { requests: 200,  windowMs: 60_000 },
-  enterprise:   { requests: 1000, windowMs: 60_000 },
-  api_key:      { requests: 500,  windowMs: 60_000 },
+  anonymous: { requests: 20, windowMs: 60_000 },
+  starter: { requests: 60, windowMs: 60_000 },
+  business: { requests: 200, windowMs: 60_000 },
+  enterprise: { requests: 1000, windowMs: 60_000 },
+  api_key: { requests: 500, windowMs: 60_000 },
 } as const;
 
 export type RateLimitTier = keyof typeof RATE_LIMIT_TIERS;
@@ -35,11 +35,11 @@ export type RateLimitTier = keyof typeof RATE_LIMIT_TIERS;
  * A request that costs 5x counts as 5 tokens against the rate limit.
  */
 export const RATE_LIMIT_COST = {
-  erp_list:   5,  // listing all docs is DB + ERP overhead
-  erp_doc:    2,  // single doc fetch is cheaper
-  erp_create: 3,  // write to ERP is expensive
-  ai_chat:    10, // LLM calls are expensive and slow
-  default:    1,
+  erp_list: 5, // listing all docs is DB + ERP overhead
+  erp_doc: 2, // single doc fetch is cheaper
+  erp_create: 3, // write to ERP is expensive
+  ai_chat: 10, // LLM calls are expensive and slow
+  default: 1,
 } as const;
 
 export type RateLimitOperation = keyof typeof RATE_LIMIT_COST;
@@ -55,6 +55,15 @@ export const PAGINATION = {
   DEFAULT_PAGE: 1,
   DEFAULT_PER_PAGE: 20,
   MAX_PER_PAGE: 100,
+} as const;
+
+/** Maximum active users + pending invites per plan. null = unlimited. */
+export const PLAN_USER_LIMITS: Record<string, number | null> = {
+  Solo: 3,
+  Starter: 10,
+  Growth: 25,
+  Business: 30,
+  Enterprise: null, // unlimited
 } as const;
 
 /** Caribbean / Guyana defaults */

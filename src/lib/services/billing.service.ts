@@ -130,14 +130,14 @@ export async function markAccountPaid(
     });
     const updated = (result.count ?? 0) > 0;
     if (updated) {
-      // Auto-provision ERPNext company + create subscription (fire-and-forget)
-      void import("./provisioning.service.js").then(({ provisionErpnextAccount }) =>
-        provisionErpnextAccount(accountId),
-      ).catch(() => {});
-      void import("./subscription.service.js").then(async ({ createSubscription }) => {
-        const acc = await prisma.account.findUnique({ where: { id: accountId }, select: { plan: true } });
-        if (acc) await createSubscription(accountId, acc.plan);
-      }).catch(() => {});
+      // Auto-provision ERPNext company + create subscription (fire-and-forget with retries)
+      void import("./provisioning.service.js").then(({ provisionWithRetry }) => provisionWithRetry(accountId));
+      void import("./subscription.service.js")
+        .then(async ({ createSubscription }) => {
+          const acc = await prisma.account.findUnique({ where: { id: accountId }, select: { plan: true } });
+          if (acc) await createSubscription(accountId, acc.plan);
+        })
+        .catch(() => {});
 
       // Send activation email (fire-and-forget — don't fail if email fails)
       const account = await prisma.account.findUnique({ where: { id: accountId } }).catch(() => null);
