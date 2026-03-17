@@ -5,9 +5,12 @@
  * POST /analytics/vitals — receives Core Web Vitals from reportWebVitals()
  */
 import { Router, Request, Response } from "express";
+import { z } from "zod";
 import { getRedis } from "../lib/redis.js";
 import { getClientIdentifier, checkTieredRateLimit } from "../lib/api/rate-limit-tiers.js";
 import { toWebRequest } from "../middleware/auth.js";
+import { validateSession } from "../lib/services/session.service.js";
+import { COOKIE } from "../lib/constants.js";
 
 const router = Router();
 
@@ -15,21 +18,65 @@ const EVENT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 const MAX_EVENTS_PER_ACCOUNT = 500;
 const VITALS_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
+// Zod schemas for analytics body validation
+const trackBodySchema = z
+  .object({
+    accountId: z.string().uuid().optional(),
+    event: z.string().max(200).optional(),
+  })
+  .passthrough();
+
+const vitalsBodySchema = z
+  .object({
+    name: z.string().max(50).optional(),
+    value: z.number().optional(),
+    rating: z.string().max(20).optional(),
+    url: z.string().max(2000).optional(),
+    timestamp: z.string().optional(),
+  })
+  .passthrough();
+
+/**
+ * Attempt to resolve the accountId from the session cookie. If a valid
+ * session exists, prefer session.accountId over any body-supplied value.
+ * Returns "anonymous" as fallback.
+ */
+async function resolveAccountId(req: Request, bodyAccountId?: string): Promise<string> {
+  const token = req.cookies?.[COOKIE.SESSION_NAME];
+  if (token) {
+    try {
+      const result = await validateSession(token, toWebRequest(req));
+      if (result.ok) {
+        return result.data.accountId;
+      }
+    } catch {
+      // Non-critical — fall through to body or anonymous
+    }
+  }
+  return bodyAccountId ?? "anonymous";
+}
+
 // ---------------------------------------------------------------------------
 // POST /analytics/track — receives product analytics events
 // ---------------------------------------------------------------------------
 router.post("/analytics/track", async (req: Request, res: Response) => {
   // sendBeacon sends as text/plain — the body may arrive as a raw string
-  let body: Record<string, unknown>;
+  let rawBody: Record<string, unknown>;
   try {
     if (typeof req.body === "string") {
-      body = JSON.parse(req.body) as Record<string, unknown>;
+      rawBody = JSON.parse(req.body) as Record<string, unknown>;
     } else {
-      body = req.body as Record<string, unknown>;
+      rawBody = req.body as Record<string, unknown>;
     }
   } catch {
     return res.status(204).end();
   }
+
+  const parsed = trackBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return res.status(204).end(); // silently drop invalid payloads
+  }
+  const body = parsed.data;
 
   const identifier = getClientIdentifier(toWebRequest(req));
   const { allowed } = await checkTieredRateLimit(identifier, "anonymous", "/api/analytics/track");
@@ -40,9 +87,9 @@ router.post("/analytics/track", async (req: Request, res: Response) => {
   const redis = getRedis();
   if (redis) {
     try {
-      const accountId = typeof body.accountId === "string" ? body.accountId : "anonymous";
+      const accountId = await resolveAccountId(req, body.accountId);
       const key = `analytics:events:${accountId}`;
-      const event = JSON.stringify({ ...body, receivedAt: new Date().toISOString() });
+      const event = JSON.stringify({ ...body, accountId, receivedAt: new Date().toISOString() });
 
       const pipeline = redis.pipeline();
       pipeline.lpush(key, event);
@@ -61,16 +108,22 @@ router.post("/analytics/track", async (req: Request, res: Response) => {
 // POST /analytics/vitals — receives Core Web Vitals
 // ---------------------------------------------------------------------------
 router.post("/analytics/vitals", async (req: Request, res: Response) => {
-  let body: Record<string, unknown>;
+  let rawBody: Record<string, unknown>;
   try {
     if (typeof req.body === "string") {
-      body = JSON.parse(req.body) as Record<string, unknown>;
+      rawBody = JSON.parse(req.body) as Record<string, unknown>;
     } else {
-      body = req.body as Record<string, unknown>;
+      rawBody = req.body as Record<string, unknown>;
     }
   } catch {
     return res.status(204).end();
   }
+
+  const parsed = vitalsBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return res.status(204).end(); // silently drop invalid payloads
+  }
+  const body = parsed.data;
 
   const identifier = getClientIdentifier(toWebRequest(req));
   const { allowed } = await checkTieredRateLimit(identifier, "anonymous", "/api/analytics/vitals");
