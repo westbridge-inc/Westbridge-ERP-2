@@ -16,6 +16,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
+import { requestLogger } from "./middleware/request-logger.js";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
@@ -67,6 +68,9 @@ export function createApp(): express.Application {
 
   // Also parse text/plain for analytics beacon requests
   app.use(express.text({ type: "text/plain" }));
+
+  // Per-request logger context — attaches req.log with request ID
+  app.use(requestLogger);
 
   // Request logging (skipped in test env)
   app.use((req, _res, next) => {
