@@ -14,7 +14,7 @@ function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
-export type InviteRole = "owner" | "admin" | "member";
+export type InviteRole = "admin" | "manager" | "member" | "viewer";
 
 export interface CreateInviteInput {
   accountId: string;
@@ -25,9 +25,7 @@ export interface CreateInviteInput {
   baseUrl: string;
 }
 
-export async function createInvite(
-  input: CreateInviteInput
-): Promise<Result<{ inviteId: string }, string>> {
+export async function createInvite(input: CreateInviteInput): Promise<Result<{ inviteId: string }, string>> {
   const { accountId, email, role, inviterName, companyName, baseUrl } = input;
 
   // Check for existing active (non-used, non-expired) invite
@@ -75,9 +73,7 @@ export interface ValidateInviteResult {
   role: InviteRole;
 }
 
-export async function validateInviteToken(
-  raw: string
-): Promise<Result<ValidateInviteResult, string>> {
+export async function validateInviteToken(raw: string): Promise<Result<ValidateInviteResult, string>> {
   const tokenHash = hashToken(raw);
   const invite = await prisma.inviteToken.findUnique({ where: { tokenHash } });
   if (!invite) return err("Invalid or expired invite link.");
@@ -97,7 +93,7 @@ export interface AcceptInviteInput {
 }
 
 export async function acceptInvite(
-  input: AcceptInviteInput
+  input: AcceptInviteInput,
 ): Promise<Result<{ userId: string; accountId: string }, string>> {
   const validateResult = await validateInviteToken(input.raw);
   if (!validateResult.ok) return err(validateResult.error);

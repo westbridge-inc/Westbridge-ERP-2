@@ -15,14 +15,9 @@ import * as Sentry from "@sentry/node";
 
 const router = Router();
 
-const METRICS_TOKEN = process.env.METRICS_TOKEN;
+import { PLAN_USER_LIMITS } from "../lib/constants.js";
 
-// User limits by plan — these mirror the plan definitions in lib/modules.ts
-const PLAN_USER_LIMITS: Record<string, number | null> = {
-  Starter:      5,
-  Growth:       25,
-  Business:     null, // unlimited
-};
+const METRICS_TOKEN = process.env.METRICS_TOKEN;
 
 // ---------------------------------------------------------------------------
 // GET /metrics — Prometheus metrics scrape endpoint
@@ -58,11 +53,7 @@ router.get("/metrics", async (req: Request, res: Response) => {
   const { registry } = await import("../lib/metrics.js");
   const metrics = await registry.metrics();
 
-  return res
-    .status(200)
-    .set("Content-Type", registry.contentType)
-    .set("Cache-Control", "no-store")
-    .send(metrics);
+  return res.status(200).set("Content-Type", registry.contentType).set("Cache-Control", "no-store").send(metrics);
 });
 
 // ---------------------------------------------------------------------------
@@ -97,27 +88,31 @@ router.get("/usage", requireAuth, async (req: Request, res: Response) => {
     const userLimit = PLAN_USER_LIMITS[plan] ?? null;
     const aiCostUsd = estimateAiCost(usage.ai_tokens_input, usage.ai_tokens_output);
 
-    return res
-      .set("X-Response-Time", `${Date.now() - start}ms`)
-      .json(
-        apiSuccess({
+    return res.set("X-Response-Time", `${Date.now() - start}ms`).json(
+      apiSuccess(
+        {
           period: usage.period,
           plan,
           usage: {
-            api_calls:       { count: usage.api_calls, limit: null },
+            api_calls: { count: usage.api_calls, limit: null },
             erp_docs_created: { count: usage.erp_docs_created, limit: null },
-            active_users:    { count: usage.active_users_count, limit: userLimit },
-            ai_tokens:       {
+            active_users: { count: usage.active_users_count, limit: userLimit },
+            ai_tokens: {
               input: usage.ai_tokens_input,
               output: usage.ai_tokens_output,
               cost_usd: Math.round(aiCostUsd * 100) / 100,
             },
           },
-        }, meta())
-      );
+        },
+        meta(),
+      ),
+    );
   } catch (error) {
     Sentry.captureException(error);
-    return res.status(500).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
+    return res
+      .status(500)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
   }
 });
 
@@ -127,10 +122,7 @@ router.get("/usage", requireAuth, async (req: Request, res: Response) => {
 router.get("/docs", async (_req: Request, res: Response) => {
   const { generateOpenApiSpec } = await import("../lib/api/openapi.js");
   const spec = generateOpenApiSpec();
-  return res
-    .set("Content-Type", "application/json")
-    .set("Cache-Control", "public, max-age=300")
-    .json(spec);
+  return res.set("Content-Type", "application/json").set("Cache-Control", "public, max-age=300").json(spec);
 });
 
 export default router;
