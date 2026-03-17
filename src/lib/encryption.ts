@@ -77,6 +77,6 @@ export function decrypt(ciphertext: string): string {
       (primaryErr.message.includes("Unsupported state") ||
         primaryErr.message.includes("bad decrypt") ||
         primaryErr.message.includes("authentication"));
-    throw new Error(isAuthFailure ? "Decryption failed: authentication tag mismatch" : "Decryption failed");
+    throw new Error(isAuthFailure ? "Decryption failed: authentication tag mismatch" : "Decryption failed", { cause: primaryErr });
   }
 }
