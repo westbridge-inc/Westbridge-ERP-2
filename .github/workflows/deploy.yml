@@ -88,6 +88,7 @@ jobs:
         if: env.RAILWAY_TOKEN != ''
         run: railway up --detach
       - name: Verify staging health
+        id: staging_health
         if: env.RAILWAY_TOKEN != ''
         run: |
           STAGING_URL="${{ vars.STAGING_URL || 'https://westbridge-api-staging.up.railway.app' }}"
@@ -96,7 +97,13 @@ jobs:
             if [ "$STATUS" = "200" ]; then echo "Healthy after ${i} attempts"; exit 0; fi
             sleep 5
           done
-          echo "::warning::Health check failed after 10 attempts"
+          echo "::error::Health check failed after 10 attempts"
+          exit 1
+      - name: Rollback staging (Railway)
+        if: failure() && steps.staging_health.outcome == 'failure' && env.RAILWAY_TOKEN != ''
+        run: |
+          echo "::warning::Rolling back staging deployment due to failed health check"
+          railway rollback
 
   approve-production:
     name: Production Approval Gate
@@ -153,6 +160,7 @@ jobs:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
       - name: Verify production health
+        id: prod_health
         if: env.RAILWAY_TOKEN != '' || env.FLY_API_TOKEN != ''
         run: |
           DEPLOY_URL="${{ vars.DEPLOY_URL || 'https://westbridge-api.fly.dev' }}"
@@ -161,4 +169,15 @@ jobs:
             if [ "$STATUS" = "200" ]; then echo "Healthy after ${i} attempts"; exit 0; fi
             sleep 5
           done
-          echo "::warning::Health check failed after 10 attempts"
+          echo "::error::Health check failed after 10 attempts"
+          exit 1
+      - name: Rollback production (Railway)
+        if: failure() && steps.prod_health.outcome == 'failure' && env.RAILWAY_TOKEN != ''
+        run: |
+          echo "::error::Rolling back production deployment due to failed health check"
+          railway rollback
+      - name: Rollback production (Fly.io)
+        if: failure() && steps.prod_health.outcome == 'failure' && env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
+        run: |
+          echo "::error::Rolling back production deployment due to failed health check"
+          flyctl releases rollback

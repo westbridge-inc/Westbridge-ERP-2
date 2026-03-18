@@ -18,19 +18,23 @@ const router = Router();
 import { PLAN_USER_LIMITS } from "../lib/constants.js";
 
 const METRICS_TOKEN = process.env.METRICS_TOKEN;
+const NODE_ENV = process.env.NODE_ENV ?? "development";
 
 // ---------------------------------------------------------------------------
 // GET /metrics — Prometheus metrics scrape endpoint
 // ---------------------------------------------------------------------------
 router.get("/metrics", async (req: Request, res: Response) => {
-  // IP-based or token-based protection
+  // Token-based authentication: if METRICS_TOKEN is configured, require Bearer token
   if (METRICS_TOKEN) {
     const auth = req.headers["authorization"] as string;
     if (auth !== `Bearer ${METRICS_TOKEN}`) {
       return res.status(401).send("Unauthorized");
     }
+  } else if (NODE_ENV === "production") {
+    // In production, METRICS_TOKEN must be configured — block access entirely
+    return res.status(403).send("Forbidden: METRICS_TOKEN not configured");
   } else {
-    // If no token configured, only allow from loopback/private ranges.
+    // In development/test without a token: only allow from loopback/private ranges.
     // Use req.ip (respects Express trust proxy) with X-Forwarded-For as fallback.
     const forwarded = req.headers["x-forwarded-for"] as string;
     const ip = forwarded?.split(",")[0]?.trim() ?? req.ip ?? "";

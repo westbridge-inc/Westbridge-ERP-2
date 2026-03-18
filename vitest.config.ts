@@ -38,12 +38,11 @@ export default defineConfig({
         "src/lib/data/prisma.ts",
       ],
       thresholds: {
-        // Raised from 45% → 63% after test coverage campaign (117 new tests)
-        // Target: 80/70/75/80 before GA release
-        statements: 55,
-        branches: 65,
-        functions: 90,
-        lines: 55,
+        // Raised from 55/65/90/55 → 70/70/80/70 as part of hardening
+        statements: 70,
+        branches: 70,
+        functions: 80,
+        lines: 70,
       },
     },
   },
