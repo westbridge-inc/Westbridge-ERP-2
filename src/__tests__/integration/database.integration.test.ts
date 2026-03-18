@@ -67,7 +67,7 @@ describe.skipIf(shouldSkip)("Database Integration Tests", () => {
             companyName: "Second Corp",
             plan: "starter",
           },
-        })
+        }),
       ).rejects.toThrow();
     });
 
@@ -121,7 +121,7 @@ describe.skipIf(shouldSkip)("Database Integration Tests", () => {
             email: "user@test.com",
             role: "admin",
           },
-        })
+        }),
       ).rejects.toThrow();
     });
   });
@@ -182,7 +182,7 @@ describe.skipIf(shouldSkip)("Database Integration Tests", () => {
       await expect(
         prisma.session.create({
           data: { userId, token: tokenHash, expiresAt: new Date(Date.now() + 86400000) },
-        })
+        }),
       ).rejects.toThrow();
     });
 
@@ -278,7 +278,10 @@ describe.skipIf(shouldSkip)("Database Integration Tests", () => {
         },
       });
 
-      // Delete account — should cascade
+      // Delete audit logs first — AuditLog uses onDelete: Restrict to protect compliance data
+      await prisma.auditLog.deleteMany({ where: { accountId: account.id } });
+
+      // Delete account — should cascade to users and sessions
       await prisma.account.delete({ where: { id: account.id } });
 
       // Verify everything is gone
