@@ -5,8 +5,8 @@
  *
  * Creates:
  *  - A demo account (Westbridge Demo Co.) with GYD defaults
- *  - An owner user (admin@westbridge.local / password123)
- *  - A member user (member@westbridge.local / password123)
+ *  - An owner user (admin@westbridge.local / Westbridge-Dev-2026!)
+ *  - A member user (member@westbridge.local / Westbridge-Dev-2026!)
  *
  * Idempotent: safe to run multiple times (upserts by email).
  */

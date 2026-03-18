@@ -4,6 +4,8 @@ vi.mock("../../data/erpnext.client.js", () => ({
   erpList: vi.fn(),
   erpGet: vi.fn(),
   erpCreate: vi.fn(),
+  erpUpdate: vi.fn(),
+  erpDelete: vi.fn(),
 }));
 
 vi.mock("../../erp-constants.js", () => ({
@@ -11,7 +13,7 @@ vi.mock("../../erp-constants.js", () => ({
 }));
 
 import { executeTool, ERP_TOOLS } from "../tools.js";
-import { erpList, erpGet, erpCreate } from "../../data/erpnext.client.js";
+import { erpList, erpGet, erpCreate, erpUpdate, erpDelete } from "../../data/erpnext.client.js";
 
 describe("AI tools", () => {
   beforeEach(() => {
@@ -146,6 +148,80 @@ describe("AI tools", () => {
       (erpList as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("connection timeout"));
       const result = await executeTool("list_records", { doctype: "Sales Invoice" }, "sid", "acc_1", null);
       expect(result).toContain("Tool error");
+    });
+
+    it("handles update_record", async () => {
+      (erpUpdate as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+        data: { name: "INV-001", status: "Paid" },
+      });
+      const result = await executeTool(
+        "update_record",
+        { doctype: "Sales Invoice", name: "INV-001", data: { status: "Paid" } },
+        "sid",
+        "acc_1",
+        "MyCompany",
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.success).toBe(true);
+      expect(erpUpdate).toHaveBeenCalledWith("Sales Invoice", "INV-001", "sid", { status: "Paid" }, "acc_1");
+    });
+
+    it("handles update_record error", async () => {
+      (erpUpdate as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "not found" });
+      const result = await executeTool(
+        "update_record",
+        { doctype: "Sales Invoice", name: "INV-999", data: { status: "Paid" } },
+        "sid",
+        "acc_1",
+        null,
+      );
+      expect(result).toContain("Error updating");
+    });
+
+    it("rejects update_record with disallowed doctype", async () => {
+      const result = await executeTool(
+        "update_record",
+        { doctype: "Hacker Table", name: "X", data: {} },
+        "sid",
+        "acc_1",
+        null,
+      );
+      expect(result).toContain("not allowed");
+      expect(erpUpdate).not.toHaveBeenCalled();
+    });
+
+    it("handles delete_record", async () => {
+      (erpDelete as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, data: {} });
+      const result = await executeTool(
+        "delete_record",
+        { doctype: "Sales Invoice", name: "INV-001" },
+        "sid",
+        "acc_1",
+        null,
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toContain("INV-001");
+      expect(erpDelete).toHaveBeenCalledWith("Sales Invoice", "INV-001", "sid", "acc_1");
+    });
+
+    it("handles delete_record error", async () => {
+      (erpDelete as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "permission denied" });
+      const result = await executeTool(
+        "delete_record",
+        { doctype: "Sales Invoice", name: "INV-001" },
+        "sid",
+        "acc_1",
+        null,
+      );
+      expect(result).toContain("Error deleting");
+    });
+
+    it("rejects delete_record with disallowed doctype", async () => {
+      const result = await executeTool("delete_record", { doctype: "Hacker Table", name: "X" }, "sid", "acc_1", null);
+      expect(result).toContain("not allowed");
+      expect(erpDelete).not.toHaveBeenCalled();
     });
   });
 });

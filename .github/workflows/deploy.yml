@@ -90,13 +90,13 @@ jobs:
       - name: Verify staging health
         if: env.RAILWAY_TOKEN != ''
         run: |
-          sleep 15
           STAGING_URL="${{ vars.STAGING_URL || 'https://westbridge-api-staging.up.railway.app' }}"
-          STATUS=$(curl -sf "${STAGING_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
-          echo "Staging health: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "::warning::Staging health check returned $STATUS"
-          fi
+          for i in $(seq 1 10); do
+            STATUS=$(curl -sf "${STAGING_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
+            if [ "$STATUS" = "200" ]; then echo "Healthy after ${i} attempts"; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::Health check failed after 10 attempts"
 
   approve-production:
     name: Production Approval Gate
@@ -155,10 +155,10 @@ jobs:
       - name: Verify production health
         if: env.RAILWAY_TOKEN != '' || env.FLY_API_TOKEN != ''
         run: |
-          sleep 15
           DEPLOY_URL="${{ vars.DEPLOY_URL || 'https://westbridge-api.fly.dev' }}"
-          STATUS=$(curl -sf "${DEPLOY_URL}/api/health" | jq -r '.status' || echo "unknown")
-          echo "Health check status: $STATUS"
-          if [ "$STATUS" != "healthy" ]; then
-            echo "::warning::Health check did not return healthy"
-          fi
+          for i in $(seq 1 10); do
+            STATUS=$(curl -sf "${DEPLOY_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
+            if [ "$STATUS" = "200" ]; then echo "Healthy after ${i} attempts"; exit 0; fi
+            sleep 5
+          done
+          echo "::warning::Health check failed after 10 attempts"

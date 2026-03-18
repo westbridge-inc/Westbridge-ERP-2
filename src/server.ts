@@ -1,3 +1,4 @@
+import "./instrumentation.js";
 import "dotenv/config";
 import { env } from "./lib/env.js"; // Validate env FIRST — crash at startup, not at runtime
 import * as Sentry from "@sentry/node";
