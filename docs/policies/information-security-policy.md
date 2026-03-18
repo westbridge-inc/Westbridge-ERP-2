@@ -188,11 +188,11 @@ All enforcement actions are documented and maintained by Human Resources for the
 
 ## 11. Approval
 
-| Role | Name                       | Date                       |
-| ---- | -------------------------- | -------------------------- |
-| CISO | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
-| CEO  | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
-| CTO  | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
+| Role | Name          | Date       |
+| ---- | ------------- | ---------- |
+| CISO | Mayur Goswami | 2026-03-18 |
+| CEO  | Mayur Goswami | 2026-03-18 |
+| CTO  | Mayur Goswami | 2026-03-18 |
 
 ---
 

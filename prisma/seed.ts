@@ -29,7 +29,7 @@ async function hashPassword(plain: string): Promise<string> {
 
 // ─── Seed Data ────────────────────────────────────────────────────────────────
 
-const SEED_PASSWORD = "password123";
+const SEED_PASSWORD = "Westbridge-Dev-2026!";
 
 const DEMO_ACCOUNT = {
   email: "admin@westbridge.local",

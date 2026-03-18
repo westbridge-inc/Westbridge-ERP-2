@@ -57,6 +57,8 @@ export async function createAccount(
         if (existing.status === "active") {
           throw new Error("An account with this email already exists. Please sign in.");
         }
+        // Clean up audit logs before deleting account (AuditLog uses onDelete: Restrict)
+        await tx.auditLog.deleteMany({ where: { accountId: existing.id } });
         await tx.account.delete({ where: { email: email.trim() } });
       }
       return tx.account.create({
@@ -121,58 +123,91 @@ export async function markAccountPaid(
   rrn?: string,
 ): Promise<Result<HandlePaymentResult, string>> {
   try {
-    const result = await prisma.account.updateMany({
-      where: { id: accountId },
-      data: {
-        status: "active",
-        paymentTransactionId: transactionId ?? undefined,
-        paymentRRN: rrn ?? undefined,
-      },
-    });
-    const updated = (result.count ?? 0) > 0;
-    if (updated) {
-      // Auto-provision ERPNext company + create subscription (fire-and-forget with retries)
-      void import("./provisioning.service.js")
-        .then(({ provisionWithRetry }) => provisionWithRetry(accountId))
-        .catch(async (e: unknown) => {
-          const { logger } = await import("../logger.js");
-          logger.error("ERPNext provisioning failed", {
-            accountId,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        });
-
-      void import("./subscription.service.js")
-        .then(async ({ createSubscription }) => {
-          const acc = await prisma.account.findUnique({ where: { id: accountId }, select: { plan: true } });
-          if (acc) await createSubscription(accountId, acc.plan);
-        })
-        .catch(async (e: unknown) => {
-          const { logger } = await import("../logger.js");
-          logger.error("Subscription creation failed", {
-            accountId,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        });
-
-      // Send activation email (fire-and-forget — don't fail if email fails)
-      const account = await prisma.account.findUnique({ where: { id: accountId } }).catch(() => null);
-      if (account) {
-        const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/login`;
-        void sendEmail({
-          to: account.email,
-          subject: "Your Westbridge account is now active",
-          html: accountActivatedEmail({ companyName: account.companyName, plan: account.plan, loginUrl }),
-        });
-      }
-
-      void publish(accountId, {
-        type: "notification.new",
-        payload: { title: "Payment received", message: "Your subscription has been renewed" },
-        timestamp: new Date().toISOString(),
+    // Atomically activate account + create subscription + first invoice
+    const result = await prisma.$transaction(async (tx) => {
+      const account = await tx.account.findUnique({
+        where: { id: accountId },
+        select: { id: true, email: true, companyName: true, plan: true, status: true },
       });
-    }
-    return ok({ updated, accountId });
+      if (!account) return null;
+
+      await tx.account.update({
+        where: { id: accountId },
+        data: {
+          status: "active",
+          paymentTransactionId: transactionId ?? undefined,
+          paymentRRN: rrn ?? undefined,
+        },
+      });
+
+      // Create subscription inside the same transaction
+      const now = new Date();
+      const periodEnd = new Date(now);
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+      await tx.subscription.create({
+        data: {
+          accountId,
+          planId: account.plan,
+          status: "active",
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+        },
+      });
+
+      // Create invoice record inside the same transaction
+      const PLAN_AMOUNTS: Record<string, number> = {
+        Solo: 49.99,
+        Starter: 199.99,
+        Business: 999.99,
+        Enterprise: 4999.99,
+      };
+      await tx.billingInvoice.create({
+        data: {
+          accountId,
+          amount: PLAN_AMOUNTS[account.plan] ?? 0,
+          currency: "USD",
+          status: "paid",
+          planId: account.plan,
+          periodStart: now,
+          periodEnd,
+          paidAt: now,
+          transactionId: transactionId ?? undefined,
+          rrn: rrn ?? undefined,
+        },
+      });
+
+      return account;
+    });
+
+    if (!result) return ok({ updated: false, accountId });
+
+    // Fire-and-forget: ERPNext provisioning (has its own retry + alerting)
+    void import("./provisioning.service.js")
+      .then(({ provisionWithRetry }) => provisionWithRetry(accountId))
+      .catch(async (e: unknown) => {
+        const { logger } = await import("../logger.js");
+        logger.error("ERPNext provisioning failed", {
+          accountId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+
+    // Fire-and-forget: activation email
+    const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/login`;
+    void sendEmail({
+      to: result.email,
+      subject: "Your Westbridge account is now active",
+      html: accountActivatedEmail({ companyName: result.companyName, plan: result.plan, loginUrl }),
+    });
+
+    void publish(accountId, {
+      type: "notification.new",
+      payload: { title: "Payment received", message: "Your subscription has been renewed" },
+      timestamp: new Date().toISOString(),
+    });
+
+    return ok({ updated: true, accountId });
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to mark account as paid");
   }

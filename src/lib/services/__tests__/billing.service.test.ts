@@ -7,6 +7,12 @@ vi.mock("../../data/prisma.js", () => ({
       update: vi.fn(),
       updateMany: vi.fn(),
     },
+    subscription: {
+      create: vi.fn(),
+    },
+    billingInvoice: {
+      create: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -104,13 +110,26 @@ describe("billing.service", () => {
   });
 
   describe("markAccountPaid", () => {
-    it("activates account on payment", async () => {
-      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
-      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-        id: "acc_1",
-        email: "a@b.com",
-        companyName: "Test",
-        plan: "Starter",
+    it("activates account on payment within transaction", async () => {
+      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: Function) => {
+        return fn({
+          account: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: "acc_1",
+              email: "a@b.com",
+              companyName: "Test",
+              plan: "Starter",
+              status: "pending",
+            }),
+            update: vi.fn().mockResolvedValue({}),
+          },
+          subscription: {
+            create: vi.fn().mockResolvedValue({ id: "sub_1" }),
+          },
+          billingInvoice: {
+            create: vi.fn().mockResolvedValue({ id: "inv_1" }),
+          },
+        });
       });
 
       const result = await markAccountPaid("acc_1", "txn_1", "rrn_1");
@@ -121,7 +140,13 @@ describe("billing.service", () => {
     });
 
     it("handles no account found", async () => {
-      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: Function) => {
+        return fn({
+          account: {
+            findUnique: vi.fn().mockResolvedValue(null),
+          },
+        });
+      });
 
       const result = await markAccountPaid("acc_missing");
       expect(result.ok).toBe(true);
@@ -131,7 +156,7 @@ describe("billing.service", () => {
     });
 
     it("returns error on exception", async () => {
-      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
+      (prisma.$transaction as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
 
       const result = await markAccountPaid("acc_1");
       expect(result.ok).toBe(false);
