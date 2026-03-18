@@ -38,11 +38,11 @@ export default defineConfig({
         "src/lib/data/prisma.ts",
       ],
       thresholds: {
-        // Raised from 55/65/90/55 → 70/70/80/70 as part of hardening
-        statements: 70,
-        branches: 70,
-        functions: 80,
-        lines: 70,
+        // Raised from 70/70/80/70 → 85/75/85/85 as part of best-in-class push (B3)
+        statements: 85,
+        branches: 75,
+        functions: 85,
+        lines: 85,
       },
     },
   },

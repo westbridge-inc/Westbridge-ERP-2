@@ -7,6 +7,7 @@ import request from "supertest";
 
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
+    $executeRaw: vi.fn().mockResolvedValue(0),
     account: {
       findUnique: vi.fn(),
     },
