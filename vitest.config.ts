@@ -6,7 +6,6 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.ts", "src/**/*.integration.test.ts"],
-    exclude: ["**/node_modules/**", "src/__tests__/contract/**", "src/__tests__/e2e/**", "src/__tests__/integration/**"],
     testTimeout: 10_000,
     env: {
       NODE_ENV: "test",
@@ -38,9 +37,12 @@ export default defineConfig({
         // Prisma client with soft-delete extensions — tested via integration tests
         "src/lib/data/prisma.ts",
       ],
-      // Coverage targets tracked in TECH-DEBT.md.
-      // Current: ~77% statements / ~73% branches / ~91% functions / ~77% lines.
-      // Thresholds enforced via code review, not CI gate (vitest v3/v4 divergence).
+      thresholds: {
+        statements: 70,
+        branches: 65,
+        functions: 80,
+        lines: 70,
+      },
     },
   },
 });
