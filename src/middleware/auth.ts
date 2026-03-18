@@ -163,9 +163,19 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     }
 
     next();
-  } catch {
-    // Don't block access on DB errors — fail open for availability
-    next();
+  } catch (err) {
+    // Fail closed on DB errors — return 503 instead of silently allowing access
+    logger.error("requireActiveSubscription: failed to check account status", {
+      accountId: session.accountId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    res.status(503).json({
+      ok: false,
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: "Unable to verify subscription status. Please try again shortly.",
+      },
+    });
   }
 }
 
