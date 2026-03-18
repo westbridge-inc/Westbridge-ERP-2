@@ -53,7 +53,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci      - run: npx prisma generate
+      - run: npm ci
+      - run: npx prisma generate
       - run: npx tsc --noEmit
       - run: npm test -- --coverage
       - run: npx prisma db push --accept-data-loss
@@ -76,7 +77,8 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci      - run: npx prisma generate
+      - run: npm ci
+      - run: npx prisma generate
       - name: Build
         run: npm run build
       - name: Install Railway CLI
@@ -123,7 +125,8 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci      - run: npx prisma generate
+      - run: npm ci
+      - run: npx prisma generate
       - run: npx tsc --noEmit
       - run: npm test
       - name: Build

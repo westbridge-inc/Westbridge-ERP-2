@@ -17,7 +17,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci      - run: npm audit --audit-level=high
+      - run: npm ci
+      - run: npm audit --audit-level=high
 
   secrets-scan:
     name: Secret Scanning
@@ -44,7 +45,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci      - name: Generate CycloneDX SBOM
+      - run: npm ci
+      - name: Generate CycloneDX SBOM
         run: npx @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom.json --output-format json
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
@@ -77,7 +79,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci      - name: Check for copyleft licenses
+      - run: npm ci
+      - name: Check for copyleft licenses
         run: |
           npx license-checker --production --failOn "GPL-2.0;GPL-3.0;AGPL-1.0;AGPL-3.0" --summary || {
             echo "::error::Copyleft license detected in production dependencies"
