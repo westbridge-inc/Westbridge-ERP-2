@@ -17,7 +17,7 @@
  *   - ID token signature verification via JWKS
  */
 
-import { createHash, createHmac, randomBytes } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
 import { prisma } from "../data/prisma.js";
@@ -171,7 +171,12 @@ export async function handleCallback(
     .update(`${stateAccountId}:${stateNonce}`)
     .digest("hex")
     .slice(0, 32);
-  if (stateSig !== expectedSig) return err("SSO state signature mismatch");
+  if (
+    stateSig.length !== expectedSig.length ||
+    !timingSafeEqual(Buffer.from(stateSig, "utf8"), Buffer.from(expectedSig, "utf8"))
+  ) {
+    return err("SSO state signature mismatch");
+  }
 
   // Exchange code for tokens
   const discovery = await discoverOidc(config.issuerUrl);
