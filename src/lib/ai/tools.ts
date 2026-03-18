@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { erpList, erpGet, erpCreate } from "../data/erpnext.client.js";
+import { erpList, erpGet, erpCreate, erpUpdate, erpDelete } from "../data/erpnext.client.js";
 import { ALLOWED_DOCTYPES_SET } from "../erp-constants.js";
 
 // ─── Tool Definitions ─────────────────────────────────────────────────────────
@@ -7,12 +7,22 @@ import { ALLOWED_DOCTYPES_SET } from "../erp-constants.js";
 export const ERP_TOOLS: Anthropic.Tool[] = [
   {
     name: "list_records",
-    description: "List ERP records. Use to fetch invoices, expenses, employees, orders, stock entries, leads, opportunities, projects, etc. Always filter by date range or status to limit results.",
+    description:
+      "List ERP records. Use to fetch invoices, expenses, employees, orders, stock entries, leads, opportunities, projects, etc. Always filter by date range or status to limit results.",
     input_schema: {
       type: "object" as const,
       properties: {
-        doctype: { type: "string", description: "ERPNext doctype. Examples: 'Sales Invoice', 'Purchase Invoice', 'Stock Entry', 'Employee', 'Lead', 'Opportunity', 'Project', 'Salary Slip'" },
-        filters: { type: "array", description: "Filter arrays: [[doctype, field, operator, value]]. Example: [['Sales Invoice', 'status', '=', 'Unpaid']]", items: { type: "array" } },
+        doctype: {
+          type: "string",
+          description:
+            "ERPNext doctype. Examples: 'Sales Invoice', 'Purchase Invoice', 'Stock Entry', 'Employee', 'Lead', 'Opportunity', 'Project', 'Salary Slip'",
+        },
+        filters: {
+          type: "array",
+          description:
+            "Filter arrays: [[doctype, field, operator, value]]. Example: [['Sales Invoice', 'status', '=', 'Unpaid']]",
+          items: { type: "array" },
+        },
         fields: { type: "array", description: "Fields to return", items: { type: "string" } },
         limit: { type: "number", description: "Max records (default 20, max 50)" },
         order_by: { type: "string", description: "Sort. Example: 'posting_date desc'" },
@@ -34,7 +44,8 @@ export const ERP_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "create_record",
-    description: "Create a new ERP document. Only use when the user explicitly asks to create something. Always confirm details first.",
+    description:
+      "Create a new ERP document. Only use when the user explicitly asks to create something. Always confirm details first.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -45,12 +56,47 @@ export const ERP_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: "get_summary",
-    description: "Get a quick numeric summary: total revenue, total expenses, open invoices count, stock value, employee count etc.",
+    name: "update_record",
+    description:
+      "Update an existing ERP document. Only use when the user explicitly asks to change/edit/update a record. Always confirm the change with the user first.",
     input_schema: {
       type: "object" as const,
       properties: {
-        metric: { type: "string", description: "What to summarize: 'revenue', 'expenses', 'open_invoices', 'stock_value', 'employee_count', 'overdue_invoices'" },
+        doctype: { type: "string" },
+        name: { type: "string", description: "The document name/ID to update" },
+        data: {
+          type: "object",
+          description: "Fields to update as key-value pairs. Only include fields that should change.",
+        },
+      },
+      required: ["doctype", "name", "data"],
+    },
+  },
+  {
+    name: "delete_record",
+    description:
+      "Delete an ERP document. Only use when the user explicitly asks to delete/remove a record. Always confirm with the user before deleting.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        doctype: { type: "string" },
+        name: { type: "string", description: "The document name/ID to delete" },
+      },
+      required: ["doctype", "name"],
+    },
+  },
+  {
+    name: "get_summary",
+    description:
+      "Get a quick numeric summary: total revenue, total expenses, open invoices count, stock value, employee count etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        metric: {
+          type: "string",
+          description:
+            "What to summarize: 'revenue', 'expenses', 'open_invoices', 'stock_value', 'employee_count', 'overdue_invoices'",
+        },
         from_date: { type: "string", description: "Start date YYYY-MM-DD" },
         to_date: { type: "string", description: "End date YYYY-MM-DD" },
       },
@@ -66,7 +112,7 @@ export async function executeTool(
   input: unknown,
   sessionId: string,
   accountId: string,
-  erpnextCompany: string | null
+  erpnextCompany: string | null,
 ): Promise<string> {
   try {
     const i = input as Record<string, unknown>;
@@ -111,6 +157,19 @@ export async function executeTool(
       return JSON.stringify({ success: true, data: result.data });
     }
 
+    if (toolName === "update_record") {
+      const data: Record<string, unknown> = { ...(i.data as Record<string, unknown>) };
+      const result = await erpUpdate(i.doctype as string, i.name as string, sessionId, data, accountId);
+      if (!result.ok) return `Error updating ${i.doctype as string} ${i.name as string}: ${result.error}`;
+      return JSON.stringify({ success: true, data: result.data });
+    }
+
+    if (toolName === "delete_record") {
+      const result = await erpDelete(i.doctype as string, i.name as string, sessionId, accountId);
+      if (!result.ok) return `Error deleting ${i.doctype as string} ${i.name as string}: ${result.error}`;
+      return JSON.stringify({ success: true, message: `${i.doctype as string} ${i.name as string} deleted` });
+    }
+
     if (toolName === "get_summary") {
       const metric = i.metric as string;
       const from = (i.from_date as string) ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
@@ -119,29 +178,36 @@ export async function executeTool(
       if (erpnextCompany) filters.push(["company", "=", erpnextCompany]);
 
       const summaryMap: Record<string, { doctype: string; field: string }> = {
-        revenue:          { doctype: "Sales Invoice",      field: "grand_total" },
-        expenses:         { doctype: "Purchase Invoice",   field: "grand_total" },
-        open_invoices:    { doctype: "Sales Invoice",      field: "name" },
-        overdue_invoices: { doctype: "Sales Invoice",      field: "name" },
-        stock_value:      { doctype: "Stock Ledger Entry", field: "stock_value" },
-        employee_count:   { doctype: "Employee",           field: "name" },
+        revenue: { doctype: "Sales Invoice", field: "grand_total" },
+        expenses: { doctype: "Purchase Invoice", field: "grand_total" },
+        open_invoices: { doctype: "Sales Invoice", field: "name" },
+        overdue_invoices: { doctype: "Sales Invoice", field: "name" },
+        stock_value: { doctype: "Stock Ledger Entry", field: "stock_value" },
+        employee_count: { doctype: "Employee", field: "name" },
       };
 
       const cfg = summaryMap[metric];
       if (!cfg) return `Unknown metric: ${metric}`;
 
-      const dateFilters = cfg.doctype !== "Employee"
-        ? [...filters, [cfg.doctype, "posting_date", ">=", from], [cfg.doctype, "posting_date", "<=", to]]
-        : [...filters];
+      const dateFilters =
+        cfg.doctype !== "Employee"
+          ? [...filters, [cfg.doctype, "posting_date", ">=", from], [cfg.doctype, "posting_date", "<=", to]]
+          : [...filters];
 
       if (metric === "open_invoices") dateFilters.push([cfg.doctype, "status", "in", ["Unpaid", "Overdue"]]);
       if (metric === "overdue_invoices") dateFilters.push([cfg.doctype, "status", "=", "Overdue"]);
 
-      const result = await erpList(cfg.doctype, sessionId, {
-        filters: JSON.stringify(dateFilters),
-        fields: JSON.stringify([cfg.field]),
-        limit_page_length: "500",
-      }, accountId, erpnextCompany);
+      const result = await erpList(
+        cfg.doctype,
+        sessionId,
+        {
+          filters: JSON.stringify(dateFilters),
+          fields: JSON.stringify([cfg.field]),
+          limit_page_length: "500",
+        },
+        accountId,
+        erpnextCompany,
+      );
 
       if (!result.ok) return `Error: ${result.error}`;
       const rows = result.data as Record<string, unknown>[];

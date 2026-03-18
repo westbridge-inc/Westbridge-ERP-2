@@ -19,11 +19,13 @@ describe("AI tools", () => {
   });
 
   it("ERP_TOOLS has expected tools", () => {
-    expect(ERP_TOOLS.length).toBe(4);
+    expect(ERP_TOOLS.length).toBe(6);
     const names = ERP_TOOLS.map((t) => t.name);
     expect(names).toContain("list_records");
     expect(names).toContain("get_record");
     expect(names).toContain("create_record");
+    expect(names).toContain("update_record");
+    expect(names).toContain("delete_record");
     expect(names).toContain("get_summary");
   });
 
