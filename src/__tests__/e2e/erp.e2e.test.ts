@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from "vites
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     account: {
       findUnique: vi.fn().mockResolvedValue({ erpnextCompany: "Test Corp" }),
     },

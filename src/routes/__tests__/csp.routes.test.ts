@@ -5,6 +5,10 @@ vi.mock("../../lib/logger.js", () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("../../lib/data/prisma.js", () => ({
+  prisma: { $executeRaw: vi.fn().mockResolvedValue(0) },
+}));
+
 import { createApp } from "../../app.js";
 const app = createApp();
 

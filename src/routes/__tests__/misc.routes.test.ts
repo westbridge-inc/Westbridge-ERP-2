@@ -10,6 +10,7 @@ vi.mock("../../lib/logger.js", () => ({
 }));
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
+    $executeRaw: vi.fn().mockResolvedValue(0),
     account: { findUnique: vi.fn().mockResolvedValue(null) },
     user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },

@@ -5,7 +5,7 @@ vi.mock("../../lib/logger.js", () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock("../../lib/data/prisma.js", () => ({
-  prisma: { auditLog: { create: vi.fn() } },
+  prisma: { $executeRaw: vi.fn().mockResolvedValue(0), auditLog: { create: vi.fn() } },
 }));
 vi.mock("../../lib/redis.js", () => ({
   getRedis: () => null,
