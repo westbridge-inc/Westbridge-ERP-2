@@ -1,6 +1,53 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { erpList, erpGet, erpCreate, erpUpdate, erpDelete } from "../data/erpnext.client.js";
 import { ALLOWED_DOCTYPES_SET } from "../erp-constants.js";
+
+// ─── Input Validation Schemas ────────────────────────────────────────────────
+
+const ListRecordsInput = z.object({
+  doctype: z.string(),
+  filters: z.array(z.array(z.unknown())).optional(),
+  fields: z.array(z.string()).optional(),
+  limit: z.number().optional(),
+  order_by: z.string().optional(),
+});
+
+const GetRecordInput = z.object({
+  doctype: z.string(),
+  name: z.string(),
+});
+
+const CreateRecordInput = z.object({
+  doctype: z.string(),
+  data: z.record(z.unknown()),
+});
+
+const UpdateRecordInput = z.object({
+  doctype: z.string(),
+  name: z.string(),
+  data: z.record(z.unknown()),
+});
+
+const DeleteRecordInput = z.object({
+  doctype: z.string(),
+  name: z.string(),
+});
+
+const GetSummaryInput = z.object({
+  metric: z.string(),
+  from_date: z.string().optional(),
+  to_date: z.string().optional(),
+});
+
+const ToolInputSchema: Record<string, z.ZodType> = {
+  list_records: ListRecordsInput,
+  get_record: GetRecordInput,
+  create_record: CreateRecordInput,
+  update_record: UpdateRecordInput,
+  delete_record: DeleteRecordInput,
+  get_summary: GetSummaryInput,
+};
 
 // ─── Tool Definitions ─────────────────────────────────────────────────────────
 
@@ -115,6 +162,15 @@ export async function executeTool(
   erpnextCompany: string | null,
 ): Promise<string> {
   try {
+    // Validate input shape at runtime with Zod
+    const schema = ToolInputSchema[toolName];
+    if (schema) {
+      const parsed = schema.safeParse(input);
+      if (!parsed.success) {
+        return `Validation error: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`;
+      }
+    }
+
     const i = input as Record<string, unknown>;
 
     // Validate doctype against allowlist before executing any tool that operates on doctypes

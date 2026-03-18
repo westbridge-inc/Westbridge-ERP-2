@@ -6,6 +6,12 @@
  *   const users = await withTenantScope(accountId, (tx) =>
  *     tx.user.findMany()
  *   );
+ *
+ * NOTE: RLS policies are defined but only enforced for the `westbridge_app`
+ * database role. The default superuser role used by Prisma bypasses RLS.
+ * To fully enforce RLS at the database level, switch DATABASE_URL to
+ * connect as the `westbridge_app` role.
+ * See: prisma/migrations/20260318_add_row_level_security/migration.sql
  */
 import { prisma } from "./prisma.js";
 
