@@ -1,7 +1,8 @@
 /**
- * Vitest global setup — polyfills for test environments.
+ * Vitest global setup — polyfills and cleanup for test environments.
  */
 import { webcrypto } from "node:crypto";
+import { afterAll } from "vitest";
 
 // Polyfill crypto.randomUUID() for environments where Web Crypto API is not available.
 if (typeof globalThis.crypto === "undefined") {
@@ -10,3 +11,13 @@ if (typeof globalThis.crypto === "undefined") {
 } else if (typeof globalThis.crypto.randomUUID !== "function") {
   globalThis.crypto.randomUUID = webcrypto.randomUUID.bind(webcrypto);
 }
+
+// Ensure Redis connections are closed after all tests to prevent process hang / ECONNREFUSED errors
+afterAll(async () => {
+  try {
+    const { closeRedis } = await import("./src/lib/redis.js");
+    await closeRedis();
+  } catch {
+    // Redis module may not be loaded in all test suites
+  }
+});
