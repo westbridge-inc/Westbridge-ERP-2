@@ -17,7 +17,7 @@ Work on `feat/team-management` branch.
 
 ### Changed
 
-- **AI**: Update Claude models to latest (sonnet-4-6, opus-4-6)
+- **AI**: Update AI models to latest generation (sonnet-4-6, opus-4-6)
 
 ### Fixed
 
@@ -102,7 +102,7 @@ Work on `feat/team-management` branch.
 
 #### AI
 
-- AI-powered chat via Claude API (Anthropic SDK)
+- AI-powered chat via Anthropic SDK
 - Conversation history persistence
 
 #### Billing & Payments
