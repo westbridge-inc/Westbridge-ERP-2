@@ -211,10 +211,10 @@ Redis is treated as ephemeral. No data recovery is required — the system is de
 | Role             | Primary         | Backup            | Contact Method    |
 | ---------------- | --------------- | ----------------- | ----------------- |
 | On-Call Engineer | Rotating weekly | Secondary on-call | PagerDuty / Phone |
-| Engineering Lead | ****\_\_****    | ****\_\_****      | Phone / Slack     |
-| CTO              | ****\_\_****    | CISO              | Phone / Slack     |
-| CISO             | ****\_\_****    | CTO               | Phone / Slack     |
-| CEO              | ****\_\_****    | COO               | Phone             |
+| Engineering Lead | Mayur Goswami   | Mayur Goswami     | Phone / Slack     |
+| CTO              | Mayur Goswami   | CISO              | Phone / Slack     |
+| CISO             | Mayur Goswami   | CTO               | Phone / Slack     |
+| CEO              | Mayur Goswami   | COO               | Phone             |
 
 ## 7. Disaster Recovery Roles
 
@@ -278,11 +278,11 @@ Redis is treated as ephemeral. No data recovery is required — the system is de
 
 ## 11. Approval
 
-| Role | Name                       | Date                       |
-| ---- | -------------------------- | -------------------------- |
-| CISO | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
-| CTO  | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
-| CEO  | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
+| Role | Name          | Date       |
+| ---- | ------------- | ---------- |
+| CISO | Mayur Goswami | 2026-03-18 |
+| CTO  | Mayur Goswami | 2026-03-18 |
+| CEO  | Mayur Goswami | 2026-03-18 |
 
 ---
 

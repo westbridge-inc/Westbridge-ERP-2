@@ -27,8 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
-      - run: npx prisma generate
+      - run: npm ci       - run: npx prisma generate
       - run: npm run lint
 
   typecheck:
@@ -39,8 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
-      - run: npx prisma generate
+      - run: npm ci       - run: npx prisma generate
       - run: npx tsc --noEmit
 
   test:
@@ -51,8 +49,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
-      - run: npx prisma generate
+      - run: npm ci       - run: npx prisma generate
       - name: Run tests with coverage thresholds
         run: npm test -- --coverage --reporter=verbose
       - uses: actions/upload-artifact@v4
@@ -71,8 +68,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
-      - run: npx prisma generate
+      - run: npm ci       - run: npx prisma generate
       - run: npm run build
 
   integration-test:
@@ -111,8 +107,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
-      - run: npx prisma generate
+      - run: npm ci       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
       - name: Run database integration tests
         run: npx vitest run src/__tests__/integration/ --reporter=verbose
@@ -163,8 +158,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
-      - run: npx prisma generate
+      - run: npm ci       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
       - name: Build application
         run: npm run build
