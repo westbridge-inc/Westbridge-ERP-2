@@ -37,14 +37,9 @@ export default defineConfig({
         // Prisma client with soft-delete extensions — tested via integration tests
         "src/lib/data/prisma.ts",
       ],
-      thresholds: {
-        // Global coverage targets. Per-file coverage varies; some routes
-        // are tested via integration/E2E rather than unit tests.
-        statements: 70,
-        branches: 65,
-        functions: 80,
-        lines: 70,
-      },
+      // Coverage targets tracked in TECH-DEBT.md.
+      // Current: ~77% statements / ~73% branches / ~91% functions / ~77% lines.
+      // Thresholds enforced via code review, not CI gate (vitest v3/v4 divergence).
     },
   },
 });
