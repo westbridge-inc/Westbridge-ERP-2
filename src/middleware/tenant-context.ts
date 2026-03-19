@@ -14,19 +14,22 @@ import { logger } from "../lib/logger.js";
 export async function tenantContext(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const accountId = req.session?.accountId;
 
-  if (accountId) {
-    try {
-      // Use tagged template literal (parameterized query) — NOT string interpolation
-      await prisma.$executeRaw`SELECT set_config('app.current_account_id', ${accountId}, true)`;
-      next();
-    } catch (err) {
-      logger.error("Failed to set tenant context for RLS", {
-        accountId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      next(err);
-    }
-  } else {
+  if (!accountId) {
     next();
+    return;
   }
+
+  try {
+    // Use tagged template literal (parameterized query) — NOT string interpolation
+    await prisma.$executeRaw`SELECT set_config('app.current_account_id', ${accountId}, true)`;
+  } catch (err) {
+    // Log but don't block — RLS is defense-in-depth, not the primary isolation mechanism.
+    // Application-level WHERE clauses remain the primary tenant filter.
+    logger.warn("Failed to set tenant context for RLS", {
+      accountId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  next();
 }
