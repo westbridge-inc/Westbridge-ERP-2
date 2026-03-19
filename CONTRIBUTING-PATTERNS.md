@@ -29,6 +29,24 @@ Express 5 API server (TypeScript, ESM). Uses Prisma (Postgres), Redis (sessions 
 - **Integration tests**: In `src/__tests__/integration/` -- require running Postgres and Redis.
 - **Commands**: `npm test` (single run), `vitest` (watch mode).
 
+## Dependency Injection
+
+This codebase uses **direct ESM imports** rather than a DI container. This is a deliberate
+choice, not an oversight:
+
+- **Codebase scale**: With a single backend service and ~20 route files, the overhead of a DI
+  framework (InversifyJS, tsyringe, etc.) adds complexity without proportionate benefit.
+- **Testability**: Vitest `vi.mock()` provides module-level mocking that covers all current
+  testing needs. Service functions are pure (accept inputs, return `Result<T, E>`), making
+  them trivially testable without constructor injection.
+- **Startup clarity**: Import-time dependency resolution makes the boot order explicit and
+  catches missing modules immediately via Node's native loader.
+
+**When to reconsider**: If the codebase grows to multiple independently deployable services
+that share business logic, or if integration tests require swapping entire subsystems
+(e.g., replacing the ERPNext client with an in-memory fake across all consumers), introduce
+a lightweight composition root. Prefer explicit factory functions over decorator-based DI.
+
 ## What NOT To Do
 
 - Do not put business logic in route handlers -- use the service layer.
