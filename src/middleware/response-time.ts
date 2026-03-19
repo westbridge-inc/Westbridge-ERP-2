@@ -12,7 +12,6 @@ export function responseTime(_req: Request, res: Response, next: NextFunction): 
 
   // Monkey-patch writeHead to inject the header before it's sent
   const originalWriteHead = res.writeHead.bind(res);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   res.writeHead = function (statusCode: number, ...args: any[]) {
     if (!res.getHeader("X-Response-Time")) {
       const ms = Number(process.hrtime.bigint() - start) / 1e6;
