@@ -74,7 +74,7 @@ vi.mock("../../logger.js", () => ({
 // ---------------------------------------------------------------------------
 // Import AFTER mocks
 // ---------------------------------------------------------------------------
-import { createSession, validateSession, revokeSession } from "../session.service.js";
+import { createSession, validateSession, revokeSession, revokeAllUserSessions, deleteExpiredSessions } from "../session.service.js";
 import { prisma } from "../../data/prisma.js";
 import { getRedis } from "../../redis.js";
 import { reportSecurityEvent } from "../../security-monitor.js";
@@ -982,6 +982,121 @@ describe("Session Service", () => {
       await validateSession("idle-cached");
 
       expect(mockRedis.del).toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // revokeAllUserSessions()
+  // =========================================================================
+  describe("revokeAllUserSessions()", () => {
+    it("deletes all sessions for a user from DB", async () => {
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 3 });
+
+      const result = await revokeAllUserSessions("usr_1");
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("Expected ok");
+      expect(result.data.count).toBe(3);
+      expect(prisma.session.deleteMany).toHaveBeenCalledWith({ where: { userId: "usr_1" } });
+    });
+
+    it("returns ok with count 0 when user has no sessions", async () => {
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+
+      const result = await revokeAllUserSessions("usr_no_sessions");
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("Expected ok");
+      expect(result.data.count).toBe(0);
+    });
+
+    it("flushes all Redis cache entries for the user when Redis is available", async () => {
+      (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
+      mockRedis.smembers.mockResolvedValue(["session:v1:hash1", "session:v1:hash2"]);
+
+      await revokeAllUserSessions("usr_1");
+
+      expect(mockRedis.smembers).toHaveBeenCalledWith("session:user:usr_1");
+      expect(mockRedis.pipeline).toHaveBeenCalled();
+      expect(mockRedisPipeline.del).toHaveBeenCalled();
+      expect(mockRedisPipeline.exec).toHaveBeenCalled();
+    });
+
+    it("deletes Redis index key when no cache keys exist", async () => {
+      (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      mockRedis.smembers.mockResolvedValue([]);
+
+      await revokeAllUserSessions("usr_1");
+
+      expect(mockRedis.del).toHaveBeenCalledWith("session:user:usr_1");
+    });
+
+    it("handles Redis unavailability gracefully", async () => {
+      (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(null);
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
+
+      const result = await revokeAllUserSessions("usr_1");
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("Expected ok");
+      expect(result.data.count).toBe(2);
+    });
+
+    it("handles Redis smembers error gracefully", async () => {
+      (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      mockRedis.smembers.mockRejectedValue(new Error("Redis connection refused"));
+
+      const result = await revokeAllUserSessions("usr_1");
+
+      // DB sessions are still deleted; Redis failure is non-fatal
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("Expected ok");
+      expect(result.data.count).toBe(1);
+    });
+
+    it("returns error on DB failure", async () => {
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("DB connection lost"),
+      );
+
+      const result = await revokeAllUserSessions("usr_1");
+
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("Expected error");
+      expect(result.error).toBe("DB connection lost");
+    });
+  });
+
+  // =========================================================================
+  // deleteExpiredSessions()
+  // =========================================================================
+  describe("deleteExpiredSessions()", () => {
+    it("deletes sessions where expiresAt is in the past", async () => {
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 5 });
+
+      await deleteExpiredSessions();
+
+      expect(prisma.session.deleteMany).toHaveBeenCalledWith({
+        where: { expiresAt: { lt: expect.any(Date) } },
+      });
+    });
+
+    it("does not throw on DB error (logs instead)", async () => {
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("DB error"),
+      );
+
+      // Should not throw
+      await expect(deleteExpiredSessions()).resolves.not.toThrow();
+    });
+
+    it("handles zero expired sessions gracefully", async () => {
+      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+
+      await expect(deleteExpiredSessions()).resolves.not.toThrow();
     });
   });
 });
