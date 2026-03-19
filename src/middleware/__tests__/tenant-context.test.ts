@@ -56,7 +56,7 @@ describe("tenantContext middleware", () => {
     expect(next).toHaveBeenCalledWith();
   });
 
-  it("calls next(err) when prisma fails", async () => {
+  it("logs warning and continues when prisma fails", async () => {
     const error = new Error("DB connection lost");
     vi.mocked(prisma.$executeRaw).mockRejectedValueOnce(error);
 
@@ -66,7 +66,10 @@ describe("tenantContext middleware", () => {
 
     await tenantContext(req, res, next);
 
-    expect(next).toHaveBeenCalledWith(error);
+    // RLS is defense-in-depth — failure should not block the request
+    expect(next).toHaveBeenCalledWith();
+    const { logger } = await import("../../lib/logger.js");
+    expect(logger.warn).toHaveBeenCalled();
   });
 
   it("uses parameterized query (not string interpolation)", async () => {
