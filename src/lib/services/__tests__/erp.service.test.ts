@@ -8,6 +8,17 @@ vi.mock("../../data/erpnext.client.js", () => ({
   erpDelete: vi.fn(),
 }));
 
+vi.mock("../../logger.js", () => ({
+  logger: {
+    child: () => ({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }),
+  },
+}));
+
 import { list, getDoc, createDoc, updateDoc, deleteDoc } from "../erp.service.js";
 import { erpList, erpGet, erpCreate, erpUpdate, erpDelete } from "../../data/erpnext.client.js";
 
@@ -25,7 +36,13 @@ describe("erp.service", () => {
       expect(r.ok).toBe(false);
     });
 
-    it("delegates to erpList", async () => {
+    it("returns error for unsupported doctype", async () => {
+      const r = await list("Hacker Table", "sid");
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain("Unsupported doctype");
+    });
+
+    it("delegates to erpList for allowed doctype", async () => {
       vi.mocked(erpList).mockResolvedValue({ ok: true, data: [{ name: "INV-001" }] });
       const r = await list("Sales Invoice", "sid", undefined, "acc1", "MyCompany");
       expect(r.ok).toBe(true);
@@ -44,6 +61,12 @@ describe("erp.service", () => {
       expect(r.ok).toBe(false);
     });
 
+    it("returns error for unsupported doctype", async () => {
+      const r = await getDoc("Evil Type", "name", "sid");
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain("Unsupported doctype");
+    });
+
     it("delegates to erpGet", async () => {
       vi.mocked(erpGet).mockResolvedValue({ ok: true, data: { name: "INV-001" } });
       const r = await getDoc("Sales Invoice", "INV-001", "sid", "acc1");
@@ -54,11 +77,22 @@ describe("erp.service", () => {
 
   describe("createDoc", () => {
     it("returns error for empty doctype", async () => {
-      const r = await createDoc("", "sid", {});
+      const r = await createDoc("", "sid", {}, "acc1");
       expect(r.ok).toBe(false);
     });
 
-    it("delegates to erpCreate", async () => {
+    it("returns error for unsupported doctype", async () => {
+      const r = await createDoc("Bad Type", "sid", {}, "acc1");
+      expect(r.ok).toBe(false);
+    });
+
+    it("returns error when accountId is missing", async () => {
+      const r = await createDoc("Sales Invoice", "sid", {});
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain("accountId required");
+    });
+
+    it("delegates to erpCreate with valid inputs", async () => {
       vi.mocked(erpCreate).mockResolvedValue({ ok: true, data: { name: "INV-002" } });
       const r = await createDoc("Sales Invoice", "sid", { customer: "test" }, "acc1");
       expect(r.ok).toBe(true);
@@ -67,26 +101,48 @@ describe("erp.service", () => {
 
   describe("updateDoc", () => {
     it("returns error for empty doctype or name", async () => {
-      expect((await updateDoc("", "name", "sid", {})).ok).toBe(false);
-      expect((await updateDoc("SI", "", "sid", {})).ok).toBe(false);
+      expect((await updateDoc("", "name", "sid", {}, "acc1")).ok).toBe(false);
+      expect((await updateDoc("Sales Invoice", "", "sid", {}, "acc1")).ok).toBe(false);
     });
 
-    it("delegates to erpUpdate", async () => {
+    it("returns error for unsupported doctype", async () => {
+      const r = await updateDoc("Nope", "name", "sid", {}, "acc1");
+      expect(r.ok).toBe(false);
+    });
+
+    it("returns error when accountId is missing", async () => {
+      const r = await updateDoc("Sales Invoice", "INV-001", "sid", {});
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain("accountId required");
+    });
+
+    it("delegates to erpUpdate with valid inputs", async () => {
       vi.mocked(erpUpdate).mockResolvedValue({ ok: true, data: {} });
-      const r = await updateDoc("SI", "INV-001", "sid", { status: "Paid" }, "acc1");
+      const r = await updateDoc("Sales Invoice", "INV-001", "sid", { status: "Paid" }, "acc1");
       expect(r.ok).toBe(true);
     });
   });
 
   describe("deleteDoc", () => {
     it("returns error for empty doctype or name", async () => {
-      expect((await deleteDoc("", "name", "sid")).ok).toBe(false);
-      expect((await deleteDoc("SI", "", "sid")).ok).toBe(false);
+      expect((await deleteDoc("", "name", "sid", "acc1")).ok).toBe(false);
+      expect((await deleteDoc("Sales Invoice", "", "sid", "acc1")).ok).toBe(false);
     });
 
-    it("delegates to erpDelete", async () => {
+    it("returns error for unsupported doctype", async () => {
+      const r = await deleteDoc("Nope", "name", "sid", "acc1");
+      expect(r.ok).toBe(false);
+    });
+
+    it("returns error when accountId is missing", async () => {
+      const r = await deleteDoc("Sales Invoice", "INV-001", "sid");
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toContain("accountId required");
+    });
+
+    it("delegates to erpDelete with valid inputs", async () => {
       vi.mocked(erpDelete).mockResolvedValue({ ok: true, data: {} });
-      const r = await deleteDoc("SI", "INV-001", "sid", "acc1");
+      const r = await deleteDoc("Sales Invoice", "INV-001", "sid", "acc1");
       expect(r.ok).toBe(true);
     });
   });
