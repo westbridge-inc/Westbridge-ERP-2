@@ -5,23 +5,32 @@ All notable changes to the Westbridge ERP Backend will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-Work on `feat/team-management` branch.
+## [1.0.0] - 2026-03-20
 
 ### Added
 
-- **Team**: Member removal, role changes, invite management, and per-plan seat limits
-- **Auth**: Block API access for `past_due` and `canceled` subscriptions (returns 402)
-- **Infrastructure**: Provisioning retry with exponential backoff and error notification
+- Complete ERP backend with 40+ doctype support
+- 2Checkout payment integration (global)
+- Recurring billing with BullMQ cron
+- Bridge AI with 12 data-access tools
+- Customer portal (token-based self-service)
+- Batch import API (100 items/request)
+- SMTP email fallback (nodemailer)
+- BullMQ dashboard at /admin/queues
+- OpenAPI 3.1 specification
+- Per-account currency and tax configuration
+- ERPNext webhook handler with HMAC verification
 
-### Changed
+### Security
 
-- **AI**: Update Claude models to latest (sonnet-4-6, opus-4-6)
-
-### Fixed
-
-- **Infrastructure**: Require email provider (RESEND_API_KEY or SMTP) in production env validation
+- IPN signature covers 9 critical fields
+- Account validation on payment webhooks
+- Plan-based module access enforcement
+- Fail-closed subscription middleware
+- bcrypt password hashing (12 rounds)
+- Session fingerprinting + idle timeout
+- CSRF double-submit with HMAC-SHA-256
+- Tiered rate limiting on all endpoints
 
 ## [0.9.0] - 2026-03-15
 
@@ -29,6 +38,9 @@ Work on `feat/team-management` branch.
 
 - **Auth**: E2E test foundation for API-level integration testing
 - **Observability**: Per-request logger context middleware with request ID propagation
+- **Team**: Member removal, role changes, invite management, and per-plan seat limits
+- **Auth**: Block API access for `past_due` and `canceled` subscriptions (returns 402)
+- **Infrastructure**: Provisioning retry with exponential backoff and error notification
 
 ### Changed
 
@@ -40,6 +52,7 @@ Work on `feat/team-management` branch.
 - **Security**: Validate `accountId` on analytics endpoints to prevent cross-tenant data access
 - **Auth**: Apply `requireAuth` middleware to AI history and account routes
 - **CI**: Remove ERPNext health check from CI (requires pre-configured site)
+- **Infrastructure**: Require email provider (RESEND_API_KEY or SMTP) in production env validation
 
 ### Security
 
@@ -102,8 +115,10 @@ Work on `feat/team-management` branch.
 
 #### AI
 
-- AI-powered chat via Claude API (Anthropic SDK)
-- Conversation history persistence
+- Bridge AI chat via Claude API (Anthropic SDK)
+- 12 data-access tools for ERP-aware responses
+- Conversation history persistence (Redis, 1-hour TTL)
+- Per-plan usage metering and cost estimation
 
 #### Billing & Payments
 
@@ -121,22 +136,22 @@ Work on `feat/team-management` branch.
 #### Infrastructure
 
 - Express 5 API server with TypeScript strict mode
-- PostgreSQL database with Prisma ORM
+- PostgreSQL database with Prisma ORM (14 models)
 - Redis caching and BullMQ background workers (email, erp-sync, reports, cleanup, webhooks)
 - Prometheus metrics (13 custom metrics), Sentry error tracking, PostHog analytics
 - OpenTelemetry distributed tracing
 - Structured JSON logging via Pino
 - Health check endpoints (live, ready, full)
 - Server-sent events for real-time updates
-- Webhook management system with retry
+- Webhook management system with retry and circuit breaker
 - Graceful shutdown with ordered resource cleanup
-- Docker containerization
+- Docker containerization with multi-stage builds
 - CI/CD pipeline (typecheck, lint, test, integration test, build, Docker, security scanning)
 - Load testing suite with k6 (smoke, average, stress, spike profiles)
 - SOC 2 compliance documentation and evidence mapping
-- Deployment automation for Fly.io and AWS ECS
+- Deployment automation for Fly.io, Railway, and AWS ECS
 
-[Unreleased]: https://github.com/westbridge-inc/erp-backend/compare/v0.9.0...HEAD
+[1.0.0]: https://github.com/westbridge-inc/erp-backend/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/westbridge-inc/erp-backend/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/westbridge-inc/erp-backend/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/westbridge-inc/erp-backend/compare/v0.1.0...v0.7.0
