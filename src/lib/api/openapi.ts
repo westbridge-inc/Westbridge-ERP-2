@@ -18,11 +18,10 @@ const ErrorSchema = registry.register(
       code: z.string(),
       message: z.string(),
     }),
-  })
+  }),
 );
 
-const SuccessSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
-  z.object({ ok: z.literal(true), data: dataSchema });
+const SuccessSchema = <T extends z.ZodTypeAny>(dataSchema: T) => z.object({ ok: z.literal(true), data: dataSchema });
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 
@@ -31,12 +30,12 @@ const LoginBodySchema = registry.register(
   z.object({
     email: z.string().email(),
     password: z.string().min(1),
-  })
+  }),
 );
 
 const LoginResponseSchema = registry.register(
   "LoginResponse",
-  SuccessSchema(z.object({ userId: z.string(), accountId: z.string(), role: z.string() }))
+  SuccessSchema(z.object({ userId: z.string(), accountId: z.string(), role: z.string() })),
 );
 
 registry.registerPath({
@@ -52,10 +51,7 @@ registry.registerPath({
   },
 });
 
-const ForgotPasswordBodySchema = registry.register(
-  "ForgotPasswordBody",
-  z.object({ email: z.string().email() })
-);
+const ForgotPasswordBodySchema = registry.register("ForgotPasswordBody", z.object({ email: z.string().email() }));
 
 registry.registerPath({
   method: "post",
@@ -168,7 +164,11 @@ registry.registerPath({
   summary: "Get a single ERP document",
   security: [{ cookieAuth: [] }],
   request: { query: z.object({ doctype: z.string(), name: z.string() }) },
-  responses: { 200: { description: "Document data" }, 401: { description: "Unauthenticated" }, 404: { description: "Not found" } },
+  responses: {
+    200: { description: "Document data" },
+    401: { description: "Unauthenticated" },
+    404: { description: "Not found" },
+  },
 });
 
 registry.registerPath({
@@ -177,7 +177,11 @@ registry.registerPath({
   tags: ["ERP"],
   summary: "Create a new ERP document",
   security: [{ cookieAuth: [] }],
-  responses: { 200: { description: "Document created" }, 400: { description: "Validation error" }, 401: { description: "Unauthenticated" } },
+  responses: {
+    200: { description: "Document created" },
+    400: { description: "Validation error" },
+    401: { description: "Unauthenticated" },
+  },
 });
 
 registry.registerPath({
@@ -240,7 +244,13 @@ registry.registerPath({
   tags: ["Reports"],
   summary: "List completed reports",
   security: [{ cookieAuth: [] }],
-  request: { query: z.object({ page: z.string().optional(), per_page: z.string().optional(), report_type: z.string().optional() }) },
+  request: {
+    query: z.object({
+      page: z.string().optional(),
+      per_page: z.string().optional(),
+      report_type: z.string().optional(),
+    }),
+  },
   responses: { 200: { description: "Paginated report list" } },
 });
 
@@ -280,6 +290,109 @@ registry.registerPath({
   summary: "GDPR account deletion (owner only)",
   security: [{ cookieAuth: [] }],
   responses: { 200: { description: "Account deleted" }, 403: { description: "Not owner" } },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/account/info",
+  tags: ["Account"],
+  summary: "Get account info including currency and tax settings",
+  security: [{ cookieAuth: [] }],
+  responses: { 200: { description: "Account info with currency/tax config" } },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/account/settings",
+  tags: ["Account"],
+  summary: "Update account currency and tax rate",
+  security: [{ cookieAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            currency: z.string().optional(),
+            taxRate: z.number().min(0).max(1).optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: { 200: { description: "Account settings updated" }, 403: { description: "Not owner/admin" } },
+});
+
+// ─── Settings routes ──────────────────────────────────────────────────────────
+
+registry.registerPath({
+  method: "get",
+  path: "/api/settings/notifications",
+  tags: ["Settings"],
+  summary: "Get notification preferences",
+  security: [{ cookieAuth: [] }],
+  responses: { 200: { description: "Notification preferences" } },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/api/settings/notifications",
+  tags: ["Settings"],
+  summary: "Update notification preferences",
+  security: [{ cookieAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            emailInvoices: z.boolean().optional(),
+            emailReports: z.boolean().optional(),
+            emailSecurityAlerts: z.boolean().optional(),
+            emailProductUpdates: z.boolean().optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: { 200: { description: "Preferences updated" } },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/settings/api-keys",
+  tags: ["Settings"],
+  summary: "List API keys",
+  security: [{ cookieAuth: [] }],
+  responses: { 200: { description: "API key list" } },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/settings/api-keys",
+  tags: ["Settings"],
+  summary: "Create a new API key",
+  security: [{ cookieAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ label: z.string().max(100).optional() }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: { description: "API key created (shown once)" },
+    400: { description: "Validation error" },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/settings/api-keys/{id}",
+  tags: ["Settings"],
+  summary: "Revoke an API key",
+  security: [{ cookieAuth: [] }],
+  responses: { 200: { description: "API key revoked" }, 404: { description: "Not found" } },
 });
 
 // ─── Team routes ─────────────────────────────────────────────────────────────
@@ -343,6 +456,48 @@ registry.registerPath({
   summary: "Get billing history",
   security: [{ cookieAuth: [] }],
   responses: { 200: { description: "Billing history" } },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/billing/subscription",
+  tags: ["Billing"],
+  summary: "Get current subscription details",
+  security: [{ cookieAuth: [] }],
+  responses: { 200: { description: "Subscription details" } },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/billing/change-plan",
+  tags: ["Billing"],
+  summary: "Change subscription plan (upgrade/downgrade)",
+  security: [{ cookieAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ planId: z.enum(["Starter", "Business", "Enterprise"]) }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: "Plan changed" },
+    400: { description: "Validation error", content: { "application/json": { schema: ErrorSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/billing/cancel",
+  tags: ["Billing"],
+  summary: "Cancel subscription",
+  security: [{ cookieAuth: [] }],
+  responses: {
+    200: { description: "Subscription cancelled" },
+    500: { description: "Billing error", content: { "application/json": { schema: ErrorSchema } } },
+  },
 });
 
 // ─── Admin routes ────────────────────────────────────────────────────────────

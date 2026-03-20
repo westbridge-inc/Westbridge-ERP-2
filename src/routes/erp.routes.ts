@@ -535,6 +535,126 @@ router.delete(
   },
 );
 
+// ─── POST /erp/batch ────────────────────────────────────────────────────────────
+
+router.post(
+  "/erp/batch",
+  requireAuth,
+  requireCsrf,
+  rateLimit("authenticated", "/api/erp/batch"),
+  async (req: Request, res: Response) => {
+    const start = Date.now();
+    const requestId = getRequestId(toWebRequest(req));
+    const meta = () => apiMeta({ request_id: requestId });
+    const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
+
+    try {
+      const session = req.session!;
+      const ctx = auditContext(toWebRequest(req));
+
+      if (!session.erpnextSid) {
+        res.set(responseHeaders());
+        return res
+          .status(401)
+          .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
+      }
+
+      const { doctype, items } = req.body as { doctype?: string; items?: unknown[] };
+
+      if (!doctype || typeof doctype !== "string") {
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("BAD_REQUEST", "doctype is required", undefined, meta()));
+      }
+
+      if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
+      }
+
+      if (!Array.isArray(items) || items.length === 0) {
+        res.set(responseHeaders());
+        return res.status(400).json(apiError("BAD_REQUEST", "items must be a non-empty array", undefined, meta()));
+      }
+
+      const MAX_BATCH_SIZE = 100;
+      if (items.length > MAX_BATCH_SIZE) {
+        res.set(responseHeaders());
+        return res
+          .status(400)
+          .json(apiError("BAD_REQUEST", `Batch size exceeds maximum of ${MAX_BATCH_SIZE} items`, undefined, meta()));
+      }
+
+      const FORBIDDEN_FIELDS = new Set([
+        "docstatus",
+        "owner",
+        "modified_by",
+        "creation",
+        "modified",
+        "idx",
+        "parent",
+        "parentfield",
+        "parenttype",
+        "amended_from",
+      ]);
+
+      const results = await Promise.allSettled(
+        items.map(async (item) => {
+          if (!item || typeof item !== "object") {
+            throw new Error("Each item must be an object");
+          }
+          const rawData = item as Record<string, unknown>;
+          const data = Object.fromEntries(Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k)));
+          const result = await createDoc(doctype, session.erpnextSid as string, data, session.accountId);
+          if (!result.ok) {
+            throw new Error(result.error);
+          }
+          return result.data;
+        }),
+      );
+
+      let created = 0;
+      let failed = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === "fulfilled") {
+          created++;
+        } else {
+          failed++;
+          if (errors.length < 20) {
+            errors.push(`Item ${i + 1}: ${r.reason instanceof Error ? r.reason.message : "Unknown error"}`);
+          }
+        }
+      }
+
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "erp.batch.create",
+        resource: doctype,
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "info",
+        outcome: failed === 0 ? "success" : "failure",
+        meta: { created, failed, total: items.length },
+      });
+
+      // Meter billable doc creations — fire-and-forget
+      if (created > 0) {
+        const { meter } = await import("../lib/metering.js");
+        meter.increment(session.accountId, "erp_docs_created", created).catch(() => {});
+      }
+
+      res.set(responseHeaders());
+      return res.json(apiSuccess({ created, failed, errors }, meta()));
+    } catch (error) {
+      Sentry.captureException(error, { extra: { request_id: requestId } });
+      return res.status(500).json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
+    }
+  },
+);
+
 // ─── GET /erp/dashboard ────────────────────────────────────────────────────────
 
 router.get("/erp/dashboard", requireAuth, async (req: Request, res: Response) => {

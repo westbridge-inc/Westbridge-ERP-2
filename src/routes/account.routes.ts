@@ -20,6 +20,109 @@ const profileSchema = z.object({
   name: z.string().min(1).max(120).trim(),
 });
 
+const SUPPORTED_CURRENCIES = ["GYD", "USD", "TTD", "BBD", "JMD", "XCD"] as const;
+
+const accountSettingsSchema = z.object({
+  currency: z.enum(SUPPORTED_CURRENCIES).optional(),
+  taxRate: z.number().min(0).max(1).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// GET /account/info — return account-level settings (currency, tax, plan, etc.)
+// ---------------------------------------------------------------------------
+router.get("/account/info", requireAuth, async (req: Request, res: Response) => {
+  const requestId = getRequestId(toWebRequest(req));
+  const meta = { request_id: requestId };
+  const session = req.session!;
+
+  const account = await prisma.account.findUnique({
+    where: { id: session.accountId },
+    select: {
+      id: true,
+      companyName: true,
+      plan: true,
+      status: true,
+      currency: true,
+      taxRate: true,
+      country: true,
+      timezone: true,
+      createdAt: true,
+    },
+  });
+
+  if (!account) {
+    return res.status(404).json(apiError("NOT_FOUND", "Account not found", undefined, meta));
+  }
+
+  return res.json(apiSuccess(account, meta));
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /account/settings — update account currency and tax rate (owner/admin)
+// ---------------------------------------------------------------------------
+router.patch("/account/settings", requireCsrf, requireAuth, async (req: Request, res: Response) => {
+  const requestId = getRequestId(toWebRequest(req));
+  const meta = { request_id: requestId };
+  const session = req.session!;
+
+  if (session.role !== "owner" && session.role !== "admin") {
+    return res
+      .status(403)
+      .json(apiError("FORBIDDEN", "Only account owner or admin can update account settings", undefined, meta));
+  }
+
+  const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/account/settings");
+  if (!rateLimit.allowed) {
+    return res
+      .status(429)
+      .set(rateLimitHeaders(rateLimit) as Record<string, string>)
+      .json(apiError("RATE_LIMITED", "Too many requests. Please try again shortly.", undefined, meta));
+  }
+
+  const parsed = accountSettingsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json(
+        apiError(
+          "VALIDATION",
+          "Invalid settings. currency must be one of GYD, USD, TTD, BBD, JMD, XCD. taxRate must be between 0 and 1.",
+          undefined,
+          meta,
+        ),
+      );
+  }
+
+  const { currency, taxRate } = parsed.data;
+  if (currency === undefined && taxRate === undefined) {
+    return res
+      .status(400)
+      .json(apiError("VALIDATION", "At least one of currency or taxRate must be provided.", undefined, meta));
+  }
+
+  const updateData: Record<string, unknown> = {};
+  if (currency !== undefined) updateData.currency = currency;
+  if (taxRate !== undefined) updateData.taxRate = taxRate;
+
+  const updated = await prisma.account.update({
+    where: { id: session.accountId },
+    data: updateData,
+    select: { currency: true, taxRate: true },
+  });
+
+  void logAudit({
+    accountId: session.accountId,
+    userId: session.userId,
+    action: "account.settings_updated",
+    ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
+    severity: "info",
+    outcome: "success",
+    metadata: updateData,
+  });
+
+  return res.json(apiSuccess(updated, meta));
+});
+
 // ---------------------------------------------------------------------------
 // PATCH /account/profile — update the current user's profile (name)
 // ---------------------------------------------------------------------------

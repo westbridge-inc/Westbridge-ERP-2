@@ -1,9 +1,9 @@
 /**
  * Billing service: signup (create account + payment session), payment handling.
  *
- * Uses PowerTranz (Caribbean-focused payment processor) for the Hosted Payment
- * Page (HPP) flow. After signup the customer is redirected to PowerTranz's
- * hosted page; once they pay, PowerTranz POSTs back to our webhook endpoint,
+ * Uses 2Checkout (Verifone) for the ConvertPlus hosted checkout flow.
+ * After signup the customer is redirected to 2Checkout's hosted checkout;
+ * once they pay, 2Checkout sends an IPN to our webhook endpoint,
  * and we activate the account.
  */
 
@@ -14,7 +14,7 @@ import {
   verifyCallbackSignature,
   type PlanSlug,
   type PaymentCallbackData,
-} from "../data/powertranz.client.js";
+} from "../data/twocheckout.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
@@ -70,11 +70,11 @@ export async function createAccount(
       });
     });
 
-    // The return URL is where PowerTranz will POST the payment result
-    const returnUrl = `${returnBaseUrl}/api/webhooks/powertranz?accountId=${account.id}`;
+    // The return URL is where 2Checkout will redirect after payment
+    const returnUrl = `${returnBaseUrl}/api/webhooks/payment?accountId=${account.id}`;
     const session = await createPaymentSession(planSlug, account.id, returnUrl, currency);
 
-    // If PowerTranz is configured, store the transaction ID
+    // If 2Checkout is configured, store the transaction ID
     if (session) {
       await prisma.account.update({
         where: { id: account.id },
@@ -99,14 +99,14 @@ export interface HandlePaymentResult {
 }
 
 /**
- * Verify the signature of a PowerTranz callback.
+ * Verify the signature of a 2Checkout IPN callback.
  */
-export function verifyPaymentCallback(rawBody: string, signature: string): boolean {
-  return verifyCallbackSignature(rawBody, signature);
+export function verifyPaymentCallback(rawBody: string, signature: string, parsedData?: PaymentCallbackData): boolean {
+  return verifyCallbackSignature(rawBody, signature, parsedData);
 }
 
 /**
- * Check if a PowerTranz payment callback indicates success.
+ * Check if a 2Checkout IPN callback indicates success.
  */
 export function isPaymentSuccess(data: PaymentCallbackData): boolean {
   return isPaymentApproved(data);

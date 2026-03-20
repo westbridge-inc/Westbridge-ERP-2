@@ -49,7 +49,7 @@ export const authAttemptsTotal = new Counter({
 
 export const erpApiDuration = new Histogram({
   name: "westbridge_erp_api_duration_seconds",
-  help: "ERPNext API call latency",
+  help: "ERP API call latency",
   labelNames: ["endpoint", "method"] as const,
   buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
   registers: [registry],
@@ -57,7 +57,7 @@ export const erpApiDuration = new Histogram({
 
 export const erpApiErrorsTotal = new Counter({
   name: "westbridge_erp_api_errors_total",
-  help: "ERPNext API errors",
+  help: "ERP API errors",
   labelNames: ["endpoint", "error_type"] as const,
   registers: [registry],
 });
@@ -110,12 +110,7 @@ export const cacheMissesTotal = new Counter({
 // ─── SLO helpers ─────────────────────────────────────────────────────────────
 
 /** Record an HTTP request after it completes. */
-export function recordHttpRequest(
-  method: string,
-  route: string,
-  status: number,
-  durationMs: number
-) {
+export function recordHttpRequest(method: string, route: string, status: number, durationMs: number) {
   const labels = { method, route, status: String(status) };
   httpRequestDuration.observe(labels, durationMs / 1000);
   httpRequestsTotal.inc(labels);

@@ -11,7 +11,7 @@ vi.mock("../../data/prisma.js", () => ({
   },
 }));
 
-vi.mock("../../data/powertranz.client.js", () => ({
+vi.mock("../../data/twocheckout.client.js", () => ({
   createPaymentSession: vi.fn(),
   isPaymentApproved: vi.fn(),
   verifyCallbackSignature: vi.fn(),
@@ -41,7 +41,7 @@ vi.mock("../subscription.service.js", () => ({
 
 import { createAccount, verifyPaymentCallback, isPaymentSuccess, markAccountPaid } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
-import { verifyCallbackSignature, isPaymentApproved } from "../../data/powertranz.client.js";
+import { verifyCallbackSignature, isPaymentApproved } from "../../data/twocheckout.client.js";
 
 describe("billing.service", () => {
   beforeEach(() => {
@@ -73,7 +73,7 @@ describe("billing.service", () => {
           },
         });
       });
-      const { createPaymentSession } = await import("../../data/powertranz.client.js");
+      const { createPaymentSession } = await import("../../data/twocheckout.client.js");
       (createPaymentSession as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const result = await createAccount(
@@ -94,12 +94,12 @@ describe("billing.service", () => {
   describe("isPaymentSuccess", () => {
     it("delegates to isPaymentApproved", () => {
       (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      expect(isPaymentSuccess({ Approved: true })).toBe(true);
+      expect(isPaymentSuccess({ ORDERSTATUS: "COMPLETE" })).toBe(true);
     });
 
     it("returns false for failed payment", () => {
       (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(false);
-      expect(isPaymentSuccess({ Approved: false })).toBe(false);
+      expect(isPaymentSuccess({ ORDERSTATUS: "PENDING" })).toBe(false);
     });
   });
 

@@ -1,0 +1,58 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Westbridge ERP Backend — Production Docker Compose
+# ──────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   cp .env.production.example .env.production   # Fill in real values
+#   docker compose -f docker-compose.production.yml --env-file .env.production up -d --build
+#   docker compose -f docker-compose.production.yml exec api npx prisma migrate deploy
+#
+# This is a self-contained production stack (API + Postgres + Redis).
+# ERPNext is expected to run externally — set ERPNEXT_URL in .env.production.
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── Westbridge API ──────────────────────────────────────────────────────────
+  api:
+    build: .
+    ports:
+      - "4000:4000"
+    env_file: .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: westbridge
+      POSTGRES_USER: westbridge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U westbridge"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

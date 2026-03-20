@@ -89,7 +89,15 @@ async function assertNotPrivateUrl(url: string): Promise<void> {
     }
   }
 }
-import type { EmailJobData, CleanupJobData, WebhookJobData, ErpSyncJobData, ReportJobData } from "../lib/jobs/queue.js";
+import { processMonthlyRenewals } from "../lib/services/subscription.service.js";
+import type {
+  EmailJobData,
+  CleanupJobData,
+  WebhookJobData,
+  ErpSyncJobData,
+  ReportJobData,
+  BillingJobData,
+} from "../lib/jobs/queue.js";
 
 const connection = getRedisConfig();
 
@@ -423,6 +431,24 @@ function createReportsWorker(): Worker {
   );
 }
 
+// ─── Billing Worker ───────────────────────────────────────────────────────────
+
+function createBillingWorker(): Worker {
+  return new Worker<BillingJobData>(
+    "billing",
+    async (job: Job<BillingJobData>) => {
+      logger.info("Processing billing job", { jobId: job.id, task: job.data.task });
+
+      if (job.data.task === "monthly_renewals") {
+        const stats = await processMonthlyRenewals();
+        logger.info("Monthly renewals complete", { jobId: job.id, ...stats });
+        return stats;
+      }
+    },
+    { connection },
+  );
+}
+
 // ─── Start all workers ─────────────────────────────────────────────────────────
 
 export function startWorkers(): Worker[] {
@@ -432,6 +458,7 @@ export function startWorkers(): Worker[] {
     createWebhooksWorker(),
     createErpSyncWorker(),
     createReportsWorker(),
+    createBillingWorker(),
   ];
 
   logger.info("Started BullMQ workers", { count: workers.length });

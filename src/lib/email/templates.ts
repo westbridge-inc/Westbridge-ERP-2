@@ -68,6 +68,17 @@ function expiry(minutes: number): string {
   return `<p style="font-size:13px;color:${TEXT_MUTED};margin-top:8px;">This link expires in ${minutes} minutes.</p>`;
 }
 
+// ─── Unsubscribe footer (marketing/product emails only) ──────────────────────
+
+const APP_SETTINGS_URL = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/settings/notifications`;
+
+function unsubscribeFooter(): string {
+  return `<p style="font-size:12px;color:${TEXT_MUTED};margin-top:24px;border-top:1px solid ${BORDER};padding-top:16px;">
+    You received this email because you opted in to product updates.
+    <a href="${APP_SETTINGS_URL}" style="color:${ACCENT_COLOR};text-decoration:underline;">Unsubscribe</a> or manage your notification preferences.
+  </p>`;
+}
+
 // ─── Templates ────────────────────────────────────────────────────────────────
 
 export interface InviteEmailData {
@@ -118,5 +129,26 @@ export function accountActivatedEmail(data: AccountActivatedEmailData): string {
     <p style="font-size:15px;color:${TEXT_MUTED};margin:0 0 24px;">Sign in to start using Westbridge.</p>
     ${button(data.loginUrl, "Go to dashboard")}
     <p style="font-size:13px;color:${TEXT_MUTED};margin-top:8px;">Need help getting started? Reply to this email — we're here.</p>
+    ${unsubscribeFooter()}
+  `);
+}
+
+// ─── Customer Portal Invite ────────────────────────────────────────────────
+
+export interface PortalInviteEmailData {
+  customerName: string;
+  companyName: string;
+  portalUrl: string;
+}
+
+export function portalInviteEmail(data: PortalInviteEmailData): string {
+  return layout(`
+    <h1 style="font-size:22px;font-weight:700;color:${TEXT_MAIN};margin:0 0 8px;">Your documents are ready</h1>
+    <p style="font-size:15px;color:${TEXT_MUTED};margin:0 0 4px;">Hi ${esc(data.customerName)},</p>
+    <p style="font-size:15px;color:${TEXT_MUTED};margin:0 0 24px;"><strong style="color:${TEXT_MAIN};">${esc(data.companyName)}</strong> has shared your invoices, quotations, and orders with you. Click the link below to view them.</p>
+    ${button(data.portalUrl, "View your documents")}
+    ${fallbackLink(data.portalUrl)}
+    <p style="font-size:13px;color:${TEXT_MUTED};margin-top:16px;">This link expires in 30 days. If you need a new link, please contact ${esc(data.companyName)} directly.</p>
+    <p style="font-size:13px;color:${TEXT_MUTED};margin-top:8px;">If you weren't expecting this email, you can safely ignore it.</p>
   `);
 }

@@ -125,4 +125,25 @@ router.get("/docs", async (_req: Request, res: Response) => {
   return res.set("Content-Type", "application/json").set("Cache-Control", "public, max-age=300").json(spec);
 });
 
+// ---------------------------------------------------------------------------
+// GET /docs/ui — Swagger UI (lightweight HTML redirect to SwaggerUI CDN)
+// ---------------------------------------------------------------------------
+router.get("/docs/ui", (_req: Request, res: Response) => {
+  const specUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:4000"}/api/docs`;
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Westbridge API Docs</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>SwaggerUIBundle({ url: "${specUrl}", dom_id: "#swagger-ui", deepLinking: true });</script>
+</body>
+</html>`;
+  return res.set("Content-Type", "text/html").set("Cache-Control", "public, max-age=300").send(html);
+});
+
 export default router;

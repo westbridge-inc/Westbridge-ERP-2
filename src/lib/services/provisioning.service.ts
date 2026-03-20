@@ -74,7 +74,7 @@ export async function provisionErpnextAccount(accountId: string): Promise<Result
       // Company may already exist — check for duplicate
       if (!text.includes("already exists")) {
         logger.error("ERPNext company creation failed", { status: companyRes.status, body: text.slice(0, 500) });
-        return err("Failed to create ERPNext company");
+        return err("Failed to create company");
       }
     }
 

@@ -17,9 +17,10 @@ model Account {
   erpnextCompany   String?   @map("erpnext_company") // ERPNext Company name for row-level scoping
   plan             String    // Starter | Growth | Business
   status           String    @default("pending") // pending | active | past_due | canceled
-  currency         String    @default("GYD")     // Default currency (Caribbean-first)
-  country          String    @default("GY")      // ISO 3166-1 alpha-2
-  timezone         String    @default("America/Guyana")
+  currency         String    @default("USD")     // Default currency — configurable per account
+  taxRate          Float     @default(0) @map("tax_rate") // VAT/tax rate (e.g. 0.14 = 14%) — configurable
+  country          String    @default("US")      // ISO 3166-1 alpha-2
+  timezone         String    @default("UTC")
   paymentTransactionId  String?   @map("payment_transaction_id")  // PowerTranz transaction identifier
   paymentRRN            String?   @map("payment_rrn")             // PowerTranz Retrieval Reference Number
   modulesSelected  String[]  @map("modules_selected") // module ids
@@ -262,6 +263,20 @@ model BillingInvoice {
 
   @@index([accountId, createdAt])
   @@map("billing_invoices")
+}
+
+// ─── Customer Portal Tokens ─────────────────────────────────────────────────
+model PortalToken {
+  id            String   @id @default(cuid())
+  accountId     String   @map("account_id")
+  customerName  String   @map("customer_name")
+  customerEmail String   @map("customer_email")
+  tokenHash     String   @unique @map("token_hash")
+  expiresAt     DateTime @map("expires_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([accountId])
+  @@map("portal_tokens")
 }
 
 model WebhookEndpoint {

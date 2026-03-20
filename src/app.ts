@@ -17,7 +17,8 @@ import helmet from "helmet";
 import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
 import { requestLogger } from "./middleware/request-logger.js";
-import { requireActiveSubscription, requireCsrf } from "./middleware/auth.js";
+import { requireActiveSubscription, requireCsrf, requireAuth, requirePermission } from "./middleware/auth.js";
+import { createBullBoardAdapter } from "./lib/jobs/bull-board.js";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
@@ -43,6 +44,8 @@ import ssoRoutes from "./routes/sso.routes.js";
 import documentRoutes from "./routes/document.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
 import totpRoutes from "./routes/totp.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
+import portalRoutes from "./routes/portal.routes.js";
 
 export function createApp(): express.Application {
   const app = express();
@@ -136,12 +139,22 @@ export function createApp(): express.Application {
   apiRouter.use(documentRoutes);
   apiRouter.use(settingsRoutes);
   apiRouter.use("/auth", totpRoutes);
+  apiRouter.use(uploadRoutes);
+  apiRouter.use("/portal", portalRoutes);
 
   // Mount versioned API (canonical)
   app.use("/api/v1", apiRouter);
 
   // Mount unversioned API (backwards compatibility — will be deprecated)
   app.use("/api", apiRouter);
+
+  // ─── Bull-board dashboard (/admin/queues) ─────────────────────────────────
+  // Skip in test environment — BullMQ queues aren't real without Redis
+  if (process.env.NODE_ENV !== "test") {
+    const bullBoardPath = "/admin/queues";
+    const bullBoardAdapter = createBullBoardAdapter(bullBoardPath);
+    app.use(bullBoardPath, requireAuth, requirePermission("admin:*"), bullBoardAdapter.getRouter());
+  }
 
   // ─── 404 Handler ───────────────────────────────────────────────────────────
 

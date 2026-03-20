@@ -56,10 +56,10 @@ const envSchema = z.object({
   // ── AI ──────────────────────────────────────────────────────────────────────
   ANTHROPIC_API_KEY: z.string().optional().default(""),
 
-  // ── Billing (PowerTranz — Caribbean payment gateway) ────────────────────────
-  POWERTRANZ_ID: z.string().optional().default(""),
-  POWERTRANZ_PASSWORD: z.string().optional().default(""),
-  POWERTRANZ_TEST_MODE: z.string().optional().default("true"), // "true" for staging, "false" for production
+  // ── Billing (2Checkout / Verifone — global payment gateway) ─────────────────
+  TWOCHECKOUT_MERCHANT_CODE: z.string().optional().default(""),
+  TWOCHECKOUT_SECRET_KEY: z.string().optional().default(""),
+  TWOCHECKOUT_TEST_MODE: z.string().optional().default("true"), // "true" for sandbox, "false" for production
 
   // ── Observability ───────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional().default(""),
@@ -118,7 +118,6 @@ function parseEnv() {
     if (!result.data.ANTHROPIC_API_KEY) {
       console.warn("⚠️  ANTHROPIC_API_KEY not set — AI assistant will show 'coming soon' to users");
     }
-
 
     // Non-fatal warnings for observability & config
     if (!result.data.SENTRY_DSN) {
