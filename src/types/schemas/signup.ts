@@ -4,6 +4,7 @@ export const signupBodySchema = z.object({
   email: z.string().email("Invalid email").min(1, "Email required"),
   companyName: z.string().min(1, "Company name required").max(200),
   plan: z.string().min(1, "Plan required"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   modulesSelected: z.array(z.string()).optional().default([]),
 });
 

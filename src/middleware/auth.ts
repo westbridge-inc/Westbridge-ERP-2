@@ -163,9 +163,19 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     }
 
     next();
-  } catch {
-    // Don't block access on DB errors — fail open for availability
-    next();
+  } catch (e) {
+    // Fail closed: deny access when we can't verify subscription status
+    logger.error("requireActiveSubscription: failed to check account status", {
+      accountId: session.accountId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    res.status(503).json({
+      ok: false,
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: "Service temporarily unavailable. Please try again shortly.",
+      },
+    });
   }
 }
 

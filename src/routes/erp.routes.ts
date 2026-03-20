@@ -13,7 +13,7 @@ import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware
 import { publish } from "../lib/realtime.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
-import { ALLOWED_DOCTYPES_SET, COMPANY_SCOPED_DOCTYPES } from "../lib/erp-constants.js";
+import { ALLOWED_DOCTYPES_SET, COMPANY_SCOPED_DOCTYPES, isDoctypeAllowedForPlan } from "../lib/erp-constants.js";
 import { erpDocCreateBodySchema } from "../types/schemas/erp.js";
 import { buildDashboardData } from "../lib/services/dashboard.service.js";
 
@@ -101,6 +101,19 @@ router.get("/erp/list", requireAuth, async (req: Request, res: Response) => {
     if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
       res.set(responseHeaders());
       return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
+    }
+
+    // Module access check: verify doctype is included in the account's plan
+    const planAccount = await prisma.account
+      .findUnique({ where: { id: session.accountId }, select: { plan: true } })
+      .catch(() => null);
+    if (planAccount && !isDoctypeAllowedForPlan(doctype, planAccount.plan)) {
+      res.set(responseHeaders());
+      return res
+        .status(403)
+        .json(
+          apiError("FORBIDDEN", "Your plan does not include access to this module. Please upgrade.", undefined, meta()),
+        );
     }
 
     const ORDER_BY_ALLOWLIST = new Set([
@@ -226,6 +239,19 @@ router.get("/erp/doc", requireAuth, rateLimit("authenticated", "/api/erp/doc"), 
       return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
     }
 
+    // Module access check: verify doctype is included in the account's plan
+    const planAccount = await prisma.account
+      .findUnique({ where: { id: session.accountId }, select: { plan: true } })
+      .catch(() => null);
+    if (planAccount && !isDoctypeAllowedForPlan(doctype, planAccount.plan)) {
+      res.set(responseHeaders());
+      return res
+        .status(403)
+        .json(
+          apiError("FORBIDDEN", "Your plan does not include access to this module. Please upgrade.", undefined, meta()),
+        );
+    }
+
     const result = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
     if (!result.ok) {
       const status = result.error === "Not found" ? 404 : 502;
@@ -319,6 +345,20 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
       res.set(responseHeaders());
       return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
     }
+
+    // Module access check: verify doctype is included in the account's plan
+    const planAccount = await prisma.account
+      .findUnique({ where: { id: session.accountId }, select: { plan: true } })
+      .catch(() => null);
+    if (planAccount && !isDoctypeAllowedForPlan(doctype, planAccount.plan)) {
+      res.set(responseHeaders());
+      return res
+        .status(403)
+        .json(
+          apiError("FORBIDDEN", "Your plan does not include access to this module. Please upgrade.", undefined, meta()),
+        );
+    }
+
     const result = await createDoc(
       doctype,
       session.erpnextSid as string,
@@ -416,6 +456,24 @@ router.put(
         return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
       }
 
+      // Module access check: verify doctype is included in the account's plan
+      const planAccount = await prisma.account
+        .findUnique({ where: { id: session.accountId }, select: { plan: true } })
+        .catch(() => null);
+      if (planAccount && !isDoctypeAllowedForPlan(doctype, planAccount.plan)) {
+        res.set(responseHeaders());
+        return res
+          .status(403)
+          .json(
+            apiError(
+              "FORBIDDEN",
+              "Your plan does not include access to this module. Please upgrade.",
+              undefined,
+              meta(),
+            ),
+          );
+      }
+
       // Tenant isolation: always fetch and verify ownership before updating
       const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
       if (
@@ -498,6 +556,24 @@ router.delete(
         return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
       }
 
+      // Module access check: verify doctype is included in the account's plan
+      const planAccount = await prisma.account
+        .findUnique({ where: { id: session.accountId }, select: { plan: true } })
+        .catch(() => null);
+      if (planAccount && !isDoctypeAllowedForPlan(doctype, planAccount.plan)) {
+        res.set(responseHeaders());
+        return res
+          .status(403)
+          .json(
+            apiError(
+              "FORBIDDEN",
+              "Your plan does not include access to this module. Please upgrade.",
+              undefined,
+              meta(),
+            ),
+          );
+      }
+
       // Tenant isolation: always fetch and verify ownership before deleting
       const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
       if (
@@ -569,6 +645,24 @@ router.post(
       if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
         res.set(responseHeaders());
         return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
+      }
+
+      // Module access check: verify doctype is included in the account's plan
+      const planAccount = await prisma.account
+        .findUnique({ where: { id: session.accountId }, select: { plan: true } })
+        .catch(() => null);
+      if (planAccount && !isDoctypeAllowedForPlan(doctype, planAccount.plan)) {
+        res.set(responseHeaders());
+        return res
+          .status(403)
+          .json(
+            apiError(
+              "FORBIDDEN",
+              "Your plan does not include access to this module. Please upgrade.",
+              undefined,
+              meta(),
+            ),
+          );
       }
 
       if (!Array.isArray(items) || items.length === 0) {

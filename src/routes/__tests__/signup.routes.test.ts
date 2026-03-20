@@ -120,7 +120,16 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue({ api_calls: 0, erp_docs_created: 0, ai_tokens_input: 0, ai_tokens_output: 0, active_users_count: 0, period: "2026-03" }),
+    get: vi
+      .fn()
+      .mockResolvedValue({
+        api_calls: 0,
+        erp_docs_created: 0,
+        ai_tokens_input: 0,
+        ai_tokens_output: 0,
+        active_users_count: 0,
+        period: "2026-03",
+      }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -148,6 +157,7 @@ const VALID_SIGNUP = {
   email: "newuser@acme.com",
   companyName: "Acme Corp",
   plan: "Starter",
+  password: "SecurePass123!",
 };
 
 // ---------------------------------------------------------------------------
@@ -196,7 +206,7 @@ describe("Signup Routes", () => {
         .post("/api/signup")
         .set("Cookie", CSRF_COOKIE)
         .set("x-csrf-token", "test-csrf-token")
-        .send({ email: "not-an-email", companyName: "Acme", plan: "Starter" });
+        .send({ email: "not-an-email", companyName: "Acme", plan: "Starter", password: "SecurePass123!" });
 
       expect(res.status).toBe(400);
     });
@@ -204,9 +214,7 @@ describe("Signup Routes", () => {
     it("returns 403 when CSRF token is missing", async () => {
       (validateCsrf as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await request(app)
-        .post("/api/signup")
-        .send(VALID_SIGNUP);
+      const res = await request(app).post("/api/signup").send(VALID_SIGNUP);
 
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe("FORBIDDEN");
@@ -221,6 +229,7 @@ describe("Signup Routes", () => {
           email: "user@mailinator.com",
           companyName: "Spammer Inc",
           plan: "Starter",
+          password: "SecurePass123!",
         });
 
       expect(res.status).toBe(400);
@@ -236,6 +245,7 @@ describe("Signup Routes", () => {
           email: "test@yopmail.com",
           companyName: "Test Corp",
           plan: "Starter",
+          password: "SecurePass123!",
         });
 
       expect(res.status).toBe(400);

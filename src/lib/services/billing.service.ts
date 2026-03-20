@@ -19,6 +19,7 @@ import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
 import { publish } from "../realtime.js";
+import { hashPassword } from "./auth.service.js";
 
 const VALID_PLANS: PlanSlug[] = ["Solo", "Starter", "Business", "Enterprise"];
 
@@ -26,6 +27,7 @@ export interface CreateAccountInput {
   email: string;
   companyName: string;
   plan: string;
+  password: string;
   modulesSelected?: string[];
   currency?: string;
 }
@@ -41,9 +43,12 @@ export async function createAccount(
   input: CreateAccountInput,
   returnBaseUrl: string,
 ): Promise<Result<CreateAccountResult, string>> {
-  const { email, companyName, plan, modulesSelected, currency } = input;
+  const { email, companyName, plan, password, modulesSelected, currency } = input;
   if (!email?.trim() || !companyName?.trim() || !plan?.trim()) {
     return err("Email, company name, and plan are required");
+  }
+  if (!password || password.length < 8) {
+    return err("Password must be at least 8 characters");
   }
   const planSlug = plan as PlanSlug;
   if (!VALID_PLANS.includes(planSlug)) {
@@ -68,6 +73,19 @@ export async function createAccount(
           status: "pending",
         },
       });
+    });
+
+    // Create the owner user with the hashed password so they can log in after payment
+    const passwordHash = await hashPassword(password);
+    await prisma.user.create({
+      data: {
+        accountId: account.id,
+        email: email.trim(),
+        name: null,
+        role: "owner",
+        status: "active",
+        passwordHash,
+      },
     });
 
     // The return URL is where 2Checkout will redirect after payment

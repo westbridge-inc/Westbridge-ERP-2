@@ -7,6 +7,9 @@ vi.mock("../../data/prisma.js", () => ({
       update: vi.fn(),
       updateMany: vi.fn(),
     },
+    user: {
+      create: vi.fn().mockResolvedValue({ id: "user_1", email: "a@b.com" }),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -39,6 +42,10 @@ vi.mock("../subscription.service.js", () => ({
   createSubscription: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
+vi.mock("../auth.service.js", () => ({
+  hashPassword: vi.fn().mockResolvedValue("$2b$12$mockedhashvalue"),
+}));
+
 import { createAccount, verifyPaymentCallback, isPaymentSuccess, markAccountPaid } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
 import { verifyCallbackSignature, isPaymentApproved } from "../../data/twocheckout.client.js";
@@ -50,17 +57,29 @@ describe("billing.service", () => {
 
   describe("createAccount", () => {
     it("returns error for missing fields", async () => {
-      const result = await createAccount({ email: "", companyName: "", plan: "" }, "http://localhost");
+      const result = await createAccount(
+        { email: "", companyName: "", plan: "", password: "SecurePass123!" },
+        "http://localhost",
+      );
       expect(result.ok).toBe(false);
     });
 
     it("returns error for invalid plan", async () => {
       const result = await createAccount(
-        { email: "a@b.com", companyName: "Test", plan: "InvalidPlan" },
+        { email: "a@b.com", companyName: "Test", plan: "InvalidPlan", password: "SecurePass123!" },
         "http://localhost",
       );
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain("Invalid plan");
+    });
+
+    it("returns error for short password", async () => {
+      const result = await createAccount(
+        { email: "a@b.com", companyName: "Test", plan: "Starter", password: "short" },
+        "http://localhost",
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain("Password");
     });
 
     it("creates account with valid input", async () => {
@@ -77,7 +96,7 @@ describe("billing.service", () => {
       (createPaymentSession as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const result = await createAccount(
-        { email: "a@b.com", companyName: "Test Co", plan: "Starter" },
+        { email: "a@b.com", companyName: "Test Co", plan: "Starter", password: "SecurePass123!" },
         "http://localhost:3000",
       );
       expect(result.ok).toBe(true);
