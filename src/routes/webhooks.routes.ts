@@ -190,12 +190,68 @@ router.post("/webhooks/payment", async (req: Request, res: Response) => {
 
   // ── Resolve account ID ────────────────────────────────────────────────
   // REFNOEXT contains the account ID we passed as order-ext-ref in the buy link.
-  // Also check query param as fallback (set in return-url).
-  const accountId = (parsedData.REFNOEXT as string) ?? (req.query.accountId as string | undefined) ?? "";
+  const accountId = (parsedData.REFNOEXT as string) ?? "";
   if (!accountId) {
     logger.warn("2Checkout webhook: no account ID found in IPN", {
       refno,
       refnoext: parsedData.REFNOEXT,
+    });
+    const ipnDate = (parsedData.IPN_DATE as string) ?? new Date().toISOString();
+    return res
+      .status(200)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .set("Content-Type", "text/xml")
+      .send(generateIpnResponse(ipnDate));
+  }
+
+  // ── Verify account exists and is pending payment ───────────────────
+  // Prevents forged IPNs from activating arbitrary accounts.
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { id: true, status: true, plan: true },
+  });
+
+  if (!account) {
+    logger.warn("2Checkout webhook: account not found", { accountId, refno });
+    const ipnDate = (parsedData.IPN_DATE as string) ?? new Date().toISOString();
+    return res
+      .status(200)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .set("Content-Type", "text/xml")
+      .send(generateIpnResponse(ipnDate));
+  }
+
+  // Only activate accounts that are pending or renewing — block replays against already-active accounts
+  if (account.status !== "pending" && account.status !== "active") {
+    logger.warn("2Checkout webhook: account not in activatable state", {
+      accountId,
+      status: account.status,
+      refno,
+    });
+    const ipnDate = (parsedData.IPN_DATE as string) ?? new Date().toISOString();
+    return res
+      .status(200)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .set("Content-Type", "text/xml")
+      .send(generateIpnResponse(ipnDate));
+  }
+
+  // Verify the payment amount matches the plan price (within tolerance for currency conversion)
+  const PLAN_AMOUNTS: Record<string, number> = {
+    Solo: 49.99,
+    Starter: 199.99,
+    Business: 999.99,
+    Enterprise: 4999.99,
+  };
+  const expectedAmount = PLAN_AMOUNTS[account.plan] ?? 0;
+  const receivedAmount = parseFloat((parsedData.IPN_TOTALGENERAL as string) ?? "0");
+  if (expectedAmount > 0 && Math.abs(receivedAmount - expectedAmount) > 1.0) {
+    logger.error("2Checkout webhook: amount mismatch", {
+      accountId,
+      expected: expectedAmount,
+      received: receivedAmount,
+      plan: account.plan,
+      refno,
     });
     const ipnDate = (parsedData.IPN_DATE as string) ?? new Date().toISOString();
     return res

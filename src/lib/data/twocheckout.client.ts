@@ -178,13 +178,23 @@ function ipnSerializeValue(value: unknown): string {
  * 2Checkout IPN signature: HMAC-MD5 over a concatenation of
  * length-prefixed field values, using the merchant secret key.
  *
- * The fields included in the hash are (in order):
- * IPN_PID, IPN_PNAME, IPN_DATE, and IPN_DATE again for confirmation.
+ * All security-critical fields are included to prevent replay attacks
+ * with modified order status, account ID, or amount.
  */
 function computeIpnHash(data: PaymentCallbackData, secretKey: string): string {
-  // Build the source string from IPN fields (length-prefixed values)
-  // Standard 2CO IPN hash covers these fields in order
-  const fieldsToHash = ["IPN_PID", "IPN_PNAME", "IPN_DATE"] as const;
+  // Include all fields that determine payment outcome and target.
+  // Order matters — must match 2Checkout's canonical field order.
+  const fieldsToHash = [
+    "IPN_PID",
+    "IPN_PNAME",
+    "IPN_DATE",
+    "IPN_QTY",
+    "IPN_PRICE",
+    "IPN_TOTALGENERAL",
+    "CURRENCY",
+    "ORDERSTATUS",
+    "REFNOEXT",
+  ] as const;
 
   let source = "";
   for (const field of fieldsToHash) {

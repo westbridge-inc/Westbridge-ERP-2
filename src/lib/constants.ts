@@ -61,8 +61,7 @@ export const PAGINATION = {
 export const PLAN_USER_LIMITS: Record<string, number | null> = {
   Solo: 3,
   Starter: 10,
-  Growth: 25,
-  Business: 30,
+  Business: 50,
   Enterprise: null, // unlimited
 } as const;
 
