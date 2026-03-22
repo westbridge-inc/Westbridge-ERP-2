@@ -5,8 +5,8 @@
  *
  * Creates:
  *  - A demo account (Westbridge Demo Co.) with GYD defaults
- *  - An owner user (admin@westbridge.local / password123)
- *  - A member user (member@westbridge.local / password123)
+ *  - An owner user (admin@westbridge.local / Westbridge-Dev-2026!)
+ *  - A member user (member@westbridge.local / Westbridge-Dev-2026!)
  *
  * Idempotent: safe to run multiple times (upserts by email).
  */
@@ -29,7 +29,7 @@ async function hashPassword(plain: string): Promise<string> {
 
 // ─── Seed Data ────────────────────────────────────────────────────────────────
 
-const SEED_PASSWORD = "password123";
+const SEED_PASSWORD = "Westbridge-Dev-2026!";
 
 const DEMO_ACCOUNT = {
   email: "admin@westbridge.local",

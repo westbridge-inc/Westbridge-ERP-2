@@ -8,6 +8,7 @@ vi.mock("../../lib/logger.js", () => ({
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     auditLog: { create: vi.fn() },
     webhookEndpoint: { findMany: vi.fn().mockResolvedValue([]) },
     account: { findUnique: vi.fn() },

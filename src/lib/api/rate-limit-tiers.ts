@@ -77,33 +77,36 @@ export interface RateLimitResult {
   retryAfter?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Shared sliding window implementation
+// ---------------------------------------------------------------------------
+
 /**
- * Check rate limit using a sliding window stored in Redis as a sorted set.
- * @param windowMs - Optional window in ms (default 60_000). Used e.g. for /api/audit/export (1hr).
+ * Generic sliding window rate limiter backed by a Redis sorted set.
+ *
+ * Algorithm:
+ *   1. Remove entries older than `windowMs` (phase 1 pipeline).
+ *   2. Count remaining entries — reject if >= `limit`.
+ *   3. Add the new request entry (phase 2 pipeline).
+ *
+ * This two-phase approach ensures we never consume a token when the
+ * caller is already over the limit.
  */
-export async function checkTieredRateLimit(
-  identifier: string,
-  tier: RateLimitTier,
-  endpoint?: string,
+async function slidingWindowRateLimit(
+  key: string,
+  limit: number,
+  windowMs: number,
   costMultiplier = 1,
-  windowMsOverride?: number,
 ): Promise<RateLimitResult> {
-  const windowMs = windowMsOverride ?? (endpoint ? ENDPOINT_WINDOW_MS[endpoint] : undefined) ?? 60_000;
   const now = Date.now();
   const windowStart = now - windowMs;
   const reset = Math.ceil((now + windowMs) / 1000);
-
-  const tierLimit = TIER_LIMITS[tier];
-  const endpointLimit = endpoint ? ENDPOINT_OVERRIDES[endpoint] : undefined;
-  const limit = endpointLimit ?? tierLimit;
 
   const redis = getRedis();
   if (!redis) {
     logger.warn("Rate limit: Redis unavailable, denying request");
     return { allowed: false, limit, remaining: 0, reset, retryAfter: 60 };
   }
-
-  const key = `rl2:${tier}:${identifier}`;
 
   try {
     // Phase 1: clean stale entries and check current count BEFORE adding.
@@ -135,6 +138,31 @@ export async function checkTieredRateLimit(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Public rate limit functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Check rate limit using a sliding window stored in Redis as a sorted set.
+ * @param windowMs - Optional window in ms (default 60_000). Used e.g. for /api/audit/export (1hr).
+ */
+export async function checkTieredRateLimit(
+  identifier: string,
+  tier: RateLimitTier,
+  endpoint?: string,
+  costMultiplier = 1,
+  windowMsOverride?: number,
+): Promise<RateLimitResult> {
+  const windowMs = windowMsOverride ?? (endpoint ? ENDPOINT_WINDOW_MS[endpoint] : undefined) ?? 60_000;
+
+  const tierLimit = TIER_LIMITS[tier];
+  const endpointLimit = endpoint ? ENDPOINT_OVERRIDES[endpoint] : undefined;
+  const limit = endpointLimit ?? tierLimit;
+
+  const key = `rl2:${tier}:${identifier}`;
+  return slidingWindowRateLimit(key, limit, windowMs, costMultiplier);
+}
+
 /**
  * Check global per-email rate limit for auth endpoints (login, forgot-password, signup).
  * Prevents spreading brute-force attempts across endpoints.
@@ -142,47 +170,7 @@ export async function checkTieredRateLimit(
 export async function checkEmailRateLimit(email: string): Promise<RateLimitResult> {
   const normalised = email.trim().toLowerCase();
   const key = `rl2:email:${normalised}`;
-  const now = Date.now();
-  const windowStart = now - EMAIL_WINDOW_MS;
-  const reset = Math.ceil((now + EMAIL_WINDOW_MS) / 1000);
-
-  const redis = getRedis();
-  if (!redis) {
-    logger.warn("Rate limit: Redis unavailable, denying request");
-    return { allowed: false, limit: EMAIL_RATE_LIMIT, remaining: 0, reset, retryAfter: 60 };
-  }
-
-  try {
-    // Phase 1: clean stale entries and check current count BEFORE adding.
-    const checkPipeline = redis.pipeline();
-    checkPipeline.zremrangebyscore(key, 0, windowStart);
-    checkPipeline.zcard(key);
-    const checkResults = await checkPipeline.exec();
-    const currentCount = (checkResults?.[1]?.[1] as number) ?? 0;
-
-    if (currentCount >= EMAIL_RATE_LIMIT) {
-      return {
-        allowed: false,
-        limit: EMAIL_RATE_LIMIT,
-        remaining: 0,
-        reset,
-        retryAfter: Math.ceil(EMAIL_WINDOW_MS / 1000),
-      };
-    }
-
-    // Phase 2: add the request now that we know it's within limits.
-    const member = `${now}:${Math.random().toString(36).slice(2)}`;
-    const addPipeline = redis.pipeline();
-    addPipeline.zadd(key, now, member);
-    addPipeline.pexpire(key, EMAIL_WINDOW_MS * 2);
-    await addPipeline.exec();
-
-    const remaining = Math.max(0, EMAIL_RATE_LIMIT - (currentCount + 1));
-    return { allowed: true, limit: EMAIL_RATE_LIMIT, remaining, reset };
-  } catch (e) {
-    logger.warn("Rate limit: Redis error", { error: e instanceof Error ? e.message : String(e) });
-    return { allowed: false, limit: EMAIL_RATE_LIMIT, remaining: 0, reset, retryAfter: 60 };
-  }
+  return slidingWindowRateLimit(key, EMAIL_RATE_LIMIT, EMAIL_WINDOW_MS);
 }
 
 /** Per-account ERP limit: 200 requests per minute (prevents single tenant DDoSing shared ERPNext). */
@@ -191,47 +179,7 @@ const ERP_ACCOUNT_WINDOW_MS = 60_000;
 
 export async function checkErpAccountRateLimit(accountId: string): Promise<RateLimitResult> {
   const key = `rl2:erp:${accountId}`;
-  const now = Date.now();
-  const windowStart = now - ERP_ACCOUNT_WINDOW_MS;
-  const reset = Math.ceil((now + ERP_ACCOUNT_WINDOW_MS) / 1000);
-
-  const redis = getRedis();
-  if (!redis) {
-    logger.warn("Rate limit: Redis unavailable, denying request");
-    return { allowed: false, limit: ERP_ACCOUNT_LIMIT, remaining: 0, reset, retryAfter: 60 };
-  }
-
-  try {
-    // Phase 1: clean stale entries and check current count BEFORE adding.
-    const checkPipeline = redis.pipeline();
-    checkPipeline.zremrangebyscore(key, 0, windowStart);
-    checkPipeline.zcard(key);
-    const checkResults = await checkPipeline.exec();
-    const currentCount = (checkResults?.[1]?.[1] as number) ?? 0;
-
-    if (currentCount >= ERP_ACCOUNT_LIMIT) {
-      return {
-        allowed: false,
-        limit: ERP_ACCOUNT_LIMIT,
-        remaining: 0,
-        reset,
-        retryAfter: Math.ceil(ERP_ACCOUNT_WINDOW_MS / 1000),
-      };
-    }
-
-    // Phase 2: add the request now that we know it's within limits.
-    const member = `${now}:${Math.random().toString(36).slice(2)}`;
-    const addPipeline = redis.pipeline();
-    addPipeline.zadd(key, now, member);
-    addPipeline.pexpire(key, ERP_ACCOUNT_WINDOW_MS * 2);
-    await addPipeline.exec();
-
-    const remaining = Math.max(0, ERP_ACCOUNT_LIMIT - (currentCount + 1));
-    return { allowed: true, limit: ERP_ACCOUNT_LIMIT, remaining, reset };
-  } catch (e) {
-    logger.warn("Rate limit: Redis error", { error: e instanceof Error ? e.message : String(e) });
-    return { allowed: false, limit: ERP_ACCOUNT_LIMIT, remaining: 0, reset, retryAfter: 60 };
-  }
+  return slidingWindowRateLimit(key, ERP_ACCOUNT_LIMIT, ERP_ACCOUNT_WINDOW_MS);
 }
 
 /** Convert a RateLimitResult to standard HTTP headers. */

@@ -1,25 +1,18 @@
-# Westbridge ERP — Full-stack local development
+# Westbridge ERP — Local development services
 #
-# Starts all services needed to run the complete Westbridge platform:
+# Starts infrastructure needed to run the Westbridge backend locally:
 #   - PostgreSQL (app database)
 #   - Redis (sessions, caching, BullMQ job queues)
-#   - MariaDB (ERPNext database)
-#   - ERPNext (headless ERP backend)
-#   - Westbridge API (Express.js backend)
+#
+# ERPNext runs on ERPNext Cloud (erpnext.com) — not self-hosted.
+# Set ERPNEXT_URL in .env to point to your ERPNext Cloud instance.
 #
 # Usage:
 #   cp .env.example .env   # Fill in secrets before first run
 #   docker compose up -d
-#   # Then start the frontend separately: cd ../Westbridge-ERP-1 && npm run dev
-#
-# First run:
-#   docker compose up -d
-#   docker compose exec api npx prisma migrate deploy
-#   # Set up ERPNext site (see docs/SETUP.md)
-#
-# SECURITY: All passwords and secrets are read from environment variables.
-# Copy .env.example to .env and fill in real values before running.
-# NEVER commit .env files. See .gitignore.
+#   npx prisma migrate deploy
+#   npm run dev
+#   # Frontend: cd ../Westbridge-ERP-1 && npm run dev
 
 services:
   # ─── PostgreSQL (Westbridge app database) ─────────────────────────────────────
@@ -29,7 +22,7 @@ services:
     environment:
       POSTGRES_DB: westbridge
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
@@ -44,96 +37,13 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     ports:
       - "${REDIS_PORT:-6380}:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  # ─── MariaDB (ERPNext database) ──────────────────────────────────────────────
-  mariadb:
-    image: mariadb:10.11
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD must be set in .env}
-      MYSQL_DATABASE: frappe
-    volumes:
-      - mariadb-data:/var/lib/mysql
-    ports:
-      - "${MARIADB_PORT:-3306}:3306"
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  # ─── ERPNext (headless ERP backend) ───────────────────────────────────────────
-  erpnext:
-    image: frappe/erpnext:v16
-    restart: unless-stopped
-    environment:
-      SITE_NAME: site1.local
-      ADMIN_PASSWORD: ${ERPNEXT_ADMIN_PASSWORD:?ERPNEXT_ADMIN_PASSWORD must be set in .env}
-      DB_HOST: mariadb
-      DB_PORT: "3306"
-      DB_ROOT_USER: root
-      DB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
-      FRAPPE_REDIS_CACHE: redis://redis-erpnext:6379/0
-      FRAPPE_REDIS_QUEUE: redis://redis-erpnext:6379/1
-      FRAPPE_REDIS_SOCKETIO: redis://redis-erpnext:6379/2
-    volumes:
-      - erpnext-sites:/home/frappe/frappe-bench/sites
-    ports:
-      - "${ERPNEXT_PORT:-8080}:8080"
-    depends_on:
-      mariadb:
-        condition: service_healthy
-      redis-erpnext:
-        condition: service_healthy
-
-  # ─── Redis for ERPNext (separate from app Redis) ──────────────────────────────
-  redis-erpnext:
-    image: redis:6.2-alpine
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ─── Westbridge API (Express.js backend) ──────────────────────────────────────
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      PORT: "4000"
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/westbridge
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      ERPNEXT_URL: http://erpnext:8080
-      FRONTEND_URL: http://localhost:3000
-      # SECURITY: These secrets MUST be set via .env file.
-      # Generate with: openssl rand -hex 32
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in .env}
-      CSRF_SECRET: ${CSRF_SECRET:?CSRF_SECRET must be set in .env}
-      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set in .env}
-    ports:
-      - "${API_PORT:-4000}:4000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
 volumes:
   postgres-data:
-  mariadb-data:
-  erpnext-sites:

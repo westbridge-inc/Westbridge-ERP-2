@@ -54,15 +54,24 @@ describe("redis", () => {
   });
 
   describe("getRedis", () => {
-    it("returns a redis instance", async () => {
+    it("returns a redis instance when REDIS_URL is set", async () => {
+      process.env.REDIS_URL = "redis://localhost:6379";
       const { getRedis } = await import("../redis.js");
       const redis = getRedis();
       expect(redis).not.toBeNull();
+    });
+
+    it("returns null in test env without REDIS_URL", async () => {
+      delete process.env.REDIS_URL;
+      const { getRedis } = await import("../redis.js");
+      const redis = getRedis();
+      expect(redis).toBeNull();
     });
   });
 
   describe("closeRedis", () => {
     it("closes redis connection", async () => {
+      process.env.REDIS_URL = "redis://localhost:6379";
       const { getRedis, closeRedis } = await import("../redis.js");
       getRedis(); // ensure connected
       await closeRedis();

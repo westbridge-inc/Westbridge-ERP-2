@@ -162,7 +162,7 @@ export const meter = {
 
 // ─── AI token cost estimation ─────────────────────────────────────────────────
 
-// Rough estimate based on Anthropic Claude pricing at time of writing.
+// Rough estimate based on Anthropic pricing at time of writing.
 // Update when model pricing changes.
 const COST_PER_1K_INPUT = 0.005;
 const COST_PER_1K_OUTPUT = 0.015;

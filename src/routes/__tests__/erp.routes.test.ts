@@ -8,6 +8,7 @@ import request from "supertest";
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     account: {
       findUnique: vi.fn().mockResolvedValue({ erpnextCompany: "Test Corp", plan: "Enterprise" }),
     },
@@ -84,6 +85,7 @@ vi.mock("@sentry/node", () => ({
 
 vi.mock("../../lib/services/auth.service.js", () => ({
   login: vi.fn(),
+  changePassword: vi.fn(),
 }));
 vi.mock("../../lib/services/password-reset.service.js", () => ({
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { sent: true } }),

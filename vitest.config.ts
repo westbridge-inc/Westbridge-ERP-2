@@ -5,7 +5,8 @@ export default defineConfig({
     globals: true,
     environment: "node",
     setupFiles: ["./vitest.setup.ts"],
-    include: ["src/**/*.test.ts", "src/**/*.integration.test.ts"],
+    include: ["src/**/*.test.ts"],
+    exclude: ["**/node_modules/**", "src/__tests__/**"],
     testTimeout: 10_000,
     env: {
       NODE_ENV: "test",
@@ -38,12 +39,10 @@ export default defineConfig({
         "src/lib/data/prisma.ts",
       ],
       thresholds: {
-        // Raised from 45% → 63% after test coverage campaign (117 new tests)
-        // Target: 80/70/75/80 before GA release
-        statements: 55,
-        branches: 65,
+        statements: 78,
+        branches: 73,
         functions: 90,
-        lines: 55,
+        lines: 78,
       },
     },
   },

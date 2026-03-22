@@ -28,6 +28,9 @@ declare global {
 export function requestLogger(req: Request, _res: Response, next: NextFunction): void {
   const requestId = (req.headers["x-request-id"] as string | undefined) ?? randomUUID();
 
+  // Echo the request ID back in the response for end-to-end traceability
+  _res.setHeader("X-Request-ID", requestId);
+
   req.log =
     typeof logger.child === "function" ? logger.child({ requestId, method: req.method, path: req.path }) : logger;
 

@@ -119,6 +119,7 @@ function parseEnv() {
       console.warn("⚠️  ANTHROPIC_API_KEY not set — AI assistant will show 'coming soon' to users");
     }
 
+
     // Non-fatal warnings for observability & config
     if (!result.data.SENTRY_DSN) {
       console.warn("⚠️  SENTRY_DSN not set — error tracking is disabled in production");

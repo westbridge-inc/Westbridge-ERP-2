@@ -1,7 +1,8 @@
 /**
- * Vitest global setup — polyfills for test environments.
+ * Vitest global setup — polyfills and mocks for test environments.
  */
 import { webcrypto } from "node:crypto";
+import { vi } from "vitest";
 
 // Polyfill crypto.randomUUID() for environments where Web Crypto API is not available.
 if (typeof globalThis.crypto === "undefined") {
@@ -10,3 +11,40 @@ if (typeof globalThis.crypto === "undefined") {
 } else if (typeof globalThis.crypto.randomUUID !== "function") {
   globalThis.crypto.randomUUID = webcrypto.randomUUID.bind(webcrypto);
 }
+
+// Prevent real Redis connections in unit tests.
+// Individual tests that need Redis behavior mock it themselves.
+vi.mock("ioredis", () => {
+  const EventEmitter = require("events");
+  class RedisMock extends EventEmitter {
+    status = "ready";
+    ping() { return Promise.resolve("PONG"); }
+    get() { return Promise.resolve(null); }
+    set() { return Promise.resolve("OK"); }
+    del() { return Promise.resolve(1); }
+    setex() { return Promise.resolve("OK"); }
+    expire() { return Promise.resolve(1); }
+    zadd() { return Promise.resolve(1); }
+    zrangebyscore() { return Promise.resolve([]); }
+    zremrangebyscore() { return Promise.resolve(0); }
+    zcard() { return Promise.resolve(0); }
+    pipeline() {
+      return {
+        zadd: () => ({ zremrangebyscore: () => ({ zcard: () => ({ exec: () => Promise.resolve([[null, 1], [null, 0], [null, 1]]) }) }) }),
+        exec: () => Promise.resolve([]),
+      };
+    }
+    publish() { return Promise.resolve(0); }
+    subscribe() { return Promise.resolve(); }
+    quit() { return Promise.resolve("OK"); }
+    disconnect() { return; }
+    scan() { return Promise.resolve(["0", []]); }
+    hset() { return Promise.resolve(1); }
+    hget() { return Promise.resolve(null); }
+    hgetall() { return Promise.resolve({}); }
+    hincrby() { return Promise.resolve(1); }
+    sadd() { return Promise.resolve(1); }
+    scard() { return Promise.resolve(0); }
+  }
+  return { Redis: RedisMock, Cluster: RedisMock, default: RedisMock };
+});

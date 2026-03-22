@@ -124,7 +124,7 @@ model AuditLog {
   severity   String   @default("info") // info, warn, critical
   outcome    String   @default("success") // success, failure, error
 
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   @@index([accountId, timestamp])
   @@index([userId, timestamp])
@@ -248,7 +248,7 @@ model TotpSecret {
 model BillingInvoice {
   id            String   @id @default(cuid())
   accountId     String   @map("account_id")
-  amount        Float
+  amount        Decimal  @db.Decimal(10, 2)
   currency      String   @default("USD")
   status        String   @default("paid") // paid | pending | failed | refunded
   planId        String   @map("plan_id")

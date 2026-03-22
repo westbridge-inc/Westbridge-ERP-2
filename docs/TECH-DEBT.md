@@ -5,6 +5,13 @@ Known technical debt items tracked for prioritization. Referenced from
 
 Last reviewed: 2026-03-17
 
+## Resolution Policy
+
+- **Critical (P0):** Fix within 1 sprint (2 weeks)
+- **High (P1):** Fix within 2 sprints (4 weeks)
+- **Medium (P2):** Fix within 1 quarter
+- **Low (P3):** Best effort, review quarterly
+
 | ID     | Description                                                                                                                                                                                                                                                                                                                                                                                  | Severity | Effort            | Target | Source                                                                     |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------- | ------ | -------------------------------------------------------------------------- |
 | TD-001 | **bull-board dashboard not wired up.** BullMQ has `@bull-board/api` for a web UI to inspect stuck/failed jobs. Currently we inspect Redis directly.                                                                                                                                                                                                                                          | Medium   | Small (1-2 days)  | v1.1   | `src/lib/jobs/queue.ts:27`                                                 |

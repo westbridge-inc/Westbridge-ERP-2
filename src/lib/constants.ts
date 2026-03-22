@@ -81,11 +81,11 @@ export const CURRENCY_CODES = ["GYD", "USD", "TTD", "BBD", "JMD", "XCD", "EUR", 
 export type CurrencyCode = (typeof CURRENCY_CODES)[number];
 
 /**
- * sameSite policy — "none" is required for cross-origin frontend↔backend.
- * Set COOKIE_SAME_SITE=lax if deploying frontend and API on the same domain.
+ * sameSite policy — defaults to "lax" for same-origin deployments.
+ * Set COOKIE_SAME_SITE=none if frontend and API are on different domains (requires Secure flag).
  */
 export const COOKIE_SAME_SITE: "none" | "lax" | "strict" =
-  (process.env.COOKIE_SAME_SITE as "none" | "lax" | "strict") ?? "none";
+  (process.env.COOKIE_SAME_SITE as "none" | "lax" | "strict") ?? "lax";
 
 /**
  * Secure flag for cookies — disabled in development so cookies work over plain HTTP.

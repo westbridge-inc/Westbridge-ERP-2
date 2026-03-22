@@ -153,12 +153,32 @@ function createCleanupWorker(): Worker {
 
 // ─── Webhooks Worker ───────────────────────────────────────────────────────────
 
+/**
+ * Exponential backoff delays for webhook retries (B7).
+ * Attempt 1: immediate, Attempt 2: 30s, Attempt 3: 2min, Attempt 4: 15min, Attempt 5: 1hr
+ * After 5 failures: circuit breaker disables the endpoint.
+ */
+const WEBHOOK_RETRY_DELAYS_MS = [0, 30_000, 120_000, 900_000, 3_600_000];
+
+function getWebhookRetryDelay(attemptNumber: number): number {
+  return WEBHOOK_RETRY_DELAYS_MS[Math.min(attemptNumber, WEBHOOK_RETRY_DELAYS_MS.length - 1)] ?? 0;
+}
+
 function createWebhooksWorker(): Worker {
   return new Worker<WebhookJobData>(
     "webhooks",
     async (job: Job<WebhookJobData>) => {
       const { endpointId, event, payload, deliveryId } = job.data;
-      logger.info("Processing webhook job", { jobId: job.id, event, endpointId });
+      const attemptNumber = job.attemptsMade;
+      const maxAttempts = 5;
+
+      logger.info("Processing webhook job", {
+        jobId: job.id,
+        event,
+        endpointId,
+        attempt: attemptNumber + 1,
+        maxAttempts,
+      });
 
       const endpoint = await prisma.webhookEndpoint.findUnique({
         where: { id: endpointId },
@@ -198,7 +218,11 @@ function createWebhooksWorker(): Worker {
           where: { id: endpointId },
           data: { consecutiveFailures: 0 },
         });
-        logger.info("Webhook delivered", { jobId: job.id, url: endpoint.url });
+        logger.info("Webhook delivered", {
+          jobId: job.id,
+          url: endpoint.url,
+          attempt: attemptNumber + 1,
+        });
       } catch (err) {
         const newFailures = endpoint.consecutiveFailures + 1;
         const shouldDisable = newFailures >= SECURITY.WEBHOOK_CIRCUIT_BREAKER_THRESHOLD;
@@ -212,20 +236,36 @@ function createWebhooksWorker(): Worker {
         });
 
         if (shouldDisable) {
-          logger.warn("Webhook endpoint disabled after consecutive failures", {
+          logger.warn("Webhook endpoint disabled after consecutive failures (circuit breaker)", {
             endpointId,
             consecutiveFailures: newFailures,
           });
         }
 
+        const nextAttempt = attemptNumber + 2; // +1 for 0-indexed, +1 for next
+        const hasMoreRetries = nextAttempt <= maxAttempts;
+        const nextRetryDelay = hasMoreRetries ? getWebhookRetryDelay(attemptNumber + 1) : null;
+
         logger.error("Webhook delivery failed", {
           jobId: job.id,
+          attempt: attemptNumber + 1,
+          maxAttempts,
+          hasMoreRetries,
+          nextRetryDelayMs: nextRetryDelay,
+          nextRetryAt: nextRetryDelay ? new Date(Date.now() + nextRetryDelay).toISOString() : null,
           error: err instanceof Error ? err.message : String(err),
         });
         throw err;
       }
     },
-    { connection },
+    {
+      connection,
+      settings: {
+        backoffStrategy: (attemptsMade: number) => {
+          return getWebhookRetryDelay(attemptsMade);
+        },
+      },
+    },
   );
 }
 
