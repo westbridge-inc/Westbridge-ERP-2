@@ -411,7 +411,6 @@ describe("AI tools", () => {
 
     describe("get_employee_summary", () => {
       it("summarizes workforce by department and type", async () => {
-        const today = new Date().toISOString().slice(0, 10);
         const recentDate = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
         (erpList as ReturnType<typeof vi.fn>).mockResolvedValue({
           ok: true,
