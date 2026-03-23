@@ -56,15 +56,20 @@ export async function createAccount(
   }
 
   try {
+    // Hash password before transaction to keep the tx fast
+    const passwordHash = await hashPassword(password);
+
     const account = await prisma.$transaction(async (tx) => {
       const existing = await tx.account.findUnique({ where: { email: email.trim() } });
       if (existing) {
         if (existing.status === "active") {
           throw new Error("An account with this email already exists. Please sign in.");
         }
+        // Delete orphaned users from the previous pending account
+        await tx.user.deleteMany({ where: { accountId: existing.id } });
         await tx.account.delete({ where: { email: email.trim() } });
       }
-      return tx.account.create({
+      const acc = await tx.account.create({
         data: {
           email: email.trim(),
           companyName: companyName.trim(),
@@ -73,19 +78,18 @@ export async function createAccount(
           status: "pending",
         },
       });
-    });
-
-    // Create the owner user with the hashed password so they can log in after payment
-    const passwordHash = await hashPassword(password);
-    await prisma.user.create({
-      data: {
-        accountId: account.id,
-        email: email.trim(),
-        name: null,
-        role: "owner",
-        status: "active",
-        passwordHash,
-      },
+      // Create owner user inside the transaction — prevents orphaned records on race
+      await tx.user.create({
+        data: {
+          accountId: acc.id,
+          email: email.trim(),
+          name: null,
+          role: "owner",
+          status: "active",
+          passwordHash,
+        },
+      });
+      return acc;
     });
 
     // The return URL is where 2Checkout will redirect after payment

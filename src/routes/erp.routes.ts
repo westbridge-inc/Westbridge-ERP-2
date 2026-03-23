@@ -19,6 +19,20 @@ import { buildDashboardData } from "../lib/services/dashboard.service.js";
 
 const router = Router();
 
+/** Fields that users must never set directly — prevents privilege escalation via document status. */
+const FORBIDDEN_FIELDS = new Set([
+  "docstatus",
+  "owner",
+  "modified_by",
+  "creation",
+  "modified",
+  "idx",
+  "_user_tags",
+  "_comments",
+  "_assign",
+  "_liked_by",
+]);
+
 // ---------------------------------------------------------------------------
 // Tenant isolation helper — shared across GET, PUT, DELETE /erp/doc
 // ---------------------------------------------------------------------------
@@ -327,18 +341,6 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
       return res.status(400).json(apiError("VALIDATION_ERROR", message, undefined, meta()));
     }
 
-    const FORBIDDEN_FIELDS = new Set([
-      "docstatus",
-      "owner",
-      "modified_by",
-      "creation",
-      "modified",
-      "idx",
-      "parent",
-      "parentfield",
-      "parenttype",
-      "amended_from",
-    ]);
     const { doctype, ...rawData } = parsed.data as { doctype: string; [k: string]: unknown };
     const data = Object.fromEntries(Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k)));
     if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
@@ -431,18 +433,6 @@ router.put(
         return res.status(400).json(apiError("VALIDATION_ERROR", message, undefined, meta()));
       }
 
-      const FORBIDDEN_FIELDS = new Set([
-        "docstatus",
-        "owner",
-        "modified_by",
-        "creation",
-        "modified",
-        "idx",
-        "parent",
-        "parentfield",
-        "parenttype",
-        "amended_from",
-      ]);
       const { doctype, name, ...rawData } = parsed.data as { doctype: string; name: string; [k: string]: unknown };
       const data = Object.fromEntries(Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k)));
 
@@ -677,19 +667,6 @@ router.post(
           .status(400)
           .json(apiError("BAD_REQUEST", `Batch size exceeds maximum of ${MAX_BATCH_SIZE} items`, undefined, meta()));
       }
-
-      const FORBIDDEN_FIELDS = new Set([
-        "docstatus",
-        "owner",
-        "modified_by",
-        "creation",
-        "modified",
-        "idx",
-        "parent",
-        "parentfield",
-        "parenttype",
-        "amended_from",
-      ]);
 
       const results = await Promise.allSettled(
         items.map(async (item) => {

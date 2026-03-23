@@ -20,6 +20,7 @@ import { logger } from "../lib/logger.js";
 import { matchesCidr, type CidrRange } from "../lib/ip-utils.js";
 import { toWebRequest } from "../middleware/auth.js";
 import { publish } from "../lib/realtime.js";
+import { PLAN_AMOUNTS } from "../lib/constants.js";
 import { prisma } from "../lib/data/prisma.js";
 import { ALLOWED_DOCTYPES_SET } from "../lib/erp-constants.js";
 
@@ -237,12 +238,6 @@ router.post("/webhooks/payment", async (req: Request, res: Response) => {
   }
 
   // Verify the payment amount matches the plan price (within tolerance for currency conversion)
-  const PLAN_AMOUNTS: Record<string, number> = {
-    Solo: 49.99,
-    Starter: 199.99,
-    Business: 999.99,
-    Enterprise: 4999.99,
-  };
   const expectedAmount = PLAN_AMOUNTS[account.plan] ?? 0;
   const receivedAmount = parseFloat((parsedData.IPN_TOTALGENERAL as string) ?? "0");
   if (expectedAmount > 0 && Math.abs(receivedAmount - expectedAmount) > 1.0) {

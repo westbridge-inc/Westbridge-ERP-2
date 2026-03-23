@@ -13,13 +13,7 @@ import { createPaymentSession, type PlanSlug } from "../data/twocheckout.client.
 import { sendEmail } from "../email/index.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
-
-const PLAN_AMOUNTS: Record<string, number> = {
-  Solo: 49.99,
-  Starter: 199.99,
-  Business: 999.99,
-  Enterprise: 4999.99,
-};
+import { PLAN_AMOUNTS } from "../constants.js";
 
 const GRACE_PERIOD_DAYS = 7;
 
@@ -113,9 +107,13 @@ export async function processMonthlyRenewals(): Promise<{
       );
 
       if (!session) {
-        // 2Checkout not configured — extend subscription anyway (manual billing)
-        await extendSubscription(sub.id, sub.planId, sub.accountId);
-        stats.succeeded++;
+        // 2Checkout not configured — cannot charge. Log and skip, do NOT extend for free.
+        logger.warn("Renewal skipped: payment gateway not configured", {
+          subscriptionId: sub.id,
+          accountId: sub.accountId,
+          planId: sub.planId,
+        });
+        stats.failed++;
         continue;
       }
 

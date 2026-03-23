@@ -65,6 +65,14 @@ export const PLAN_USER_LIMITS: Record<string, number | null> = {
   Enterprise: null, // unlimited
 } as const;
 
+/** Plan monthly prices in USD — single source of truth for all billing logic. */
+export const PLAN_AMOUNTS: Record<string, number> = {
+  Solo: 49.99,
+  Starter: 199.99,
+  Business: 999.99,
+  Enterprise: 4999.99,
+} as const;
+
 /** Caribbean / Guyana defaults */
 export const LOCALE = {
   DEFAULT_CURRENCY: "GYD" as const,

@@ -19,6 +19,7 @@
 
 import { createHmac, timingSafeEqual } from "crypto";
 import { logger } from "../logger.js";
+import { PLAN_AMOUNTS } from "../constants.js";
 
 // ---- Environment ----------------------------------------------------------------
 
@@ -78,15 +79,6 @@ export interface PaymentCallbackData {
   // Allow additional 2CO fields we don't explicitly handle
   [key: string]: unknown;
 }
-
-// ---- Plan -> Amount Mapping -----------------------------------------------------
-
-const PLAN_AMOUNTS: Record<PlanSlug, number> = {
-  Solo: 49.99,
-  Starter: 199.99,
-  Business: 999.99,
-  Enterprise: 4999.99,
-};
 
 // ---- Create Payment Session (Buy-Link) ------------------------------------------
 

@@ -90,6 +90,10 @@ describe("billing.service", () => {
             create: vi.fn().mockResolvedValue({ id: "acc_1", email: "a@b.com" }),
             delete: vi.fn(),
           },
+          user: {
+            create: vi.fn().mockResolvedValue({ id: "usr_1" }),
+            deleteMany: vi.fn(),
+          },
         });
       });
       const { createPaymentSession } = await import("../../data/twocheckout.client.js");
