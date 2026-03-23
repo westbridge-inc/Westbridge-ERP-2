@@ -151,7 +151,7 @@ jobs:
         run: echo "::notice::Neither RAILWAY_TOKEN nor FLY_API_TOKEN configured — deployment skipped"
       - name: Setup Fly.io CLI
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@v2
       - name: Deploy to Fly.io
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         run: flyctl deploy --remote-only
