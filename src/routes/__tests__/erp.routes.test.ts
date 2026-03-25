@@ -8,6 +8,7 @@ import request from "supertest";
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     account: {
       findUnique: vi.fn().mockResolvedValue({ erpnextCompany: "Test Corp" }),
     },
@@ -64,16 +65,14 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi
-      .fn()
-      .mockResolvedValue({
-        api_calls: 0,
-        erp_docs_created: 0,
-        ai_tokens_input: 0,
-        ai_tokens_output: 0,
-        active_users_count: 0,
-        period: "2026-03",
-      }),
+    get: vi.fn().mockResolvedValue({
+      api_calls: 0,
+      erp_docs_created: 0,
+      ai_tokens_input: 0,
+      ai_tokens_output: 0,
+      active_users_count: 0,
+      period: "2026-03",
+    }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -86,6 +85,7 @@ vi.mock("@sentry/node", () => ({
 
 vi.mock("../../lib/services/auth.service.js", () => ({
   login: vi.fn(),
+  changePassword: vi.fn(),
 }));
 vi.mock("../../lib/services/password-reset.service.js", () => ({
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { sent: true } }),

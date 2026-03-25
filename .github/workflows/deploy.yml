@@ -53,7 +53,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
       - run: npx prisma generate
       - run: npx tsc --noEmit
       - run: npm test -- --coverage
@@ -77,7 +77,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
       - run: npx prisma generate
       - name: Build
         run: npm run build
@@ -88,20 +88,37 @@ jobs:
         if: env.RAILWAY_TOKEN != ''
         run: railway up --detach
       - name: Verify staging health
+        id: staging_health
         if: env.RAILWAY_TOKEN != ''
         run: |
-          sleep 15
           STAGING_URL="${{ vars.STAGING_URL || 'https://westbridge-api-staging.up.railway.app' }}"
-          STATUS=$(curl -sf "${STAGING_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
-          echo "Staging health: $STATUS"
-          if [ "$STATUS" != "200" ]; then
-            echo "::warning::Staging health check returned $STATUS"
-          fi
+          for i in $(seq 1 10); do
+            STATUS=$(curl -sf "${STAGING_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
+            if [ "$STATUS" = "200" ]; then echo "Healthy after ${i} attempts"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::Health check failed after 10 attempts"
+          exit 1
+      - name: Rollback staging (Railway)
+        if: failure() && steps.staging_health.outcome == 'failure' && env.RAILWAY_TOKEN != ''
+        run: |
+          echo "::warning::Rolling back staging deployment due to failed health check"
+          railway rollback
+
+  approve-production:
+    name: Production Approval Gate
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.event_name == 'push'
+    environment: production-approval
+    steps:
+      - name: Approval checkpoint
+        run: echo "Production deployment approved"
 
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [test, deploy-staging]
+    needs: [test, deploy-staging, approve-production]
     if: >-
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production') ||
       (github.event_name == 'push')
@@ -115,7 +132,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
       - run: npx prisma generate
       - run: npx tsc --noEmit
       - run: npm test
@@ -143,12 +160,24 @@ jobs:
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
       - name: Verify production health
+        id: prod_health
         if: env.RAILWAY_TOKEN != '' || env.FLY_API_TOKEN != ''
         run: |
-          sleep 15
           DEPLOY_URL="${{ vars.DEPLOY_URL || 'https://westbridge-api.fly.dev' }}"
-          STATUS=$(curl -sf "${DEPLOY_URL}/api/health" | jq -r '.status' || echo "unknown")
-          echo "Health check status: $STATUS"
-          if [ "$STATUS" != "healthy" ]; then
-            echo "::warning::Health check did not return healthy"
-          fi
+          for i in $(seq 1 10); do
+            STATUS=$(curl -sf "${DEPLOY_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
+            if [ "$STATUS" = "200" ]; then echo "Healthy after ${i} attempts"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::Health check failed after 10 attempts"
+          exit 1
+      - name: Rollback production (Railway)
+        if: failure() && steps.prod_health.outcome == 'failure' && env.RAILWAY_TOKEN != ''
+        run: |
+          echo "::error::Rolling back production deployment due to failed health check"
+          railway rollback
+      - name: Rollback production (Fly.io)
+        if: failure() && steps.prod_health.outcome == 'failure' && env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
+        run: |
+          echo "::error::Rolling back production deployment due to failed health check"
+          flyctl releases rollback

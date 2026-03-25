@@ -235,10 +235,10 @@ Metrics are reviewed monthly by the Engineering Lead and reported quarterly to t
 
 ## 10. Approval
 
-| Role | Name                       | Date                       |
-| ---- | -------------------------- | -------------------------- |
-| CISO | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
-| CTO  | ************\_************ | \_**\_/\_\_**/**\_\_\_\_** |
+| Role | Name          | Date       |
+| ---- | ------------- | ---------- |
+| CISO | Mayur Goswami | 2026-03-18 |
+| CTO  | Mayur Goswami | 2026-03-18 |
 
 ---
 

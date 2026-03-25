@@ -45,6 +45,11 @@ function retryStrategy(times: number): number | null {
 }
 
 export function getRedis(): Redis | Cluster | null {
+  // In test environment, don't create real Redis connections
+  if (process.env.NODE_ENV === "test" && !process.env.REDIS_URL) {
+    return null;
+  }
+
   if (!_redis) {
     const clusterNodes = parseClusterNodes();
 

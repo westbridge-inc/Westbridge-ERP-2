@@ -10,6 +10,8 @@ import { logAudit } from "../lib/services/audit.service.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { apiError } from "../types/api.js";
 import { prisma } from "../lib/data/prisma.js";
+import { getRedis } from "../lib/redis.js";
+import { logger } from "../lib/logger.js";
 import {
   checkTieredRateLimit,
   getClientIdentifier,
@@ -91,6 +93,48 @@ const SUBSCRIPTION_EXEMPT_PREFIXES = [
   "/api/v1/usage",
 ];
 
+const ACCOUNT_STATUS_CACHE_PREFIX = "account:status:";
+const ACCOUNT_STATUS_CACHE_TTL_SEC = 60; // 1 minute cache to avoid DB lookups on every request
+const BLOCKED_STATUSES = new Set(["past_due", "suspended", "canceled", "cancelled"]);
+
+async function getAccountStatus(accountId: string): Promise<string | null> {
+  // Try Redis cache first
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const cached = await redis.get(`${ACCOUNT_STATUS_CACHE_PREFIX}${accountId}`);
+      if (cached) return cached;
+    } catch (e) {
+      logger.warn("requireActiveSubscription: Redis cache read failed", {
+        accountId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  // Fall through to DB
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { status: true },
+  });
+
+  const status = account?.status ?? null;
+
+  // Cache the result in Redis
+  if (redis && status) {
+    redis
+      .set(`${ACCOUNT_STATUS_CACHE_PREFIX}${accountId}`, status, "EX", ACCOUNT_STATUS_CACHE_TTL_SEC)
+      .catch((e: unknown) =>
+        logger.warn("requireActiveSubscription: Redis cache write failed", {
+          accountId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+  }
+
+  return status;
+}
+
 export async function requireActiveSubscription(req: Request, res: Response, next: NextFunction): Promise<void> {
   // Allow billing/auth/health endpoints through so users can pay or log out
   if (SUBSCRIPTION_EXEMPT_PREFIXES.some((p) => req.path.startsWith(p))) {
@@ -105,37 +149,33 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
   }
 
   try {
-    const account = await prisma.account.findUnique({
-      where: { id: session.accountId },
-      select: { status: true },
+    const status = await getAccountStatus(session.accountId);
+
+    if (status && BLOCKED_STATUSES.has(status)) {
+      res.status(403).json({
+        ok: false,
+        error: {
+          code: "SUBSCRIPTION_EXPIRED",
+          message: "Your subscription has expired. Please update your billing.",
+        },
+      });
+      return;
+    }
+
+    next();
+  } catch (err) {
+    // Fail closed on DB errors — return 503 instead of silently allowing access
+    logger.error("requireActiveSubscription: failed to check account status", {
+      accountId: session.accountId,
+      error: err instanceof Error ? err.message : String(err),
     });
-
-    if (account?.status === "past_due") {
-      res.status(402).json({
-        ok: false,
-        error: {
-          code: "SUBSCRIPTION_PAST_DUE",
-          message: "Your subscription is past due. Please update your payment method to continue.",
-        },
-      });
-      return;
-    }
-
-    if (account?.status === "canceled") {
-      res.status(402).json({
-        ok: false,
-        error: {
-          code: "SUBSCRIPTION_CANCELED",
-          message: "Your subscription has been canceled. Please resubscribe to continue.",
-        },
-      });
-      return;
-    }
-
-    next();
-  } catch {
-    // Don't block access on DB errors — fail open for availability
-    next();
+    res.status(503).json({
+      ok: false,
+      error: {
+        code: "SERVICE_UNAVAILABLE",
+        message: "Unable to verify subscription status. Please try again shortly.",
+      },
+    });
   }
 }
 

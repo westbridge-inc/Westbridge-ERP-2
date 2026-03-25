@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
       - run: npm audit --audit-level=high
 
   secrets-scan:
@@ -30,11 +30,7 @@ jobs:
       - name: TruffleHog secrets scan
         uses: trufflesecurity/trufflehog@main
         with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
           extra_args: --only-verified
-        continue-on-error: true
 
   sbom:
     name: SBOM Generation
@@ -46,7 +42,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
       - name: Generate CycloneDX SBOM
         run: npx @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom.json --output-format json
       - name: Upload SBOM artifact
@@ -80,7 +76,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
       - name: Check for copyleft licenses
         run: |
           npx license-checker --production --failOn "GPL-2.0;GPL-3.0;AGPL-1.0;AGPL-3.0" --summary || {

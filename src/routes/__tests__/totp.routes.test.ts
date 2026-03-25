@@ -8,6 +8,7 @@ import request from "supertest";
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     account: { findUnique: vi.fn() },
     user: { findUnique: vi.fn().mockResolvedValue({ email: "test@test.com" }) },
     auditLog: { create: vi.fn() },

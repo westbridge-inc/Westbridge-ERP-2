@@ -20,7 +20,7 @@ export interface PlanLimits {
   erpRecordsPerMonth: number; // creates + updates across all doctypes; -1 = unlimited
   apiCallsPerMonth: number; // calls to /api/erp/*; -1 = unlimited
   aiQueriesPerMonth: number; // AI chat + insight requests combined; -1 = unlimited
-  aiTokensPerMonth: number; // total Claude tokens (input + output); -1 = unlimited
+  aiTokensPerMonth: number; // total AI tokens (input + output); -1 = unlimited
   bundleCount: number; // how many module bundles accessible; -1 = all
 }
 
