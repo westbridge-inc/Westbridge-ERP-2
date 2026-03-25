@@ -361,10 +361,21 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
         );
     }
 
+    // Auto-inject company for tenant isolation on company-scoped doctypes
+    const createData = data as Record<string, unknown>;
+    if (COMPANY_SCOPED_DOCTYPES.has(doctype)) {
+      const acc = await prisma.account
+        .findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } })
+        .catch(() => null);
+      if (acc?.erpnextCompany) {
+        createData.company = acc.erpnextCompany;
+      }
+    }
+
     const result = await createDoc(
       doctype,
       session.erpnextSid as string,
-      data as Record<string, unknown>,
+      createData,
       session.accountId,
     );
     if (!result.ok) {
@@ -668,6 +679,15 @@ router.post(
           .json(apiError("BAD_REQUEST", `Batch size exceeds maximum of ${MAX_BATCH_SIZE} items`, undefined, meta()));
       }
 
+      // Auto-inject company for tenant isolation on batch operations
+      let batchCompany: string | null = null;
+      if (COMPANY_SCOPED_DOCTYPES.has(doctype)) {
+        const acc = await prisma.account
+          .findUnique({ where: { id: session.accountId }, select: { erpnextCompany: true } })
+          .catch(() => null);
+        batchCompany = acc?.erpnextCompany ?? null;
+      }
+
       const results = await Promise.allSettled(
         items.map(async (item) => {
           if (!item || typeof item !== "object") {
@@ -675,6 +695,7 @@ router.post(
           }
           const rawData = item as Record<string, unknown>;
           const data = Object.fromEntries(Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k)));
+          if (batchCompany) data.company = batchCompany;
           const result = await createDoc(doctype, session.erpnextSid as string, data, session.accountId);
           if (!result.ok) {
             throw new Error(result.error);

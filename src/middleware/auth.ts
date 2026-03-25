@@ -46,9 +46,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  // Reject obviously malformed tokens
-  const SESSION_TOKEN_REGEX = /^[A-Za-z0-9\-_]+$/;
-  if (!SESSION_TOKEN_REGEX.test(sessionToken)) {
+  // Reject obviously malformed tokens (real tokens are 43 chars — 32 bytes base64url)
+  if (sessionToken.length > 256 || !/^[A-Za-z0-9\-_]+$/.test(sessionToken)) {
     res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: COOKIE_SECURE });
     res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid session" } });
     return;

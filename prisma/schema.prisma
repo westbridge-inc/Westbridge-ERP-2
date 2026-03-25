@@ -107,6 +107,7 @@ model Subscription {
 
   @@index([accountId])
   @@index([paymentSubscriptionId])
+  @@index([currentPeriodEnd]) // Used by monthly renewal query
   @@map("subscriptions")
 }
 
@@ -276,6 +277,7 @@ model PortalToken {
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@index([accountId])
+  @@index([expiresAt]) // Used for token validation expiry checks
   @@map("portal_tokens")
 }
 

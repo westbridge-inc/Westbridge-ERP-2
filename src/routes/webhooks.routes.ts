@@ -9,7 +9,7 @@
  * the HMAC-MD5 signature, check for success, and activate the account.
  */
 import { Router, Request, Response } from "express";
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { checkTieredRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
 import { verifyPaymentCallback, isPaymentSuccess, markAccountPaid } from "../lib/services/billing.service.js";
@@ -327,7 +327,7 @@ router.post("/webhooks/erpnext", async (req: Request, res: Response) => {
     const signature = req.headers["x-erpnext-signature"] as string | undefined;
     const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
     const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-    if (!signature || signature !== expected) {
+    if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
       logger.warn("ERPNext webhook: invalid signature");
       return responseTime().status(401).send("Invalid signature");
     }
