@@ -1,7 +1,7 @@
 /**
  * Subscription & recurring billing service.
  *
- * Handles monthly billing cycles using PowerTranz.
+ * Handles monthly billing cycles using 2Checkout (Verifone).
  * - Creates initial subscription on account activation
  * - Monthly cron charges active subscriptions
  * - Handles payment failures with grace period
@@ -9,17 +9,11 @@
  */
 
 import { prisma } from "../data/prisma.js";
-import { createPaymentSession, type PlanSlug } from "../data/powertranz.client.js";
+import { createPaymentSession, type PlanSlug } from "../data/twocheckout.client.js";
 import { sendEmail } from "../email/index.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
-
-const PLAN_AMOUNTS: Record<string, number> = {
-  Solo: 49.99,
-  Starter: 199.99,
-  Business: 999.99,
-  Enterprise: 4999.99,
-};
+import { PLAN_AMOUNTS } from "../constants.js";
 
 const GRACE_PERIOD_DAYS = 7;
 
@@ -101,7 +95,7 @@ export async function processMonthlyRenewals(): Promise<{
       continue;
     }
 
-    const returnUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/webhooks/powertranz?accountId=${sub.accountId}&renewal=true`;
+    const returnUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/webhooks/payment?accountId=${sub.accountId}&renewal=true`;
 
     try {
       // Create payment session for renewal
@@ -113,9 +107,13 @@ export async function processMonthlyRenewals(): Promise<{
       );
 
       if (!session) {
-        // PowerTranz not configured — extend subscription anyway (manual billing)
-        await extendSubscription(sub.id, sub.planId, sub.accountId);
-        stats.succeeded++;
+        // 2Checkout not configured — cannot charge. Log and skip, do NOT extend for free.
+        logger.warn("Renewal skipped: payment gateway not configured", {
+          subscriptionId: sub.id,
+          accountId: sub.accountId,
+          planId: sub.planId,
+        });
+        stats.failed++;
         continue;
       }
 
@@ -228,10 +226,7 @@ export async function extendSubscription(
 /**
  * Upgrade or downgrade a plan.
  */
-export async function changePlan(
-  accountId: string,
-  newPlanId: string,
-): Promise<Result<{ message: string }, string>> {
+export async function changePlan(accountId: string, newPlanId: string): Promise<Result<{ message: string }, string>> {
   if (!PLAN_AMOUNTS[newPlanId]) return err("Invalid plan");
 
   try {
@@ -255,9 +250,7 @@ export async function changePlan(
 /**
  * Cancel a subscription.
  */
-export async function cancelSubscription(
-  accountId: string,
-): Promise<Result<{ message: string }, string>> {
+export async function cancelSubscription(accountId: string): Promise<Result<{ message: string }, string>> {
   try {
     await prisma.$transaction([
       prisma.subscription.updateMany({

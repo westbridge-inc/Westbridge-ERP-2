@@ -1,9 +1,9 @@
 /**
  * Billing service: signup (create account + payment session), payment handling.
  *
- * Uses PowerTranz (Caribbean-focused payment processor) for the Hosted Payment
- * Page (HPP) flow. After signup the customer is redirected to PowerTranz's
- * hosted page; once they pay, PowerTranz POSTs back to our webhook endpoint,
+ * Uses 2Checkout (Verifone) for the ConvertPlus hosted checkout flow.
+ * After signup the customer is redirected to 2Checkout's hosted checkout;
+ * once they pay, 2Checkout sends an IPN to our webhook endpoint,
  * and we activate the account.
  */
 
@@ -14,11 +14,12 @@ import {
   verifyCallbackSignature,
   type PlanSlug,
   type PaymentCallbackData,
-} from "../data/powertranz.client.js";
+} from "../data/twocheckout.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
 import { publish } from "../realtime.js";
+import { hashPassword } from "./auth.service.js";
 
 const VALID_PLANS: PlanSlug[] = ["Solo", "Starter", "Business", "Enterprise"];
 
@@ -26,6 +27,7 @@ export interface CreateAccountInput {
   email: string;
   companyName: string;
   plan: string;
+  password: string;
   modulesSelected?: string[];
   currency?: string;
 }
@@ -41,9 +43,12 @@ export async function createAccount(
   input: CreateAccountInput,
   returnBaseUrl: string,
 ): Promise<Result<CreateAccountResult, string>> {
-  const { email, companyName, plan, modulesSelected, currency } = input;
+  const { email, companyName, plan, password, modulesSelected, currency } = input;
   if (!email?.trim() || !companyName?.trim() || !plan?.trim()) {
     return err("Email, company name, and plan are required");
+  }
+  if (!password || password.length < 8) {
+    return err("Password must be at least 8 characters");
   }
   const planSlug = plan as PlanSlug;
   if (!VALID_PLANS.includes(planSlug)) {
@@ -51,17 +56,20 @@ export async function createAccount(
   }
 
   try {
+    // Hash password before transaction to keep the tx fast
+    const passwordHash = await hashPassword(password);
+
     const account = await prisma.$transaction(async (tx) => {
       const existing = await tx.account.findUnique({ where: { email: email.trim() } });
       if (existing) {
         if (existing.status === "active") {
           throw new Error("An account with this email already exists. Please sign in.");
         }
-        // Clean up audit logs before deleting account (AuditLog uses onDelete: Restrict)
-        await tx.auditLog.deleteMany({ where: { accountId: existing.id } });
+        // Delete orphaned users from the previous pending account
+        await tx.user.deleteMany({ where: { accountId: existing.id } });
         await tx.account.delete({ where: { email: email.trim() } });
       }
-      return tx.account.create({
+      const acc = await tx.account.create({
         data: {
           email: email.trim(),
           companyName: companyName.trim(),
@@ -70,13 +78,25 @@ export async function createAccount(
           status: "pending",
         },
       });
+      // Create owner user inside the transaction — prevents orphaned records on race
+      await tx.user.create({
+        data: {
+          accountId: acc.id,
+          email: email.trim(),
+          name: null,
+          role: "owner",
+          status: "active",
+          passwordHash,
+        },
+      });
+      return acc;
     });
 
-    // The return URL is where PowerTranz will POST the payment result
-    const returnUrl = `${returnBaseUrl}/api/webhooks/powertranz?accountId=${account.id}`;
+    // The return URL is where 2Checkout will redirect after payment
+    const returnUrl = `${returnBaseUrl}/api/webhooks/payment?accountId=${account.id}`;
     const session = await createPaymentSession(planSlug, account.id, returnUrl, currency);
 
-    // If PowerTranz is configured, store the transaction ID
+    // If 2Checkout is configured, store the transaction ID
     if (session) {
       await prisma.account.update({
         where: { id: account.id },
@@ -101,14 +121,14 @@ export interface HandlePaymentResult {
 }
 
 /**
- * Verify the signature of a PowerTranz callback.
+ * Verify the signature of a 2Checkout IPN callback.
  */
-export function verifyPaymentCallback(rawBody: string, signature: string): boolean {
-  return verifyCallbackSignature(rawBody, signature);
+export function verifyPaymentCallback(rawBody: string, signature: string, parsedData?: PaymentCallbackData): boolean {
+  return verifyCallbackSignature(rawBody, signature, parsedData);
 }
 
 /**
- * Check if a PowerTranz payment callback indicates success.
+ * Check if a 2Checkout IPN callback indicates success.
  */
 export function isPaymentSuccess(data: PaymentCallbackData): boolean {
   return isPaymentApproved(data);
@@ -123,91 +143,58 @@ export async function markAccountPaid(
   rrn?: string,
 ): Promise<Result<HandlePaymentResult, string>> {
   try {
-    // Atomically activate account + create subscription + first invoice
-    const result = await prisma.$transaction(async (tx) => {
-      const account = await tx.account.findUnique({
-        where: { id: accountId },
-        select: { id: true, email: true, companyName: true, plan: true, status: true },
-      });
-      if (!account) return null;
-
-      await tx.account.update({
-        where: { id: accountId },
-        data: {
-          status: "active",
-          paymentTransactionId: transactionId ?? undefined,
-          paymentRRN: rrn ?? undefined,
-        },
-      });
-
-      // Create subscription inside the same transaction
-      const now = new Date();
-      const periodEnd = new Date(now);
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
-
-      await tx.subscription.create({
-        data: {
-          accountId,
-          planId: account.plan,
-          status: "active",
-          currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
-        },
-      });
-
-      // Create invoice record inside the same transaction
-      const PLAN_AMOUNTS: Record<string, number> = {
-        Solo: 49.99,
-        Starter: 199.99,
-        Business: 999.99,
-        Enterprise: 4999.99,
-      };
-      await tx.billingInvoice.create({
-        data: {
-          accountId,
-          amount: PLAN_AMOUNTS[account.plan] ?? 0,
-          currency: "USD",
-          status: "paid",
-          planId: account.plan,
-          periodStart: now,
-          periodEnd,
-          paidAt: now,
-          transactionId: transactionId ?? undefined,
-          rrn: rrn ?? undefined,
-        },
-      });
-
-      return account;
+    const result = await prisma.account.updateMany({
+      where: { id: accountId },
+      data: {
+        status: "active",
+        paymentTransactionId: transactionId ?? undefined,
+        paymentRRN: rrn ?? undefined,
+      },
     });
-
-    if (!result) return ok({ updated: false, accountId });
-
-    // Fire-and-forget: ERPNext provisioning (has its own retry + alerting)
-    void import("./provisioning.service.js")
-      .then(({ provisionWithRetry }) => provisionWithRetry(accountId))
-      .catch(async (e: unknown) => {
-        const { logger } = await import("../logger.js");
-        logger.error("ERPNext provisioning failed", {
-          accountId,
-          error: e instanceof Error ? e.message : String(e),
+    const updated = (result.count ?? 0) > 0;
+    if (updated) {
+      // Auto-provision ERPNext company + create subscription (fire-and-forget with retries)
+      void import("./provisioning.service.js")
+        .then(({ provisionWithRetry }) => provisionWithRetry(accountId))
+        .catch(async (e: unknown) => {
+          const { logger } = await import("../logger.js");
+          logger.error("ERPNext provisioning failed", {
+            accountId,
+            error: e instanceof Error ? e.message : String(e),
+          });
         });
+
+      void import("./subscription.service.js")
+        .then(async ({ createSubscription }) => {
+          const acc = await prisma.account.findUnique({ where: { id: accountId }, select: { plan: true } });
+          if (acc) await createSubscription(accountId, acc.plan);
+        })
+        .catch(async (e: unknown) => {
+          const { logger } = await import("../logger.js");
+          logger.error("Subscription creation failed", {
+            accountId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+
+      // Send activation email (fire-and-forget — don't fail if email fails)
+      const account = await prisma.account.findUnique({ where: { id: accountId } }).catch(() => null);
+      if (account) {
+        const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/login`;
+        void sendEmail({
+          to: account.email,
+          subject: "Your Westbridge account is now active",
+          html: accountActivatedEmail({ companyName: account.companyName, plan: account.plan, loginUrl }),
+        });
+      }
+
+      void publish(accountId, {
+        type: "notification.new",
+        payload: { title: "Payment received", message: "Your subscription has been renewed" },
+        timestamp: new Date().toISOString(),
       });
-
-    // Fire-and-forget: activation email
-    const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/login`;
-    void sendEmail({
-      to: result.email,
-      subject: "Your Westbridge account is now active",
-      html: accountActivatedEmail({ companyName: result.companyName, plan: result.plan, loginUrl }),
-    });
-
-    void publish(accountId, {
-      type: "notification.new",
-      payload: { title: "Payment received", message: "Your subscription has been renewed" },
-      timestamp: new Date().toISOString(),
-    });
-
-    return ok({ updated: true, accountId });
+    }
+    return ok({ updated, accountId });
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to mark account as paid");
   }

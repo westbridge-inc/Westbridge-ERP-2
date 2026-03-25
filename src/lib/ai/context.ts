@@ -15,6 +15,48 @@ const MODULE_CONTEXT: Record<AiModule, string> = {
   general: "You have access to all ERP modules and data.",
 };
 
+const MODULE_TOOL_GUIDANCE: Record<AiModule, string> = {
+  finance: `PREFERRED TOOLS FOR THIS MODULE:
+- get_revenue_summary: Quickly pull MTD or custom-period revenue totals, invoice counts, and top customers by revenue
+- get_overdue_invoices: Instantly list unpaid invoices past due date with days overdue and outstanding amounts
+- get_cash_flow: Analyze cash inflows vs outflows using Payment Entries for any period
+- get_summary: Get quick counts of open invoices, total expenses, or other metrics
+When the user asks about revenue, collections, cash position, or overdue accounts, prefer these domain tools over raw list_records queries.`,
+
+  crm: `PREFERRED TOOLS FOR THIS MODULE:
+- get_pipeline_summary: Get a full breakdown of opportunities by sales stage with values — use for pipeline reviews or forecasting
+- get_top_customers: Rank customers by revenue for account prioritization and relationship management
+- get_revenue_summary: Understand revenue trends to correlate with sales activities
+When the user asks about pipeline, deals, forecasts, or customer rankings, prefer these domain tools over raw list_records queries. Use list_records for leads, quotations, and individual opportunity details.`,
+
+  inventory: `PREFERRED TOOLS FOR THIS MODULE:
+- get_low_stock_items: Identify items below reorder levels to flag replenishment needs
+- get_stock_value: Get total inventory valuation across all warehouses
+When the user asks about stock levels, reordering, or inventory value, prefer these domain tools. Use list_records for stock entries, BOMs, purchase orders, and warehouse details.`,
+
+  hr: `PREFERRED TOOLS FOR THIS MODULE:
+- get_employee_summary: Get complete workforce overview — headcount, department breakdown, employment types, and recent hires
+When the user asks about headcount, departments, staffing, or new hires, use this tool. Use list_records for salary slips, leave applications, expense claims, and individual employee details.`,
+
+  manufacturing: `PREFERRED TOOLS FOR THIS MODULE:
+Use list_records to query work orders, production plans, BOMs, routings, and workstations. Use get_summary for quick metrics.`,
+
+  projects: `PREFERRED TOOLS FOR THIS MODULE:
+Use list_records to query projects, tasks, timesheets, and milestones. Use get_summary for quick metrics like project counts.`,
+
+  biztools: `PREFERRED TOOLS FOR THIS MODULE:
+Use list_records to query POS invoices, website items, and custom reports. Use get_summary for aggregate metrics.`,
+
+  general: `PREFERRED TOOLS:
+You have access to all domain-specific tools. Choose the most appropriate one based on the user's question:
+- Finance questions: get_revenue_summary, get_overdue_invoices, get_cash_flow
+- CRM questions: get_pipeline_summary, get_top_customers
+- Inventory questions: get_low_stock_items, get_stock_value
+- HR questions: get_employee_summary
+- For everything else: list_records, get_record, get_summary
+Prefer domain tools for common queries — they return pre-aggregated, actionable data.`,
+};
+
 interface TenantContext {
   companyName: string;
   planId: string;
@@ -40,10 +82,17 @@ CURRENT MODULE: ${MODULE_CONTEXT[ctx.moduleContext]}
 
 YOUR CAPABILITIES:
 - Query live business data using tools (list_records, get_record, create_record, get_summary)
+- Use domain-specific insight tools for pre-aggregated analysis:
+  * Finance: get_revenue_summary, get_overdue_invoices, get_cash_flow
+  * CRM: get_pipeline_summary, get_top_customers
+  * Inventory: get_low_stock_items, get_stock_value
+  * HR: get_employee_summary
 - Answer questions about financials, inventory, customers, employees, projects
 - Draft documents (invoices, purchase orders, job descriptions, reports)
 - Identify anomalies, trends, and business risks
 - Generate summaries, forecasts, and actionable recommendations
+
+${MODULE_TOOL_GUIDANCE[ctx.moduleContext]}
 
 OUT OF SCOPE: You must decline requests that are:
 - Not related to business operations (general knowledge, coding, creative writing, etc.)

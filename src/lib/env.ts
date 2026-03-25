@@ -56,10 +56,10 @@ const envSchema = z.object({
   // ── AI ──────────────────────────────────────────────────────────────────────
   ANTHROPIC_API_KEY: z.string().optional().default(""),
 
-  // ── Billing (PowerTranz — Caribbean payment gateway) ────────────────────────
-  POWERTRANZ_ID: z.string().optional().default(""),
-  POWERTRANZ_PASSWORD: z.string().optional().default(""),
-  POWERTRANZ_TEST_MODE: z.string().optional().default("true"), // "true" for staging, "false" for production
+  // ── Billing (2Checkout / Verifone — global payment gateway) ─────────────────
+  TWOCHECKOUT_MERCHANT_CODE: z.string().optional().default(""),
+  TWOCHECKOUT_SECRET_KEY: z.string().optional().default(""),
+  TWOCHECKOUT_TEST_MODE: z.string().optional().default("true"), // "true" for sandbox, "false" for production
 
   // ── Observability ───────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional().default(""),

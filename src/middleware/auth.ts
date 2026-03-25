@@ -46,9 +46,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
 
-  // Reject obviously malformed tokens
-  const SESSION_TOKEN_REGEX = /^[A-Za-z0-9\-_]+$/;
-  if (!SESSION_TOKEN_REGEX.test(sessionToken)) {
+  // Reject obviously malformed tokens (real tokens are 43 chars — 32 bytes base64url)
+  if (sessionToken.length > 256 || !/^[A-Za-z0-9\-_]+$/.test(sessionToken)) {
     res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: COOKIE_SECURE });
     res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid session" } });
     return;
@@ -163,17 +162,17 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     }
 
     next();
-  } catch (err) {
-    // Fail closed on DB errors — return 503 instead of silently allowing access
+  } catch (e) {
+    // Fail closed: deny access when we can't verify subscription status
     logger.error("requireActiveSubscription: failed to check account status", {
       accountId: session.accountId,
-      error: err instanceof Error ? err.message : String(err),
+      error: e instanceof Error ? e.message : String(e),
     });
     res.status(503).json({
       ok: false,
       error: {
         code: "SERVICE_UNAVAILABLE",
-        message: "Unable to verify subscription status. Please try again shortly.",
+        message: "Service temporarily unavailable. Please try again shortly.",
       },
     });
   }

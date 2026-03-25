@@ -158,6 +158,7 @@ const VALID_SIGNUP = {
   email: "newuser@acme.com",
   companyName: "Acme Corp",
   plan: "Starter",
+  password: "SecurePass123!",
 };
 
 // ---------------------------------------------------------------------------
@@ -206,7 +207,7 @@ describe("Signup Routes", () => {
         .post("/api/signup")
         .set("Cookie", CSRF_COOKIE)
         .set("x-csrf-token", "test-csrf-token")
-        .send({ email: "not-an-email", companyName: "Acme", plan: "Starter" });
+        .send({ email: "not-an-email", companyName: "Acme", plan: "Starter", password: "SecurePass123!" });
 
       expect(res.status).toBe(400);
     });
@@ -229,6 +230,7 @@ describe("Signup Routes", () => {
           email: "user@mailinator.com",
           companyName: "Spammer Inc",
           plan: "Starter",
+          password: "SecurePass123!",
         });
 
       expect(res.status).toBe(400);
@@ -244,6 +246,7 @@ describe("Signup Routes", () => {
           email: "test@yopmail.com",
           companyName: "Test Corp",
           plan: "Starter",
+          password: "SecurePass123!",
         });
 
       expect(res.status).toBe(400);

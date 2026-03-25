@@ -10,7 +10,7 @@ vi.mock("../../lib/data/prisma.js", () => ({
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
     $executeRaw: vi.fn().mockResolvedValue(0),
     account: {
-      findUnique: vi.fn().mockResolvedValue({ erpnextCompany: "Test Corp" }),
+      findUnique: vi.fn().mockResolvedValue({ erpnextCompany: "Test Corp", plan: "Enterprise" }),
     },
     user: { findUnique: vi.fn() },
   },

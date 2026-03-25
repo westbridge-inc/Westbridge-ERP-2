@@ -157,15 +157,14 @@ describe("webhooks routes", () => {
     expect([401, 403, 404]).toContain(res.status);
   });
 
-  describe("POST /api/webhooks/powertranz", () => {
+  describe("POST /api/webhooks/payment", () => {
     it("returns 200 for non-approved payment", async () => {
       (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        SpiToken: "test-token",
-        Approved: false,
-        ResponseCode: "05",
-        ResponseMessage: "Declined",
+      const res = await supertest(app).post("/api/webhooks/payment").send({
+        REFNO: "12345",
+        ORDERSTATUS: "PENDING",
+        IPN_DATE: "2026-01-01",
       });
 
       expect(res.status).toBe(200);
@@ -175,14 +174,13 @@ describe("webhooks routes", () => {
       (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
       (markAccountPaid as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, data: { updated: true } });
 
-      const res = await supertest(app).post("/api/webhooks/powertranz?accountId=acc_123").send({
-        SpiToken: "test-token",
-        TransactionIdentifier: "txn_123",
-        OrderIdentifier: "acc_123",
-        Approved: true,
-        ResponseCode: "00",
-        TotalAmount: 199.99,
-        CurrencyCode: "840",
+      const res = await supertest(app).post("/api/webhooks/payment?accountId=acc_123").send({
+        REFNO: "12345",
+        REFNOEXT: "acc_123",
+        ORDERSTATUS: "COMPLETE",
+        IPN_TOTALGENERAL: "199.99",
+        CURRENCY: "USD",
+        IPN_DATE: "2026-01-01",
       });
 
       expect(res.status).toBe(200);
@@ -191,9 +189,9 @@ describe("webhooks routes", () => {
     it("returns 200 when no accountId found", async () => {
       (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
-      const res = await supertest(app).post("/api/webhooks/powertranz").send({
-        Approved: true,
-        ResponseCode: "00",
+      const res = await supertest(app).post("/api/webhooks/payment").send({
+        ORDERSTATUS: "COMPLETE",
+        IPN_DATE: "2026-01-01",
       });
 
       expect(res.status).toBe(200);

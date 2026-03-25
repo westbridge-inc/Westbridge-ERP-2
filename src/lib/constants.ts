@@ -61,9 +61,16 @@ export const PAGINATION = {
 export const PLAN_USER_LIMITS: Record<string, number | null> = {
   Solo: 3,
   Starter: 10,
-  Growth: 25,
-  Business: 30,
+  Business: 50,
   Enterprise: null, // unlimited
+} as const;
+
+/** Plan monthly prices in USD — single source of truth for all billing logic. */
+export const PLAN_AMOUNTS: Record<string, number> = {
+  Solo: 49.99,
+  Starter: 199.99,
+  Business: 999.99,
+  Enterprise: 4999.99,
 } as const;
 
 /** Caribbean / Guyana defaults */

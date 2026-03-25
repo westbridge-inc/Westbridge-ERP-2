@@ -49,8 +49,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
       REDIS_URL: redis://localhost:6379
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
       - run: npm ci
@@ -72,8 +72,8 @@ jobs:
     env:
       RAILWAY_TOKEN: ${{ secrets.STAGING_RAILWAY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
@@ -127,8 +127,8 @@ jobs:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
@@ -151,7 +151,7 @@ jobs:
         run: echo "::notice::Neither RAILWAY_TOKEN nor FLY_API_TOKEN configured — deployment skipped"
       - name: Setup Fly.io CLI
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@v2
       - name: Deploy to Fly.io
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         run: flyctl deploy --remote-only

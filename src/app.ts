@@ -17,9 +17,8 @@ import helmet from "helmet";
 import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
 import { requestLogger } from "./middleware/request-logger.js";
-import { responseTime } from "./middleware/response-time.js";
-import { tenantContext } from "./middleware/tenant-context.js";
-import { requireActiveSubscription, requireCsrf } from "./middleware/auth.js";
+import { requireActiveSubscription, requireCsrf, requireAuth, requirePermission } from "./middleware/auth.js";
+import { createBullBoardAdapter } from "./lib/jobs/bull-board.js";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
@@ -45,6 +44,8 @@ import ssoRoutes from "./routes/sso.routes.js";
 import documentRoutes from "./routes/document.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
 import totpRoutes from "./routes/totp.routes.js";
+import uploadRoutes from "./routes/upload.routes.js";
+import portalRoutes from "./routes/portal.routes.js";
 
 export function createApp(): express.Application {
   const app = express();
@@ -52,12 +53,14 @@ export function createApp(): express.Application {
 
   // ─── Global Middleware ─────────────────────────────────────────────────────
 
-  // Response time header — mount early to capture full request lifecycle (B4)
-  app.use(responseTime);
-
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: "cross-origin" },
+      strictTransportSecurity: {
+        maxAge: 31536000, // 1 year
+        includeSubDomains: true,
+        preload: true,
+      },
     }),
   );
 
@@ -115,9 +118,6 @@ export function createApp(): express.Application {
   // Create a shared router for all API routes
   const apiRouter = Router();
 
-  // RLS tenant context: set PostgreSQL session variable for every authenticated request (B1)
-  apiRouter.use(tenantContext);
-
   // Block past_due/canceled accounts from accessing non-billing endpoints
   apiRouter.use(requireActiveSubscription);
 
@@ -144,23 +144,22 @@ export function createApp(): express.Application {
   apiRouter.use(documentRoutes);
   apiRouter.use(settingsRoutes);
   apiRouter.use("/auth", totpRoutes);
+  apiRouter.use(uploadRoutes);
+  apiRouter.use("/portal", portalRoutes);
 
   // Mount versioned API (canonical)
   app.use("/api/v1", apiRouter);
 
-  // Mount unversioned API (backwards compatibility — deprecated per RFC 8594) (B5)
-  app.use(
-    "/api",
-    (req, res, next) => {
-      if (!req.path.startsWith("/v1/")) {
-        res.setHeader("Deprecation", "true");
-        res.setHeader("Sunset", "2026-09-01");
-        res.setHeader("Link", '</api/v1/>; rel="successor-version"');
-      }
-      next();
-    },
-    apiRouter,
-  );
+  // Mount unversioned API (backwards compatibility — will be deprecated)
+  app.use("/api", apiRouter);
+
+  // ─── Bull-board dashboard (/admin/queues) ─────────────────────────────────
+  // Skip in test environment — BullMQ queues aren't real without Redis
+  if (process.env.NODE_ENV !== "test") {
+    const bullBoardPath = "/admin/queues";
+    const bullBoardAdapter = createBullBoardAdapter(bullBoardPath);
+    app.use(bullBoardPath, requireAuth, requirePermission("admin:*"), bullBoardAdapter.getRouter());
+  }
 
   // ─── 404 Handler ───────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@ import * as Sentry from "@sentry/node";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { startWorkers } from "./workers/index.js";
-import { scheduleCleanupJobs } from "./lib/jobs/queue.js";
+import { scheduleCleanupJobs, scheduleBillingJobs } from "./lib/jobs/queue.js";
 import { prisma } from "./lib/data/prisma.js";
 import { closeRedis } from "./lib/redis.js";
 
@@ -49,6 +49,9 @@ const server = app.listen(PORT, () => {
   const workers = startWorkers();
   scheduleCleanupJobs().catch((err) => {
     logger.error("Failed to schedule cleanup jobs", { error: err instanceof Error ? err.message : String(err) });
+  });
+  scheduleBillingJobs().catch((err) => {
+    logger.error("Failed to schedule billing jobs", { error: err instanceof Error ? err.message : String(err) });
   });
 
   // ─── Graceful Shutdown ────────────────────────────────────────────────────

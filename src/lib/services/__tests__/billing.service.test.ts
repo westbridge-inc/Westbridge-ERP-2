@@ -7,17 +7,14 @@ vi.mock("../../data/prisma.js", () => ({
       update: vi.fn(),
       updateMany: vi.fn(),
     },
-    subscription: {
-      create: vi.fn(),
-    },
-    billingInvoice: {
-      create: vi.fn(),
+    user: {
+      create: vi.fn().mockResolvedValue({ id: "user_1", email: "a@b.com" }),
     },
     $transaction: vi.fn(),
   },
 }));
 
-vi.mock("../../data/powertranz.client.js", () => ({
+vi.mock("../../data/twocheckout.client.js", () => ({
   createPaymentSession: vi.fn(),
   isPaymentApproved: vi.fn(),
   verifyCallbackSignature: vi.fn(),
@@ -45,9 +42,13 @@ vi.mock("../subscription.service.js", () => ({
   createSubscription: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
+vi.mock("../auth.service.js", () => ({
+  hashPassword: vi.fn().mockResolvedValue("$2b$12$mockedhashvalue"),
+}));
+
 import { createAccount, verifyPaymentCallback, isPaymentSuccess, markAccountPaid } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
-import { verifyCallbackSignature, isPaymentApproved } from "../../data/powertranz.client.js";
+import { verifyCallbackSignature, isPaymentApproved } from "../../data/twocheckout.client.js";
 
 describe("billing.service", () => {
   beforeEach(() => {
@@ -56,17 +57,29 @@ describe("billing.service", () => {
 
   describe("createAccount", () => {
     it("returns error for missing fields", async () => {
-      const result = await createAccount({ email: "", companyName: "", plan: "" }, "http://localhost");
+      const result = await createAccount(
+        { email: "", companyName: "", plan: "", password: "SecurePass123!" },
+        "http://localhost",
+      );
       expect(result.ok).toBe(false);
     });
 
     it("returns error for invalid plan", async () => {
       const result = await createAccount(
-        { email: "a@b.com", companyName: "Test", plan: "InvalidPlan" },
+        { email: "a@b.com", companyName: "Test", plan: "InvalidPlan", password: "SecurePass123!" },
         "http://localhost",
       );
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain("Invalid plan");
+    });
+
+    it("returns error for short password", async () => {
+      const result = await createAccount(
+        { email: "a@b.com", companyName: "Test", plan: "Starter", password: "short" },
+        "http://localhost",
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain("Password");
     });
 
     it("creates account with valid input", async () => {
@@ -77,13 +90,17 @@ describe("billing.service", () => {
             create: vi.fn().mockResolvedValue({ id: "acc_1", email: "a@b.com" }),
             delete: vi.fn(),
           },
+          user: {
+            create: vi.fn().mockResolvedValue({ id: "usr_1" }),
+            deleteMany: vi.fn(),
+          },
         });
       });
-      const { createPaymentSession } = await import("../../data/powertranz.client.js");
+      const { createPaymentSession } = await import("../../data/twocheckout.client.js");
       (createPaymentSession as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const result = await createAccount(
-        { email: "a@b.com", companyName: "Test Co", plan: "Starter" },
+        { email: "a@b.com", companyName: "Test Co", plan: "Starter", password: "SecurePass123!" },
         "http://localhost:3000",
       );
       expect(result.ok).toBe(true);
@@ -100,36 +117,23 @@ describe("billing.service", () => {
   describe("isPaymentSuccess", () => {
     it("delegates to isPaymentApproved", () => {
       (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      expect(isPaymentSuccess({ Approved: true })).toBe(true);
+      expect(isPaymentSuccess({ ORDERSTATUS: "COMPLETE" })).toBe(true);
     });
 
     it("returns false for failed payment", () => {
       (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(false);
-      expect(isPaymentSuccess({ Approved: false })).toBe(false);
+      expect(isPaymentSuccess({ ORDERSTATUS: "PENDING" })).toBe(false);
     });
   });
 
   describe("markAccountPaid", () => {
-    it("activates account on payment within transaction", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: Function) => {
-        return fn({
-          account: {
-            findUnique: vi.fn().mockResolvedValue({
-              id: "acc_1",
-              email: "a@b.com",
-              companyName: "Test",
-              plan: "Starter",
-              status: "pending",
-            }),
-            update: vi.fn().mockResolvedValue({}),
-          },
-          subscription: {
-            create: vi.fn().mockResolvedValue({ id: "sub_1" }),
-          },
-          billingInvoice: {
-            create: vi.fn().mockResolvedValue({ id: "inv_1" }),
-          },
-        });
+    it("activates account on payment", async () => {
+      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: "acc_1",
+        email: "a@b.com",
+        companyName: "Test",
+        plan: "Starter",
       });
 
       const result = await markAccountPaid("acc_1", "txn_1", "rrn_1");
@@ -140,13 +144,7 @@ describe("billing.service", () => {
     });
 
     it("handles no account found", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: Function) => {
-        return fn({
-          account: {
-            findUnique: vi.fn().mockResolvedValue(null),
-          },
-        });
-      });
+      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
 
       const result = await markAccountPaid("acc_missing");
       expect(result.ok).toBe(true);
@@ -156,7 +154,7 @@ describe("billing.service", () => {
     });
 
     it("returns error on exception", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
+      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
 
       const result = await markAccountPaid("acc_1");
       expect(result.ok).toBe(false);

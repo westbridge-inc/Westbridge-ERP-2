@@ -9,11 +9,7 @@ import { Queue, type ConnectionOptions } from "bullmq";
 import { getRedisConfig } from "../redis.js";
 
 const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
-if (
-  process.env.NODE_ENV === "production" &&
-  !isBuildPhase &&
-  !process.env.REDIS_PASSWORD
-) {
+if (process.env.NODE_ENV === "production" && !isBuildPhase && !process.env.REDIS_PASSWORD) {
   throw new Error("REDIS_PASSWORD is required in production");
 }
 
@@ -24,9 +20,7 @@ const connection: ConnectionOptions = {
   password: redisConfig.password ?? process.env.REDIS_PASSWORD,
 };
 
-// TODO: BullMQ has a Dashboard package (@bull-board/api) we should wire up
-//       behind /admin/queues for visibility into stuck/failed jobs.
-//       Punting for now — we can see failed jobs in Redis directly if needed.
+// bull-board dashboard wired up at /admin/queues (see app.ts mountBullBoard)
 
 const DEFAULT_OPTIONS = {
   defaultJobOptions: {
@@ -101,6 +95,10 @@ export interface CleanupJobData {
   task: "sessions" | "audit_logs";
 }
 
+export interface BillingJobData {
+  task: "monthly_renewals";
+}
+
 export interface WebhookJobData {
   endpointId: string;
   event: string;
@@ -120,7 +118,8 @@ export async function enqueueEmail(data: EmailJobData): Promise<void> {
   if (waiting > MAX_EMAIL_QUEUE_DEPTH) {
     const { logger } = await import("../logger.js");
     logger.error("enqueueEmail: queue depth exceeded — rejecting new job", {
-      waiting, limit: MAX_EMAIL_QUEUE_DEPTH,
+      waiting,
+      limit: MAX_EMAIL_QUEUE_DEPTH,
     });
     throw new Error("Email service temporarily unavailable — queue capacity reached");
   }
@@ -137,13 +136,17 @@ export async function enqueueReport(data: ReportJobData): Promise<string> {
   if (waiting > MAX_REPORT_QUEUE_DEPTH) {
     const { logger } = await import("../logger.js");
     logger.error("enqueueReport: queue depth exceeded — rejecting new job", {
-      waiting, limit: MAX_REPORT_QUEUE_DEPTH,
+      waiting,
+      limit: MAX_REPORT_QUEUE_DEPTH,
     });
     throw new Error("Report service temporarily unavailable — queue capacity reached");
   }
   const job = await reportsQueue.add(`report.${data.reportType}`, data);
   return job.id ?? crypto.randomUUID();
 }
+
+/** Billing queue — monthly subscription renewals + grace period enforcement. */
+export const billingQueue = new Queue("billing", DEFAULT_OPTIONS);
 
 /** Schedule the hourly session cleanup job. */
 export async function scheduleCleanupJobs(): Promise<void> {
@@ -152,5 +155,12 @@ export async function scheduleCleanupJobs(): Promise<void> {
   });
   await cleanupQueue.add("cleanup.audit_logs", { task: "audit_logs" } satisfies CleanupJobData, {
     repeat: { every: 24 * 60 * 60 * 1000 }, // daily
+  });
+}
+
+/** Schedule the daily billing renewal job. */
+export async function scheduleBillingJobs(): Promise<void> {
+  await billingQueue.add("billing.monthly_renewals", { task: "monthly_renewals" } satisfies BillingJobData, {
+    repeat: { every: 24 * 60 * 60 * 1000 }, // daily — processMonthlyRenewals() only charges subscriptions whose period has ended
   });
 }

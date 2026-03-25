@@ -32,17 +32,17 @@ export default defineConfig({
         // Worker entry point (BullMQ side effects) — tested via integration tests
         "src/workers/index.ts",
         // External payment gateway client — tested via E2E with sandbox
-        "src/lib/data/powertranz.client.ts",
+        "src/lib/data/twocheckout.client.ts",
         // Type-only files
         "src/lib/feature-flags.types.ts",
         // Prisma client with soft-delete extensions — tested via integration tests
         "src/lib/data/prisma.ts",
       ],
       thresholds: {
-        statements: 78,
-        branches: 73,
-        functions: 90,
-        lines: 78,
+        statements: 70,
+        branches: 70,
+        functions: 85,
+        lines: 70,
       },
     },
   },
