@@ -41,7 +41,7 @@ RUN npm ci --legacy-peer-deps --omit=dev --ignore-scripts && npm cache clean --f
 COPY prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/@prisma/engines ./node_modules/@prisma/engines
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Copy compiled output
 COPY --from=builder /app/dist ./dist
