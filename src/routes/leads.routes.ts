@@ -150,7 +150,7 @@ router.post("/leads/demo", async (req: Request, res: Response) => {
 
     // Send notification email to sales team
     const salesNotification = sendEmail({
-      to: "sales@westbridge.gy",
+      to: "sales@westbridgetoday.com",
       subject: `New Demo Request from ${parsed.data.name} (${parsed.data.company})`,
       html: `
         <h2>New Demo Request</h2>
@@ -172,7 +172,7 @@ router.post("/leads/demo", async (req: Request, res: Response) => {
       html: `
         <h2>Thank you for your interest, ${escapeHtml(parsed.data.name)}!</h2>
         <p>We've received your demo request and our team will be in touch within 1 business day.</p>
-        <p>In the meantime, feel free to explore our documentation at <a href="https://westbridge.gy">westbridge.gy</a>.</p>
+        <p>In the meantime, feel free to explore our documentation at <a href="https://westbridgetoday.com">westbridgetoday.com</a>.</p>
         <br>
         <p>Best regards,<br>The Westbridge Team</p>
       `,
@@ -263,7 +263,7 @@ router.post("/leads/newsletter", async (req: Request, res: Response) => {
       html: `
         <h2>You're subscribed!</h2>
         <p>Thank you for subscribing to the Westbridge newsletter. You'll receive updates on product features, tips, and industry insights.</p>
-        <p>Visit us at <a href="https://westbridge.gy">westbridge.gy</a> to learn more.</p>
+        <p>Visit us at <a href="https://westbridgetoday.com">westbridgetoday.com</a> to learn more.</p>
         <br>
         <p>Best regards,<br>The Westbridge Team</p>
       `,

@@ -31,7 +31,7 @@ export interface SsoConfig {
   issuerUrl: string; // e.g. https://accounts.google.com, https://login.microsoftonline.com/{tenant}/v2.0
   clientId: string;
   clientSecret: string; // stored encrypted at rest
-  allowedDomains: string[]; // e.g. ["westbridge.app"] — restrict SSO to these email domains
+  allowedDomains: string[]; // e.g. ["westbridgetoday.com"] — restrict SSO to these email domains
   autoProvision: boolean; // auto-create users on first SSO login
   defaultRole: string; // role for auto-provisioned users
 }

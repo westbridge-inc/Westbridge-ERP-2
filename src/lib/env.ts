@@ -47,7 +47,7 @@ const envSchema = z.object({
 
   // ── Email ───────────────────────────────────────────────────────────────────
   RESEND_API_KEY: z.string().optional().default(""),
-  EMAIL_FROM: z.string().optional().default("Westbridge <noreply@westbridge.app>"),
+  EMAIL_FROM: z.string().optional().default("Westbridge <noreply@westbridgetoday.com>"),
   SMTP_HOST: z.string().optional().default(""),
   SMTP_PORT: z.coerce.number().int().optional(),
   SMTP_USER: z.string().optional().default(""),
@@ -118,7 +118,6 @@ function parseEnv() {
     if (!result.data.ANTHROPIC_API_KEY) {
       console.warn("⚠️  ANTHROPIC_API_KEY not set — AI assistant will show 'coming soon' to users");
     }
-
 
     // Non-fatal warnings for observability & config
     if (!result.data.SENTRY_DSN) {

@@ -182,7 +182,7 @@ router.post(
         <p>${escapeHtml(message ?? defaultMessage).replace(/\n/g, "<br>")}</p>
         <hr>
         <p style="font-size:12px;color:#666;">
-          Sent via <a href="https://westbridge.gy">Westbridge ERP</a> on behalf of ${escapeHtml(account?.companyName ?? "Westbridge")}
+          Sent via <a href="https://westbridgetoday.com">Westbridge ERP</a> on behalf of ${escapeHtml(account?.companyName ?? "Westbridge")}
         </p>
       `,
         // Note: PDF is generated but Resend attachment support needs sendEmail update

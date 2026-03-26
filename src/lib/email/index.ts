@@ -25,7 +25,7 @@ export interface SendEmailOptions {
 }
 
 export async function sendEmail(opts: SendEmailOptions): Promise<Result<{ id: string }, string>> {
-  const from = opts.from ?? process.env.EMAIL_FROM ?? "Westbridge <noreply@westbridge.app>";
+  const from = opts.from ?? process.env.EMAIL_FROM ?? "Westbridge <noreply@westbridgetoday.com>";
 
   // In development/test without RESEND_API_KEY, log instead of silently failing
   if (!process.env.RESEND_API_KEY) {
