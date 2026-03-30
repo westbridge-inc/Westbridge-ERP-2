@@ -1,20 +1,20 @@
 /**
  * Billing service: signup (create account + payment session), payment handling.
  *
- * Uses PowerTranz (Caribbean-focused payment processor) for the Hosted Payment
- * Page (HPP) flow. After signup the customer is redirected to PowerTranz's
- * hosted page; once they pay, PowerTranz POSTs back to our webhook endpoint,
- * and we activate the account.
+ * Uses WiPay (Caribbean-focused payment processor) for the Hosted Payment
+ * Page flow. After signup the customer is redirected to WiPay's hosted page;
+ * once they pay, WiPay redirects the browser back to our webhook endpoint
+ * with query params, and we activate the account.
  */
 
 import { prisma } from "../data/prisma.js";
 import {
   createPaymentSession,
   isPaymentApproved,
-  verifyCallbackSignature,
+  verifyCallbackHash,
   type PlanSlug,
   type PaymentCallbackData,
-} from "../data/powertranz.client.js";
+} from "../data/wipay.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
@@ -70,11 +70,11 @@ export async function createAccount(
       });
     });
 
-    // The return URL is where PowerTranz will POST the payment result
-    const returnUrl = `${returnBaseUrl}/api/webhooks/powertranz?accountId=${account.id}`;
+    // The return URL is where WiPay will redirect the browser after payment
+    const returnUrl = `${returnBaseUrl}/api/webhooks/wipay?accountId=${account.id}`;
     const session = await createPaymentSession(planSlug, account.id, returnUrl, currency);
 
-    // If PowerTranz is configured, store the transaction ID
+    // If WiPay is configured, store the transaction ID
     if (session) {
       await prisma.account.update({
         where: { id: account.id },
@@ -99,14 +99,14 @@ export interface HandlePaymentResult {
 }
 
 /**
- * Verify the signature of a PowerTranz callback.
+ * Verify the hash of a WiPay callback.
  */
-export function verifyPaymentCallback(rawBody: string, signature: string): boolean {
-  return verifyCallbackSignature(rawBody, signature);
+export function verifyPaymentCallback(params: PaymentCallbackData): boolean {
+  return verifyCallbackHash(params);
 }
 
 /**
- * Check if a PowerTranz payment callback indicates success.
+ * Check if a WiPay payment callback indicates success.
  */
 export function isPaymentSuccess(data: PaymentCallbackData): boolean {
   return isPaymentApproved(data);

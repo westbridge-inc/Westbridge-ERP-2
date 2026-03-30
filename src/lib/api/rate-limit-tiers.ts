@@ -42,7 +42,7 @@ const ENDPOINT_OVERRIDES: Record<string, number> = {
   "/api/erp/doc/pdf": 10,
   "/api/erp/doc/email": 5,
   "/api/erp/doc/upload": 10,
-  "/api/webhooks/powertranz": 100,
+  "/api/webhooks/wipay": 100,
 };
 
 /** Per-endpoint window in ms (default 60_000). */

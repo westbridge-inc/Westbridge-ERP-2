@@ -56,10 +56,11 @@ const envSchema = z.object({
   // ── AI ──────────────────────────────────────────────────────────────────────
   ANTHROPIC_API_KEY: z.string().optional().default(""),
 
-  // ── Billing (PowerTranz — Caribbean payment gateway) ────────────────────────
-  POWERTRANZ_ID: z.string().optional().default(""),
-  POWERTRANZ_PASSWORD: z.string().optional().default(""),
-  POWERTRANZ_TEST_MODE: z.string().optional().default("true"), // "true" for staging, "false" for production
+  // ── Billing (WiPay — Caribbean payment gateway) ─────────────────────────────
+  WIPAY_ACCOUNT_NUMBER: z.string().optional().default(""),
+  WIPAY_API_KEY: z.string().optional().default(""),
+  WIPAY_SANDBOX: z.string().optional().default("true"), // "true" for sandbox, "false" for live
+  WIPAY_COUNTRY_CODE: z.string().optional().default("GY"),
 
   // ── Observability ───────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional().default(""),

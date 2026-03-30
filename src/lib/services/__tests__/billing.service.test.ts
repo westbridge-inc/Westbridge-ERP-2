@@ -17,10 +17,10 @@ vi.mock("../../data/prisma.js", () => ({
   },
 }));
 
-vi.mock("../../data/powertranz.client.js", () => ({
+vi.mock("../../data/wipay.client.js", () => ({
   createPaymentSession: vi.fn(),
   isPaymentApproved: vi.fn(),
-  verifyCallbackSignature: vi.fn(),
+  verifyCallbackHash: vi.fn(),
 }));
 
 vi.mock("../../utils/result.js", async () => {
@@ -47,7 +47,7 @@ vi.mock("../subscription.service.js", () => ({
 
 import { createAccount, verifyPaymentCallback, isPaymentSuccess, markAccountPaid } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
-import { verifyCallbackSignature, isPaymentApproved } from "../../data/powertranz.client.js";
+import { verifyCallbackHash, isPaymentApproved } from "../../data/wipay.client.js";
 
 describe("billing.service", () => {
   beforeEach(() => {
@@ -79,7 +79,7 @@ describe("billing.service", () => {
           },
         });
       });
-      const { createPaymentSession } = await import("../../data/powertranz.client.js");
+      const { createPaymentSession } = await import("../../data/wipay.client.js");
       (createPaymentSession as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const result = await createAccount(
@@ -91,21 +91,21 @@ describe("billing.service", () => {
   });
 
   describe("verifyPaymentCallback", () => {
-    it("delegates to verifyCallbackSignature", () => {
-      (verifyCallbackSignature as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      expect(verifyPaymentCallback("body", "sig")).toBe(true);
+    it("delegates to verifyCallbackHash", () => {
+      (verifyCallbackHash as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      expect(verifyPaymentCallback({ order_id: "o1", status: "success", transaction_id: "t1", hash: "h1" })).toBe(true);
     });
   });
 
   describe("isPaymentSuccess", () => {
     it("delegates to isPaymentApproved", () => {
       (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      expect(isPaymentSuccess({ Approved: true })).toBe(true);
+      expect(isPaymentSuccess({ status: "success" })).toBe(true);
     });
 
     it("returns false for failed payment", () => {
       (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(false);
-      expect(isPaymentSuccess({ Approved: false })).toBe(false);
+      expect(isPaymentSuccess({ status: "fail" })).toBe(false);
     });
   });
 

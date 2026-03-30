@@ -20,7 +20,7 @@ vi.mock("../../data/prisma.js", () => ({
   },
 }));
 
-vi.mock("../../data/powertranz.client.js", () => ({
+vi.mock("../../data/wipay.client.js", () => ({
   createPaymentSession: vi.fn(),
 }));
 
