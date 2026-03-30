@@ -23,21 +23,10 @@ import { PrismaClient } from "@prisma/client";
  */
 function createPrismaClient() {
   const poolSize = parseInt(process.env.DATABASE_POOL_SIZE || "10");
+  const rawUrl = process.env.DATABASE_URL ?? "";
   const base = new PrismaClient({
-    datasourceUrl: process.env.DATABASE_URL,
+    datasourceUrl: poolSize !== 10 ? appendPoolSize(rawUrl, poolSize) : rawUrl,
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-    // Connection pool size is configured via DATABASE_URL query params
-    // e.g. ?connection_limit=20&pool_timeout=10
-    // or via DATABASE_POOL_SIZE env var for programmatic override
-    ...(poolSize !== 10
-      ? {
-          datasources: {
-            db: {
-              url: appendPoolSize(process.env.DATABASE_URL ?? "", poolSize),
-            },
-          },
-        }
-      : {}),
   });
 
   const extended = base.$extends({
