@@ -154,25 +154,4 @@ router.get("/webhooks/wipay", async (req: Request, res: Response) => {
   return res.redirect(`${FRONTEND_URL()}/signup?payment=success`);
 });
 
-// Temporary admin provisioning endpoint — link account to ERPNext company
-router.get("/webhooks/provision", async (req: Request, res: Response) => {
-  const secret = req.query.secret as string;
-  if (secret !== process.env.SESSION_SECRET) {
-    return res.status(403).send("Forbidden");
-  }
-  const accountId = req.query.accountId as string;
-  const company = (req.query.company as string) || "Westbridge";
-  if (!accountId) return res.status(400).send("Missing accountId");
-  try {
-    const { prisma } = await import("../lib/data/prisma.js");
-    await prisma.account.update({
-      where: { id: accountId },
-      data: { erpnextCompany: company },
-    });
-    return res.json({ ok: true, accountId, company });
-  } catch (e) {
-    return res.status(500).json({ error: String(e) });
-  }
-});
-
 export default router;
