@@ -25,8 +25,8 @@ const ERPNEXT_URL = (() => {
 const ACCOUNT_HEADER = "X-Westbridge-Account-Id";
 
 const RETRYABLE_STATUSES = new Set([502, 503, 429]);
-const MAX_ATTEMPTS = 3;
-const BACKOFF_BASE_MS = 500;
+const MAX_ATTEMPTS = 2;
+const BACKOFF_BASE_MS = 300;
 
 function isRetryable(status: number): boolean {
   return RETRYABLE_STATUSES.has(status);
@@ -62,7 +62,7 @@ async function fetchErp(
       const res = await fetch(`${ERPNEXT_URL}/api${endpoint}`, {
         ...options,
         headers,
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(5_000),
       });
       if (res.ok) {
         const data = await res.json();
