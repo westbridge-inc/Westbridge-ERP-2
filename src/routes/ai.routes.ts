@@ -153,41 +153,76 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   let finalResponse: Anthropic.Message | null = null;
   const currentMessages = [...messages];
 
-  // Agentic loop — max 5 rounds of tool use
-  for (let round = 0; round < 5; round++) {
-    const response = await anthropic.messages.create({
-      model: AI_MODELS.chat,
-      max_tokens: 4096,
-      system,
-      tools: ERP_TOOLS,
-      messages: currentMessages,
-    });
+  // Agentic loop — max 5 rounds of tool use, 60-second overall timeout
+  try {
+    const aiTimeout = AbortSignal.timeout(60_000);
 
-    totalInputTokens += response.usage.input_tokens;
-    totalOutputTokens += response.usage.output_tokens;
-    finalResponse = response;
+    for (let round = 0; round < 5; round++) {
+      if (aiTimeout.aborted) break;
 
-    if (response.stop_reason === "end_turn") break;
+      const response = await anthropic.messages.create({
+        model: AI_MODELS.chat,
+        max_tokens: 4096,
+        system,
+        tools: ERP_TOOLS,
+        messages: currentMessages,
+      });
 
-    if (response.stop_reason === "tool_use") {
-      const toolBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-      currentMessages.push({ role: "assistant", content: response.content });
+      totalInputTokens += response.usage.input_tokens;
+      totalOutputTokens += response.usage.output_tokens;
+      finalResponse = response;
 
-      const toolResults = await Promise.all(
-        toolBlocks.map(async (tb) => ({
-          type: "tool_result" as const,
-          tool_use_id: tb.id,
-          content: await executeTool(
-            tb.name,
-            tb.input,
-            session.erpnextSid ?? "",
-            session.accountId,
-            account.erpnextCompany ?? null,
-          ),
-        })),
-      );
-      currentMessages.push({ role: "user", content: toolResults });
+      if (response.stop_reason === "end_turn") break;
+
+      if (response.stop_reason === "tool_use") {
+        const toolBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+        currentMessages.push({ role: "assistant", content: response.content });
+
+        const toolResults = await Promise.all(
+          toolBlocks.map(async (tb) => {
+            try {
+              return {
+                type: "tool_result" as const,
+                tool_use_id: tb.id,
+                content: await executeTool(
+                  tb.name,
+                  tb.input,
+                  session.erpnextSid ?? "",
+                  session.accountId,
+                  account.erpnextCompany ?? null,
+                ),
+              };
+            } catch {
+              return {
+                type: "tool_result" as const,
+                tool_use_id: tb.id,
+                content: "Error: Unable to fetch data right now. Please try again.",
+                is_error: true,
+              };
+            }
+          }),
+        );
+        currentMessages.push({ role: "user", content: toolResults });
+      }
     }
+  } catch (e) {
+    const { logger } = await import("../lib/logger.js");
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    logger.error("AI chat error", { error: errorMsg, conversationId });
+
+    if (errorMsg.includes("rate_limit") || errorMsg.includes("429")) {
+      return res.status(429).json({
+        error: { code: "AI_RATE_LIMIT", message: "AI is busy right now. Please wait a moment and try again." },
+      });
+    }
+    if (errorMsg.includes("authentication") || errorMsg.includes("401")) {
+      return res.status(503).json({
+        error: { code: "AI_UNAVAILABLE", message: "AI assistant is temporarily unavailable." },
+      });
+    }
+    return res.status(500).json({
+      error: { code: "AI_ERROR", message: "Something went wrong with the AI assistant. Please try again." },
+    });
   }
 
   await recordAiUsage(session.accountId, totalInputTokens, totalOutputTokens);
