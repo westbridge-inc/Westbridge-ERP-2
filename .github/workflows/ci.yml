@@ -115,9 +115,9 @@ jobs:
       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
       - name: Run database integration tests
-        run: npx vitest run --config vitest.config.ts --exclude '' src/__tests__/integration/ --reporter=verbose
+        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/ --reporter=verbose
       - name: Run rate limiter integration tests
-        run: npx vitest run --config vitest.config.ts --exclude '' src/lib/api/__tests__/rate-limit-tiers.test.ts --reporter=verbose
+        run: npx vitest run --config vitest.integration.config.ts src/lib/api/__tests__/rate-limit-tiers.test.ts --reporter=verbose
 
   # ── Load Tests (k6 smoke) ───────────────────────────────────────────────────
   # Runs the k6 smoke test against the built app to verify performance baselines.
