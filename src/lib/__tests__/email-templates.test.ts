@@ -63,7 +63,7 @@ describe("passwordResetEmail", () => {
 
   it("handles empty userName gracefully", () => {
     const html = passwordResetEmail({ ...data, userName: "" });
-    expect(html).toContain("there"); // fallback greeting
+    expect(html).toContain("your email"); // fallback when no name
   });
 });
 
