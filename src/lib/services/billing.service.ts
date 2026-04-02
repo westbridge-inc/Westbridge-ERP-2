@@ -42,13 +42,21 @@ export async function createAccount(
 
   try {
     const account = await prisma.$transaction(async (tx) => {
-      const existing = await tx.account.findUnique({ where: { email: email.trim() } });
+      // Check for existing account — findFirst bypasses soft-delete filter
+      const existing = await tx.account.findFirst({
+        where: { email: email.trim(), deletedAt: { not: null } },
+      }) ?? await tx.account.findFirst({
+        where: { email: email.trim() },
+      });
+
       if (existing) {
         if (existing.status === "active") {
           throw new Error("An account with this email already exists. Please sign in.");
         }
-        await tx.account.delete({ where: { email: email.trim() } });
+        // Hard-delete pending/soft-deleted accounts so we can reuse the email
+        await tx.$executeRaw`DELETE FROM "accounts" WHERE "email" = ${email.trim()}`;
       }
+
       return tx.account.create({
         data: {
           email: email.trim(),
@@ -65,7 +73,12 @@ export async function createAccount(
       status: "pending" as const,
     });
   } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to create account");
+    const msg = e instanceof Error ? e.message : "Failed to create account";
+    // Never leak Prisma/DB internals to the user
+    if (msg.includes("Unique constraint")) {
+      return err("An account with this email already exists. Please sign in.");
+    }
+    return err(msg);
   }
 }
 
