@@ -77,8 +77,7 @@ vi.mock("../../lib/services/erp.service.js", () => ({
 
 vi.mock("../../lib/services/billing.service.js", () => ({
   createAccount: vi.fn().mockResolvedValue({ ok: true, data: {} }),
-  verifyPaymentCallback: vi.fn().mockReturnValue(true),
-  isPaymentSuccess: vi.fn().mockReturnValue(false),
+  verifyPaddleWebhook: vi.fn().mockReturnValue(true),
   markAccountPaid: vi.fn().mockResolvedValue({ ok: true, data: { updated: true } }),
 }));
 
@@ -136,7 +135,7 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
 }));
 
 import { createApp } from "../../app.js";
-import { isPaymentSuccess, markAccountPaid } from "../../lib/services/billing.service.js";
+import { verifyPaddleWebhook, markAccountPaid } from "../../lib/services/billing.service.js";
 
 const app = createApp();
 
@@ -157,51 +156,68 @@ describe("webhooks routes", () => {
     expect([401, 403, 404]).toContain(res.status);
   });
 
-  describe("GET /api/webhooks/wipay", () => {
-    it("redirects to failure page for non-approved payment", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  describe("POST /api/webhooks/paddle", () => {
+    it("returns 401 when signature verification fails", async () => {
+      (verifyPaddleWebhook as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
-      const res = await supertest(app).get(
-        "/api/webhooks/wipay?status=fail&order_id=WB-acc_1-12345&transaction_id=txn_123&reasonDescription=Declined",
-      );
+      const res = await supertest(app)
+        .post("/api/webhooks/paddle")
+        .set("Paddle-Signature", "ts=123;h1=invalid")
+        .send({ event_type: "transaction.completed", event_id: "evt_1" });
 
-      expect(res.status).toBe(302);
-      expect(res.headers.location).toContain("/signup?payment=failed");
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe("Invalid signature");
     });
 
-    it("redirects to success page for approved payment with account activation", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    it("returns 200 for valid transaction.completed event", async () => {
+      (verifyPaddleWebhook as ReturnType<typeof vi.fn>).mockReturnValue(true);
       (markAccountPaid as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, data: { updated: true } });
 
-      const res = await supertest(app).get(
-        "/api/webhooks/wipay?status=success&order_id=WB-acc_123-12345&transaction_id=txn_456&hash=abc123&accountId=acc_123",
-      );
+      const res = await supertest(app)
+        .post("/api/webhooks/paddle")
+        .set("Paddle-Signature", "ts=123;h1=valid")
+        .send({
+          event_type: "transaction.completed",
+          event_id: "evt_1",
+          data: {
+            id: "txn_1",
+            subscription_id: "sub_1",
+            custom_data: { accountId: "acc_123" },
+          },
+        });
 
-      expect(res.status).toBe(302);
-      expect(res.headers.location).toContain("/signup?payment=success");
+      expect(res.status).toBe(200);
+      expect(res.body.received).toBe(true);
     });
 
-    it("redirects to failure page when no accountId found", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    it("returns 200 for transaction.completed without accountId", async () => {
+      (verifyPaddleWebhook as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
-      const res = await supertest(app).get(
-        "/api/webhooks/wipay?status=success&order_id=invalid&transaction_id=txn_789&hash=abc",
-      );
+      const res = await supertest(app)
+        .post("/api/webhooks/paddle")
+        .set("Paddle-Signature", "ts=123;h1=valid")
+        .send({
+          event_type: "transaction.completed",
+          event_id: "evt_2",
+          data: { id: "txn_1" },
+        });
 
-      expect(res.status).toBe(302);
-      expect(res.headers.location).toContain("/signup?payment=failed");
+      expect(res.status).toBe(200);
     });
 
-    it("redirects to failure page when markAccountPaid fails", async () => {
-      (isPaymentSuccess as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      (markAccountPaid as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "db error" });
+    it("returns 200 for unhandled event types", async () => {
+      (verifyPaddleWebhook as ReturnType<typeof vi.fn>).mockReturnValue(true);
 
-      const res = await supertest(app).get(
-        "/api/webhooks/wipay?status=success&order_id=WB-acc_1-12345&transaction_id=txn_1&hash=h1&accountId=acc_1",
-      );
+      const res = await supertest(app)
+        .post("/api/webhooks/paddle")
+        .set("Paddle-Signature", "ts=123;h1=valid")
+        .send({
+          event_type: "some.unknown.event",
+          event_id: "evt_3",
+        });
 
-      expect(res.status).toBe(302);
-      expect(res.headers.location).toContain("/signup?payment=failed");
+      expect(res.status).toBe(200);
+      expect(res.body.received).toBe(true);
     });
   });
 });

@@ -123,8 +123,7 @@ router.post("/signup", async (req: Request, res: Response) => {
       );
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-    const result = await createAccount(parsed.data, baseUrl);
+    const result = await createAccount(parsed.data);
 
     if (!result.ok) {
       const status =

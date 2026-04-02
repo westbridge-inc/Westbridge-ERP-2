@@ -34,29 +34,30 @@
 
 ---
 
-## 2. PowerTranz (Payment Processor)
+## 2. Paddle (Merchant of Record)
 
-| Attribute               | Detail                                                       |
-| ----------------------- | ------------------------------------------------------------ |
-| **Vendor**              | PowerTranz Ltd (Barbados)                                    |
-| **Data Processed**      | Payment card data, transaction amounts, customer identifiers |
-| **Data Classification** | Restricted (per ISP-001)                                     |
-| **Risk Level**          | **Critical** — payment processing                            |
-| **Certifications**      | PCI DSS Level 1                                              |
-| **Data Residency**      | Caribbean (Barbados)                                         |
-| **Encryption**          | TLS 1.2+ in transit; PCI-compliant at-rest encryption        |
+| Attribute               | Detail                                                                   |
+| ----------------------- | ------------------------------------------------------------------------ |
+| **Vendor**              | Paddle.com Market Ltd (UK)                                               |
+| **Data Processed**      | Payment card data (on Paddle side), transaction amounts, email addresses |
+| **Data Classification** | Restricted (per ISP-001)                                                 |
+| **Risk Level**          | **Critical** — payment processing                                        |
+| **Certifications**      | PCI DSS Level 1                                                          |
+| **Data Residency**      | EU/US (Paddle infrastructure)                                            |
+| **Encryption**          | TLS 1.2+ in transit; PCI-compliant at-rest encryption                    |
 
 **Security Controls Verified:**
 
-- No card data stored locally — hosted payment page (HPP) flow
-- HMAC-SHA256 callback signature verification (`src/lib/data/powertranz.client.ts`)
-- Transaction ID and RRN stored for reconciliation (no card numbers)
-- Idempotency checks on payment callbacks to prevent double-processing
-- IP allowlist for webhook callbacks
+- No card data stored locally — Paddle.js overlay checkout (PCI SAQ A)
+- HMAC-SHA256 webhook signature verification (`src/lib/data/paddle.client.ts`)
+- Timing-safe comparison for signature verification to prevent timing attacks
+- Transaction ID stored for reconciliation (no card numbers)
+- Idempotency checks on webhook events via Redis to prevent double-processing
+- Paddle acts as Merchant of Record — handles tax, invoicing, compliance
 
-**Contractual Protections:** PCI DSS compliance attestation. Caribbean-focused processor with local regulatory alignment.
+**Contractual Protections:** PCI DSS compliance attestation. Paddle is the Merchant of Record, accepting liability for payment processing and tax compliance globally.
 
-**Exit Strategy:** Standard payment processor integration pattern. Switch to alternative processor (e.g., WiPay, First Atlantic Commerce) by implementing new client module.
+**Exit Strategy:** Standard webhook-based integration pattern. Switch to alternative processor (e.g., Stripe, WiPay) by implementing new client module and updating webhook handler.
 
 ---
 
@@ -134,7 +135,7 @@
 | Vendor     | Risk Level | Last Assessment | Next Assessment      | Owner            |
 | ---------- | ---------- | --------------- | -------------------- | ---------------- |
 | ERPNext    | High       | 2026-03-18      | 2027-03-18           | CISO             |
-| PowerTranz | Critical   | 2026-03-18      | 2026-09-18 (6-month) | CISO             |
+| Paddle     | Critical   | 2026-03-30      | 2026-09-30 (6-month) | CISO             |
 | Sentry     | Medium     | 2026-03-18      | 2027-03-18           | Engineering Lead |
 | PostHog    | Low        | 2026-03-18      | 2027-03-18           | Engineering Lead |
 | Resend     | Medium     | 2026-03-18      | 2027-03-18           | Engineering Lead |

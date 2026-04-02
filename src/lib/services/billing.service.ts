@@ -1,20 +1,13 @@
 /**
- * Billing service: signup (create account + payment session), payment handling.
+ * Billing service: signup (create account), payment handling.
  *
- * Uses WiPay (Caribbean-focused payment processor) for the Hosted Payment
- * Page flow. After signup the customer is redirected to WiPay's hosted page;
- * once they pay, WiPay redirects the browser back to our webhook endpoint
- * with query params, and we activate the account.
+ * Uses Paddle (Merchant of Record) for billing. Checkout happens on the
+ * frontend via Paddle.js overlay. After payment, Paddle sends a POST webhook
+ * to our backend, and we activate the account.
  */
 
 import { prisma } from "../data/prisma.js";
-import {
-  createPaymentSession,
-  isPaymentApproved,
-  verifyCallbackHash,
-  type PlanSlug,
-  type PaymentCallbackData,
-} from "../data/wipay.client.js";
+import { verifyWebhookSignature, type PlanSlug } from "../data/paddle.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
@@ -32,16 +25,13 @@ export interface CreateAccountInput {
 
 export interface CreateAccountResult {
   accountId: string;
-  paymentUrl: string | null;
   status: "pending";
-  message?: string;
 }
 
 export async function createAccount(
   input: CreateAccountInput,
-  returnBaseUrl: string,
 ): Promise<Result<CreateAccountResult, string>> {
-  const { email, companyName, plan, modulesSelected, currency } = input;
+  const { email, companyName, plan, modulesSelected } = input;
   if (!email?.trim() || !companyName?.trim() || !plan?.trim()) {
     return err("Email, company name, and plan are required");
   }
@@ -70,23 +60,9 @@ export async function createAccount(
       });
     });
 
-    // The return URL is where WiPay will redirect the browser after payment
-    const returnUrl = `${returnBaseUrl}/api/webhooks/wipay?accountId=${account.id}`;
-    const session = await createPaymentSession(planSlug, account.id, returnUrl, currency);
-
-    // If WiPay is configured, store the transaction ID
-    if (session) {
-      await prisma.account.update({
-        where: { id: account.id },
-        data: { paymentTransactionId: session.transactionId },
-      });
-    }
-
     return ok({
       accountId: account.id,
-      paymentUrl: session?.redirectUrl ?? null,
       status: "pending" as const,
-      ...(session ? {} : { message: "Account created. Payment gateway not configured; contact support to complete." }),
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : "Failed to create account");
@@ -99,17 +75,10 @@ export interface HandlePaymentResult {
 }
 
 /**
- * Verify the hash of a WiPay callback.
+ * Verify the signature of a Paddle webhook.
  */
-export function verifyPaymentCallback(params: PaymentCallbackData): boolean {
-  return verifyCallbackHash(params);
-}
-
-/**
- * Check if a WiPay payment callback indicates success.
- */
-export function isPaymentSuccess(data: PaymentCallbackData): boolean {
-  return isPaymentApproved(data);
+export function verifyPaddleWebhook(rawBody: string, signature: string): boolean {
+  return verifyWebhookSignature(rawBody, signature);
 }
 
 /**
@@ -118,7 +87,7 @@ export function isPaymentSuccess(data: PaymentCallbackData): boolean {
 export async function markAccountPaid(
   accountId: string,
   transactionId?: string,
-  rrn?: string,
+  paddleSubscriptionId?: string,
 ): Promise<Result<HandlePaymentResult, string>> {
   try {
     const result = await prisma.account.updateMany({
@@ -126,7 +95,7 @@ export async function markAccountPaid(
       data: {
         status: "active",
         paymentTransactionId: transactionId ?? undefined,
-        paymentRRN: rrn ?? undefined,
+        paymentRRN: paddleSubscriptionId ?? undefined,
       },
     });
     const updated = (result.count ?? 0) > 0;

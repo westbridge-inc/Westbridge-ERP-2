@@ -1,6 +1,6 @@
-# ADR-005: WiPay as Payment Gateway
+# ADR-005: Payment Gateway — PowerTranz -> WiPay -> Paddle
 
-## Status: Accepted (supersedes PowerTranz)
+## Status: Superseded (migrated to Paddle)
 
 ## Date: 2026-03-30
 
@@ -9,10 +9,10 @@
 The platform needed to accept credit card payments from Caribbean businesses.
 Requirements:
 
-- Support for Caribbean currencies: USD, TTD, JMD.
-- Hosted payment page (HPP) to minimize PCI scope.
+- Support for global currencies (USD as primary).
+- Minimal PCI scope.
 - Reasonable integration complexity for a small team.
-- Broad availability in Guyana.
+- Subscription billing with automatic renewals.
 
 ### Historical Context
 
@@ -21,6 +21,15 @@ due to its Caribbean focus, native multi-currency support (USD, GYD, TTD, JMD,
 XCD, BMD), and HPP flow that reduces PCI scope to SAQ A. However, WiPay was
 selected as a replacement for broader Guyana support, simpler integration, and
 better local availability for Caribbean merchants.
+
+WiPay served as the payment processor using a browser-redirect hosted payment
+page model. However, limitations became apparent:
+
+- No server-to-server webhook (relied on browser redirect, fragile).
+- MD5 hash verification (weaker than HMAC-SHA256).
+- No built-in subscription/recurring billing.
+- Limited global reach beyond the Caribbean.
+- Renewal flow required manual payment session creation.
 
 Options evaluated:
 
@@ -32,60 +41,72 @@ Options evaluated:
   but limited local availability in Guyana.
 - **WiPay** -- Caribbean payment processor with strong Guyana presence,
   simple hosted page flow, browser redirect callback model.
+- **Paddle** -- Merchant of Record with global reach, built-in subscription
+  management, HMAC-SHA256 webhook verification, handles tax/compliance.
 
 ## Decision
 
-We use **WiPay** as the primary payment gateway, implemented in
-`src/lib/data/wipay.client.ts`.
+We use **Paddle** (Billing v2) as the Merchant of Record, implemented in
+`src/lib/data/paddle.client.ts`.
 
-Flow (Hosted Payment Page):
+### Why Paddle
 
-1. Server POSTs to `https://gy.wipayfinancial.com/plugins/payments/request`
-   with transaction details, amount, and currency (ISO 4217 alpha codes).
-2. WiPay returns a `url` (hosted page URL) and `transaction_id`.
-3. Customer's browser is redirected to the WiPay hosted payment page.
-4. Customer enters card details on WiPay's domain (PCI scope stays
-   with WiPay).
-5. WiPay redirects the browser back to `response_url` with query params
-   including `status`, `order_id`, `transaction_id`, and `hash`.
-6. Server verifies the callback hash (`verifyCallbackHash`), checks
-   status (`isPaymentApproved`), and activates the account.
-7. Server redirects the browser to the frontend signup success/failure page.
+1. **Merchant of Record**: Paddle handles tax collection, invoicing, and
+   compliance globally. We don't need to manage VAT/GST/sales tax.
+2. **Built-in subscriptions**: Paddle manages recurring billing, plan
+   changes, and cancellations natively. No custom cron for renewals.
+3. **Frontend checkout**: Paddle.js overlay handles checkout on the client.
+   The backend never sees card data (PCI SAQ A).
+4. **Server-to-server webhooks**: POST webhooks with HMAC-SHA256 signature
+   verification. Far more reliable than WiPay's browser redirect model.
+5. **Global reach**: Supports 200+ countries and territories with
+   localized pricing.
+
+### Architecture
+
+Flow (Paddle.js + Webhooks):
+
+1. Frontend opens Paddle.js overlay checkout with a Paddle price ID and
+   `custom_data: { accountId }`.
+2. Customer completes payment on Paddle's hosted checkout overlay.
+3. Paddle sends POST webhook to `/api/webhooks/paddle` with
+   `Paddle-Signature` header.
+4. Backend verifies HMAC-SHA256 signature using the webhook secret.
+5. Backend processes the event:
+   - `transaction.completed` -> activate account
+   - `subscription.created` -> log subscription
+   - `subscription.updated` -> handle plan change
+   - `subscription.canceled` -> cancel subscription
+6. Backend returns 200 to acknowledge the webhook.
 
 Implementation details:
 
 - **4-tier pricing**: Solo ($49.99), Starter ($199.99), Business ($999.99),
-  Enterprise ($4,999.99).
-- **Currency**: ISO 4217 alpha codes (USD, TTD, JMD).
-- **MD5 hash verification**: Callback hash verified using
-  `order_id + status + transaction_id + API key`.
-- **Sandbox/live toggle**: `WIPAY_SANDBOX` env var switches between
-  `environment=sandbox` and `environment=live`.
-- **Fee structure**: `customer_pay` — transaction fees are paid by the
-  customer, not absorbed by the merchant.
-- **Country code**: Defaults to `GY` (Guyana), configurable via
-  `WIPAY_COUNTRY_CODE`.
-- **Timeout**: 30s for payment session creation.
-- **Browser redirect**: WiPay uses GET redirect (not server POST), so the
-  webhook endpoint redirects the browser to the frontend after processing.
+  Enterprise ($4,999.99). Products/prices defined in Paddle dashboard.
+- **Signature verification**: HMAC-SHA256 with timing-safe comparison.
+  Format: `ts=<timestamp>;h1=<hash>` where hash = HMAC-SHA256 of
+  `<timestamp>:<rawBody>`.
+- **Sandbox/live toggle**: `PADDLE_SANDBOX` env var switches between
+  sandbox and production API endpoints.
+- **Idempotency**: Redis-backed dedup on `event_id` (24h TTL).
+- **No backend payment session creation**: Checkout is purely frontend.
 
 ## Consequences
 
 ### Positive
 
-- Strong local presence and support in Guyana.
-- HPP flow keeps card data off our servers entirely (PCI SAQ A).
-- Simpler integration than PowerTranz (form-urlencoded POST, browser redirect).
-- MD5 hash callback verification prevents forged payment confirmations.
-- Browser redirect model is simpler to debug than server-to-server callbacks.
+- Merchant of Record eliminates tax/compliance burden.
+- Built-in subscription management eliminates custom renewal cron.
+- HMAC-SHA256 webhook verification (stronger than WiPay's MD5).
+- Server-to-server webhooks (not browser redirect — no lost payments).
+- Global currency and territory support.
+- Simpler backend — no `createPaymentSession` call needed.
+- PCI SAQ A scope maintained (card data never touches our servers).
 
 ### Negative
 
-- Fewer supported currencies than PowerTranz (USD, TTD, JMD vs. full Caribbean set).
-- No server-to-server webhook — relies on browser redirect, which can fail
-  if the customer closes their browser mid-redirect. Transaction lookup
-  on the WiPay dashboard provides a manual fallback.
-- MD5 hash verification is weaker than HMAC-SHA256 (used by PowerTranz),
-  but adequate for the redirect callback model.
-- No built-in refund API — refunds must be processed through the WiPay
-  merchant dashboard.
+- Paddle takes a larger revenue cut than a pure payment processor.
+- Less control over the checkout UI (Paddle.js overlay).
+- Products/prices must be configured in the Paddle dashboard.
+- Paddle is not Caribbean-specific — customers in Guyana may see
+  slightly different payment flows than a local processor.

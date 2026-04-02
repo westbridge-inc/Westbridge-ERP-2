@@ -32,7 +32,7 @@ export default defineConfig({
         // Worker entry point (BullMQ side effects) — tested via integration tests
         "src/workers/index.ts",
         // External payment gateway client — tested via E2E with sandbox
-        "src/lib/data/wipay.client.ts",
+        "src/lib/data/paddle.client.ts",
         // Type-only files
         "src/lib/feature-flags.types.ts",
         // Prisma client with soft-delete extensions — tested via integration tests

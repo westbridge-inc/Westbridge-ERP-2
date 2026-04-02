@@ -56,11 +56,15 @@ const envSchema = z.object({
   // ── AI ──────────────────────────────────────────────────────────────────────
   ANTHROPIC_API_KEY: z.string().optional().default(""),
 
-  // ── Billing (WiPay — Caribbean payment gateway) ─────────────────────────────
-  WIPAY_ACCOUNT_NUMBER: z.string().optional().default(""),
-  WIPAY_API_KEY: z.string().optional().default(""),
-  WIPAY_SANDBOX: z.string().optional().default("true"), // "true" for sandbox, "false" for live
-  WIPAY_COUNTRY_CODE: z.string().optional().default("GY"),
+  // ── Billing (Paddle — Merchant of Record) ────────────────────────────────────
+  PADDLE_API_KEY: z.string().optional().default(""),
+  PADDLE_WEBHOOK_SECRET: z.string().optional().default(""),
+  PADDLE_SANDBOX: z.string().optional().default("true"),
+  PADDLE_CLIENT_TOKEN: z.string().optional().default(""),
+  PADDLE_PRICE_SOLO: z.string().optional().default(""),
+  PADDLE_PRICE_STARTER: z.string().optional().default(""),
+  PADDLE_PRICE_BUSINESS: z.string().optional().default(""),
+  PADDLE_PRICE_ENTERPRISE: z.string().optional().default(""),
 
   // ── Observability ───────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional().default(""),

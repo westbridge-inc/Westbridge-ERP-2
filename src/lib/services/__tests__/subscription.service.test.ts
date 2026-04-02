@@ -4,6 +4,7 @@ vi.mock("../../data/prisma.js", () => ({
   prisma: {
     subscription: {
       create: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn(),
@@ -20,8 +21,8 @@ vi.mock("../../data/prisma.js", () => ({
   },
 }));
 
-vi.mock("../../data/wipay.client.js", () => ({
-  createPaymentSession: vi.fn(),
+vi.mock("../../data/paddle.client.js", () => ({
+  cancelPaddleSubscription: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("../../email/index.js", () => ({
@@ -34,12 +35,14 @@ vi.mock("../../logger.js", () => ({
 
 import {
   createSubscription,
-  processMonthlyRenewals,
+  handleRenewal,
+  checkGracePeriodExpiry,
   extendSubscription,
   changePlan,
   cancelSubscription,
 } from "../subscription.service.js";
 import { prisma } from "../../data/prisma.js";
+import { cancelPaddleSubscription } from "../../data/paddle.client.js";
 
 describe("subscription.service", () => {
   beforeEach(() => {
@@ -64,17 +67,37 @@ describe("subscription.service", () => {
     });
   });
 
-  describe("processMonthlyRenewals", () => {
-    it("processes due subscriptions", async () => {
-      (prisma.subscription.findMany as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce([]) // dueSubscriptions
-        .mockResolvedValueOnce([]); // pastDueSubs
-      (prisma.subscription.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+  describe("handleRenewal", () => {
+    it("extends subscription when active sub exists", async () => {
+      (prisma.subscription.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: "sub_1",
+        planId: "Starter",
+      });
+      (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-      const stats = await processMonthlyRenewals();
-      expect(stats.processed).toBe(0);
-      expect(stats.succeeded).toBe(0);
-      expect(stats.failed).toBe(0);
+      await handleRenewal("acc_1", "txn_1", "paddle_sub_1");
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it("logs warning when no active subscription found", async () => {
+      (prisma.subscription.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      await handleRenewal("acc_1", "txn_1");
+      // Should not throw
+    });
+  });
+
+  describe("checkGracePeriodExpiry", () => {
+    it("marks expired subscriptions as past_due", async () => {
+      (prisma.subscription.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
+      (prisma.subscription.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { accountId: "acc_1" },
+        { accountId: "acc_2" },
+      ]);
+      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
+
+      const result = await checkGracePeriodExpiry();
+      expect(result.updated).toBe(2);
     });
   });
 
@@ -124,6 +147,14 @@ describe("subscription.service", () => {
       const result = await cancelSubscription("acc_1");
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.data.message).toContain("canceled");
+    });
+
+    it("cancels on Paddle when subscription ID provided", async () => {
+      (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+      const result = await cancelSubscription("acc_1", "paddle_sub_123");
+      expect(result.ok).toBe(true);
+      expect(cancelPaddleSubscription).toHaveBeenCalledWith("paddle_sub_123");
     });
 
     it("handles errors", async () => {

@@ -1,16 +1,16 @@
 /**
  * Subscription & recurring billing service.
  *
- * Handles monthly billing cycles using WiPay.
- * - Creates initial subscription on account activation
- * - Monthly cron charges active subscriptions
- * - Handles payment failures with grace period
- * - Supports plan upgrades/downgrades
+ * With Paddle as Merchant of Record, subscription renewals are handled
+ * automatically by Paddle. This service:
+ *   - Creates initial subscription records on account activation
+ *   - Responds to Paddle webhooks for plan changes and cancellations
+ *   - Provides plan change and cancellation APIs (which call Paddle)
+ *   - Manages grace periods for past-due accounts
  */
 
 import { prisma } from "../data/prisma.js";
-import { createPaymentSession, type PlanSlug } from "../data/wipay.client.js";
-import { sendEmail } from "../email/index.js";
+import { cancelPaddleSubscription } from "../data/paddle.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
 
@@ -68,100 +68,37 @@ export async function createSubscription(
 }
 
 /**
- * Process monthly renewals for all active subscriptions.
- * Called by a cron job (GitHub Actions or BullMQ scheduled job).
+ * Handle subscription renewal from Paddle webhook (transaction.completed for an existing subscription).
+ * Paddle manages the billing cycle — we just extend the local subscription record.
  */
-export async function processMonthlyRenewals(): Promise<{
-  processed: number;
-  succeeded: number;
-  failed: number;
-}> {
-  const now = new Date();
-  const stats = { processed: 0, succeeded: 0, failed: 0 };
-
-  // Find all active subscriptions whose current period has ended
-  const dueSubscriptions = await prisma.subscription.findMany({
-    where: {
-      status: "active",
-      currentPeriodEnd: { lte: now },
-    },
-    include: {
-      account: { select: { id: true, email: true, plan: true, currency: true, status: true } },
-    },
+export async function handleRenewal(
+  accountId: string,
+  transactionId: string,
+  paddleSubscriptionId?: string,
+): Promise<void> {
+  const sub = await prisma.subscription.findFirst({
+    where: { accountId, status: "active" },
   });
 
-  logger.info("Processing monthly renewals", { count: dueSubscriptions.length });
-
-  for (const sub of dueSubscriptions) {
-    stats.processed++;
-
-    const amount = PLAN_AMOUNTS[sub.planId] ?? 0;
-    if (amount === 0) {
-      stats.failed++;
-      continue;
-    }
-
-    const returnUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/webhooks/wipay?accountId=${sub.accountId}&renewal=true`;
-
-    try {
-      // Create payment session for renewal
-      const session = await createPaymentSession(
-        sub.planId as PlanSlug,
-        sub.accountId,
-        returnUrl,
-        sub.account.currency ?? "USD",
-      );
-
-      if (!session) {
-        // WiPay not configured — extend subscription anyway (manual billing)
-        await extendSubscription(sub.id, sub.planId, sub.accountId);
-        stats.succeeded++;
-        continue;
-      }
-
-      // Create pending invoice
-      const periodStart = new Date(sub.currentPeriodEnd);
-      const periodEnd = new Date(periodStart);
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
-
-      await prisma.billingInvoice.create({
-        data: {
-          accountId: sub.accountId,
-          amount,
-          currency: sub.account.currency ?? "USD",
-          status: "pending",
-          planId: sub.planId,
-          periodStart,
-          periodEnd,
-          transactionId: session.transactionId,
-        },
-      });
-
-      // Send payment reminder email
-      void sendEmail({
-        to: sub.account.email,
-        subject: `Westbridge - Monthly payment due ($${amount})`,
-        html: `
-          <h2>Monthly Renewal</h2>
-          <p>Your Westbridge ${sub.planId} plan renewal of $${amount} is due.</p>
-          <p><a href="${session.redirectUrl}">Complete payment</a></p>
-          <p>Your service will continue for ${GRACE_PERIOD_DAYS} days while payment is pending.</p>
-        `,
-      });
-
-      stats.succeeded++;
-    } catch (e) {
-      logger.error("Renewal failed", {
-        subscriptionId: sub.id,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      stats.failed++;
-    }
+  if (!sub) {
+    logger.warn("Renewal webhook but no active subscription found", { accountId });
+    return;
   }
 
-  // Handle past-due accounts (grace period expired)
+  await extendSubscription(sub.id, sub.planId, accountId, transactionId);
+  logger.info("Subscription renewed via Paddle webhook", { accountId, transactionId, paddleSubscriptionId });
+}
+
+/**
+ * Check for past-due accounts whose grace period has expired.
+ * Called by a cron job (GitHub Actions or BullMQ scheduled job).
+ */
+export async function checkGracePeriodExpiry(): Promise<{ updated: number }> {
+  const now = new Date();
   const gracePeriodCutoff = new Date(now.getTime() - GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
-  await prisma.subscription.updateMany({
+
+  // Mark subscriptions as past_due if their period ended beyond the grace window
+  const result = await prisma.subscription.updateMany({
     where: {
       status: "active",
       currentPeriodEnd: { lte: gracePeriodCutoff },
@@ -181,8 +118,8 @@ export async function processMonthlyRenewals(): Promise<{
     });
   }
 
-  logger.info("Monthly renewals complete", stats);
-  return stats;
+  logger.info("Grace period check complete", { updated: result.count });
+  return { updated: result.count ?? 0 };
 }
 
 /**
@@ -250,10 +187,19 @@ export async function changePlan(accountId: string, newPlanId: string): Promise<
 }
 
 /**
- * Cancel a subscription.
+ * Cancel a subscription. If a Paddle subscription ID is known, cancel via
+ * the Paddle API (at end of billing period). Otherwise just update local state.
  */
-export async function cancelSubscription(accountId: string): Promise<Result<{ message: string }, string>> {
+export async function cancelSubscription(
+  accountId: string,
+  paddleSubscriptionId?: string,
+): Promise<Result<{ message: string }, string>> {
   try {
+    // Cancel on Paddle side if we have a subscription ID
+    if (paddleSubscriptionId) {
+      await cancelPaddleSubscription(paddleSubscriptionId);
+    }
+
     await prisma.$transaction([
       prisma.subscription.updateMany({
         where: { accountId, status: "active" },

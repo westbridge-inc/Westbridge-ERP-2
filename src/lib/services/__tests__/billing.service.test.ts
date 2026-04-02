@@ -17,10 +17,8 @@ vi.mock("../../data/prisma.js", () => ({
   },
 }));
 
-vi.mock("../../data/wipay.client.js", () => ({
-  createPaymentSession: vi.fn(),
-  isPaymentApproved: vi.fn(),
-  verifyCallbackHash: vi.fn(),
+vi.mock("../../data/paddle.client.js", () => ({
+  verifyWebhookSignature: vi.fn(),
 }));
 
 vi.mock("../../utils/result.js", async () => {
@@ -45,9 +43,9 @@ vi.mock("../subscription.service.js", () => ({
   createSubscription: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
-import { createAccount, verifyPaymentCallback, isPaymentSuccess, markAccountPaid } from "../billing.service.js";
+import { createAccount, verifyPaddleWebhook, markAccountPaid } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
-import { verifyCallbackHash, isPaymentApproved } from "../../data/wipay.client.js";
+import { verifyWebhookSignature } from "../../data/paddle.client.js";
 
 describe("billing.service", () => {
   beforeEach(() => {
@@ -56,14 +54,13 @@ describe("billing.service", () => {
 
   describe("createAccount", () => {
     it("returns error for missing fields", async () => {
-      const result = await createAccount({ email: "", companyName: "", plan: "" }, "http://localhost");
+      const result = await createAccount({ email: "", companyName: "", plan: "" });
       expect(result.ok).toBe(false);
     });
 
     it("returns error for invalid plan", async () => {
       const result = await createAccount(
         { email: "a@b.com", companyName: "Test", plan: "InvalidPlan" },
-        "http://localhost",
       );
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain("Invalid plan");
@@ -79,33 +76,47 @@ describe("billing.service", () => {
           },
         });
       });
-      const { createPaymentSession } = await import("../../data/wipay.client.js");
-      (createPaymentSession as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const result = await createAccount(
         { email: "a@b.com", companyName: "Test Co", plan: "Starter" },
-        "http://localhost:3000",
       );
       expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data.accountId).toBe("acc_1");
+        expect(result.data.status).toBe("pending");
+      }
+    });
+
+    it("does not return paymentUrl (Paddle checkout is frontend-only)", async () => {
+      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: Function) => {
+        return fn({
+          account: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({ id: "acc_1", email: "a@b.com" }),
+            delete: vi.fn(),
+          },
+        });
+      });
+
+      const result = await createAccount(
+        { email: "a@b.com", companyName: "Test Co", plan: "Starter" },
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.data).not.toHaveProperty("paymentUrl");
+      }
     });
   });
 
-  describe("verifyPaymentCallback", () => {
-    it("delegates to verifyCallbackHash", () => {
-      (verifyCallbackHash as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      expect(verifyPaymentCallback({ order_id: "o1", status: "success", transaction_id: "t1", hash: "h1" })).toBe(true);
-    });
-  });
-
-  describe("isPaymentSuccess", () => {
-    it("delegates to isPaymentApproved", () => {
-      (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(true);
-      expect(isPaymentSuccess({ status: "success" })).toBe(true);
+  describe("verifyPaddleWebhook", () => {
+    it("delegates to verifyWebhookSignature", () => {
+      (verifyWebhookSignature as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      expect(verifyPaddleWebhook('{"event":"test"}', "ts=123;h1=abc")).toBe(true);
     });
 
-    it("returns false for failed payment", () => {
-      (isPaymentApproved as ReturnType<typeof vi.fn>).mockReturnValue(false);
-      expect(isPaymentSuccess({ status: "fail" })).toBe(false);
+    it("returns false for invalid signature", () => {
+      (verifyWebhookSignature as ReturnType<typeof vi.fn>).mockReturnValue(false);
+      expect(verifyPaddleWebhook('{"event":"test"}', "ts=123;h1=bad")).toBe(false);
     });
   });
 
@@ -119,7 +130,7 @@ describe("billing.service", () => {
         plan: "Starter",
       });
 
-      const result = await markAccountPaid("acc_1", "txn_1", "rrn_1");
+      const result = await markAccountPaid("acc_1", "txn_1", "sub_1");
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data.updated).toBe(true);
