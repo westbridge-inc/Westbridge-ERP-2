@@ -59,7 +59,7 @@ jobs:
       - run: npm test -- --coverage
       - run: npx prisma db push --accept-data-loss
       - name: Integration tests
-        run: npx vitest run src/__tests__/integration/ --reporter=verbose
+        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/ --reporter=verbose
 
   deploy-staging:
     name: Deploy to Staging

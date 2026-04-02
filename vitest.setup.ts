@@ -18,33 +18,92 @@ vi.mock("ioredis", () => {
   const EventEmitter = require("events");
   class RedisMock extends EventEmitter {
     status = "ready";
-    ping() { return Promise.resolve("PONG"); }
-    get() { return Promise.resolve(null); }
-    set() { return Promise.resolve("OK"); }
-    del() { return Promise.resolve(1); }
-    setex() { return Promise.resolve("OK"); }
-    expire() { return Promise.resolve(1); }
-    zadd() { return Promise.resolve(1); }
-    zrangebyscore() { return Promise.resolve([]); }
-    zremrangebyscore() { return Promise.resolve(0); }
-    zcard() { return Promise.resolve(0); }
+    ping() {
+      return Promise.resolve("PONG");
+    }
+    get() {
+      return Promise.resolve(null);
+    }
+    set() {
+      return Promise.resolve("OK");
+    }
+    del() {
+      return Promise.resolve(1);
+    }
+    setex() {
+      return Promise.resolve("OK");
+    }
+    expire() {
+      return Promise.resolve(1);
+    }
+    zadd() {
+      return Promise.resolve(1);
+    }
+    zrangebyscore() {
+      return Promise.resolve([]);
+    }
+    zremrangebyscore() {
+      return Promise.resolve(0);
+    }
+    zcard() {
+      return Promise.resolve(0);
+    }
     pipeline() {
       return {
-        zadd: () => ({ zremrangebyscore: () => ({ zcard: () => ({ exec: () => Promise.resolve([[null, 1], [null, 0], [null, 1]]) }) }) }),
+        zadd: () => ({
+          zremrangebyscore: () => ({
+            zcard: () => ({
+              exec: () =>
+                Promise.resolve([
+                  [null, 1],
+                  [null, 0],
+                  [null, 1],
+                ]),
+            }),
+          }),
+        }),
         exec: () => Promise.resolve([]),
       };
     }
-    publish() { return Promise.resolve(0); }
-    subscribe() { return Promise.resolve(); }
-    quit() { return Promise.resolve("OK"); }
-    disconnect() { return; }
-    scan() { return Promise.resolve(["0", []]); }
-    hset() { return Promise.resolve(1); }
-    hget() { return Promise.resolve(null); }
-    hgetall() { return Promise.resolve({}); }
-    hincrby() { return Promise.resolve(1); }
-    sadd() { return Promise.resolve(1); }
-    scard() { return Promise.resolve(0); }
+    publish() {
+      return Promise.resolve(0);
+    }
+    subscribe() {
+      return Promise.resolve();
+    }
+    quit() {
+      return Promise.resolve("OK");
+    }
+    disconnect() {
+      return;
+    }
+    keys() {
+      return Promise.resolve([]);
+    }
+    smembers() {
+      return Promise.resolve([]);
+    }
+    scan() {
+      return Promise.resolve(["0", []]);
+    }
+    hset() {
+      return Promise.resolve(1);
+    }
+    hget() {
+      return Promise.resolve(null);
+    }
+    hgetall() {
+      return Promise.resolve({});
+    }
+    hincrby() {
+      return Promise.resolve(1);
+    }
+    sadd() {
+      return Promise.resolve(1);
+    }
+    scard() {
+      return Promise.resolve(0);
+    }
   }
   return { Redis: RedisMock, Cluster: RedisMock, default: RedisMock };
 });
