@@ -58,6 +58,25 @@ export function createApp(): express.Application {
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: "cross-origin" },
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", "data:", "https:"],
+          connectSrc: ["'self'", process.env.FRONTEND_URL ?? "http://localhost:3000"],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+          baseUri: ["'self'"],
+          formAction: ["'self'"],
+          reportUri: ["/api/v1/csp-report"],
+        },
+      },
+      referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+      hsts: { maxAge: 63072000, includeSubDomains: true, preload: true }, // 2 years
+      frameguard: { action: "deny" },
+      // noSniff, xssFilter, ieNoOpen are on by default in Helmet
     }),
   );
 

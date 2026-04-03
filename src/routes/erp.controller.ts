@@ -20,11 +20,41 @@ import {
 import { toWebRequest } from "../middleware/auth.js";
 import { publish } from "../lib/realtime.js";
 import { prisma } from "../lib/data/prisma.js";
+import { getRedis } from "../lib/redis.js";
+import { logger } from "../lib/logger.js";
 import { ALLOWED_DOCTYPES_SET, COMPANY_SCOPED_DOCTYPES } from "../lib/erp-constants.js";
 import { erpDocCreateBodySchema } from "../types/schemas/erp.js";
 import { buildDashboardData } from "../lib/services/dashboard.service.js";
 
 import type { Request, Response } from "express";
+
+// ---------------------------------------------------------------------------
+// ERP list response cache (Section 82)
+// ---------------------------------------------------------------------------
+const ERP_LIST_CACHE_PREFIX = "erp:list:";
+const ERP_LIST_CACHE_TTL_SEC = 90; // 90s — spec says 60-120s
+
+/**
+ * Invalidate all cached ERP list responses for a given account + doctype.
+ * Uses SCAN to find matching keys rather than KEYS (safe for production).
+ * Fire-and-forget — cache misses are non-fatal.
+ */
+function invalidateErpListCache(accountId: string, doctype: string): void {
+  const redis = getRedis();
+  if (!redis || !("scanStream" in redis)) return;
+  const pattern = `${ERP_LIST_CACHE_PREFIX}${accountId}:${doctype}:*`;
+  const stream = (redis as import("ioredis").Redis).scanStream({ match: pattern, count: 100 });
+  stream.on("data", (keys: string[]) => {
+    if (keys.length > 0) {
+      redis.del(...keys).catch((e: unknown) =>
+        logger.warn("ERP list cache invalidation failed", { error: e instanceof Error ? e.message : String(e) }),
+      );
+    }
+  });
+  stream.on("error", (e: Error) =>
+    logger.warn("ERP list cache scan failed", { error: e.message }),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -217,6 +247,34 @@ export async function handleList(req: Request, res: Response): Promise<Response>
       .findUnique({ where: { id: accountId }, select: { erpnextCompany: true } })
       .catch(() => null);
     const companyScope = COMPANY_SCOPED_DOCTYPES.has(doctype) ? account?.erpnextCompany : null;
+
+    // ── ERP list cache (Section 82) ───────────────────────────────────────
+    const cacheKey = `${ERP_LIST_CACHE_PREFIX}${accountId}:${doctype}:${JSON.stringify(params)}`;
+    const redis = getRedis();
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached) as { data: unknown[]; hasMore: boolean };
+          void logAudit({
+            accountId: session.accountId,
+            userId: session.userId,
+            action: "erp.list.read",
+            resource: doctype,
+            ipAddress: ctx.ipAddress,
+            userAgent: ctx.userAgent,
+            severity: "info",
+            outcome: "success",
+            metadata: { cached: true },
+          });
+          res.set({ ...responseHeaders(), "X-Cache": "HIT" });
+          return res.json(apiSuccess(parsed.data, { ...meta(), page, pageSize, hasMore: parsed.hasMore }));
+        }
+      } catch (e) {
+        logger.warn("ERP list cache read failed", { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
     const result = await list(doctype, sid, params, accountId ?? undefined, companyScope);
     if (!result.ok) {
       const status = result.error === "doctype required" ? 400 : 502;
@@ -235,7 +293,17 @@ export async function handleList(req: Request, res: Response): Promise<Response>
       outcome: "success",
     });
     const hasMore = Array.isArray(result.data) && result.data.length === pageSize;
-    res.set(responseHeaders());
+
+    // Cache the successful response
+    if (redis) {
+      redis
+        .set(cacheKey, JSON.stringify({ data: result.data, hasMore }), "EX", ERP_LIST_CACHE_TTL_SEC)
+        .catch((e: unknown) =>
+          logger.warn("ERP list cache write failed", { error: e instanceof Error ? e.message : String(e) }),
+        );
+    }
+
+    res.set({ ...responseHeaders(), "X-Cache": "MISS" });
     return res.json(apiSuccess(result.data, { ...meta(), page, pageSize, hasMore }));
   } catch (error) {
     Sentry.captureException(error, { extra: { request_id: requestId } });
@@ -361,6 +429,8 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
       res.set(responseHeaders());
       return res.status(502).json(apiError("ERP_ERROR", "Unable to create the document right now. Please try again.", undefined, meta()));
     }
+    // Invalidate ERP list cache for this account + doctype after mutation
+    invalidateErpListCache(session.accountId, doctype);
     const created = result.data as { name?: string };
     void logAudit({
       accountId: session.accountId,
@@ -449,6 +519,8 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
       res.set(responseHeaders());
       return res.status(502).json(apiError("ERP_ERROR", "Unable to update the document right now. Please try again.", undefined, meta()));
     }
+    // Invalidate ERP list cache for this account + doctype after mutation
+    invalidateErpListCache(session.accountId, doctype);
     void logAudit({
       accountId: session.accountId,
       userId: session.userId,
@@ -516,6 +588,8 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
       res.set(responseHeaders());
       return res.status(502).json(apiError("ERP_ERROR", "Unable to delete the document right now. Please try again.", undefined, meta()));
     }
+    // Invalidate ERP list cache for this account + doctype after mutation
+    invalidateErpListCache(session.accountId, doctype);
     void logAudit({
       accountId: session.accountId,
       userId: session.userId,

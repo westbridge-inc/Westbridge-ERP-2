@@ -17,6 +17,7 @@ import { getRedis } from "../lib/redis.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
 import { toWebRequest, requireAuth } from "../middleware/auth.js";
+import { apiSuccess, apiError } from "../types/api.js";
 import { getPlan, type PlanId } from "../lib/modules.js";
 import type Anthropic from "@anthropic-ai/sdk";
 
@@ -49,30 +50,28 @@ async function saveHistory(id: string, messages: Anthropic.MessageParam[]): Prom
 router.post("/ai/chat", async (req: Request, res: Response) => {
   // Degrade gracefully when the API key is not configured
   if (!anthropic) {
-    return res.status(200).json({
-      data: {
-        reply: "AI is not configured on this plan yet.",
-        conversationId: null,
-        usage: { queries: 0, remaining: null },
-      },
-    });
+    return res.status(200).json(apiSuccess({
+      reply: "AI is not configured on this plan yet.",
+      conversationId: null,
+      usage: { queries: 0, remaining: null },
+    }));
   }
 
   const token = req.cookies?.[COOKIE.SESSION_NAME];
   if (!token) {
-    return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    return res.status(401).json(apiError("UNAUTHORIZED", "Authentication required"));
   }
 
   // CSRF validation — AI chat is a state-mutating endpoint
   const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
   const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
   if (!validateCsrf(csrfHeader, csrfCookie)) {
-    return res.status(403).json({ error: { code: "FORBIDDEN", message: "Invalid or missing CSRF token" } });
+    return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token"));
   }
 
   const sessionResult = await validateSession(token, toWebRequest(req));
   if (!sessionResult.ok) {
-    return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    return res.status(401).json(apiError("UNAUTHORIZED", "Session expired or invalid"));
   }
   const session = sessionResult.data;
 
@@ -81,7 +80,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     return res
       .status(429)
       .set(rateLimitHeaders(rateLimit) as Record<string, string>)
-      .json({ error: { code: "RATE_LIMITED", message: "Too many AI requests. Try again shortly." } });
+      .json(apiError("RATE_LIMITED", "Too many AI requests. Try again shortly."));
   }
 
   // Load account for plan + company info
@@ -90,7 +89,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     select: { plan: true, companyName: true, erpnextCompany: true },
   });
   if (!account) {
-    return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    return res.status(404).json(apiError("NOT_FOUND", "Account not found"));
   }
 
   // Normalise plan to known PlanId
@@ -100,16 +99,13 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   // Plan AI quota check
   const limitCheck = await checkAiLimit(session.accountId, planId);
   if (!limitCheck.allowed) {
-    return res.status(402).json({
-      error: { code: "AI_LIMIT_REACHED", message: limitCheck.reason },
-      usage: limitCheck.usage,
-    });
+    return res.status(402).json(apiError("AI_LIMIT_REACHED", limitCheck.reason ?? "AI usage limit reached"));
   }
 
   const body = req.body;
   const parsed = chatSchema.safeParse(body);
   if (!parsed.success) {
-    return res.status(400).json({ error: { code: "INVALID_REQUEST" } });
+    return res.status(400).json(apiError("INVALID_REQUEST", "message is required"));
   }
 
   const { message, module: rawModule, conversationId = crypto.randomUUID() } = parsed.data;
@@ -211,18 +207,12 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     logger.error("AI chat error", { error: errorMsg, conversationId });
 
     if (errorMsg.includes("rate_limit") || errorMsg.includes("429")) {
-      return res.status(429).json({
-        error: { code: "AI_RATE_LIMIT", message: "AI is busy right now. Please wait a moment and try again." },
-      });
+      return res.status(429).json(apiError("AI_RATE_LIMIT", "AI is busy right now. Please wait a moment and try again."));
     }
     if (errorMsg.includes("authentication") || errorMsg.includes("401")) {
-      return res.status(503).json({
-        error: { code: "AI_UNAVAILABLE", message: "AI assistant is temporarily unavailable." },
-      });
+      return res.status(503).json(apiError("AI_UNAVAILABLE", "AI assistant is temporarily unavailable."));
     }
-    return res.status(500).json({
-      error: { code: "AI_ERROR", message: "Something went wrong with the AI assistant. Please try again." },
-    });
+    return res.status(500).json(apiError("AI_ERROR", "Something went wrong with the AI assistant. Please try again."));
   }
 
   await recordAiUsage(session.accountId, totalInputTokens, totalOutputTokens);
@@ -232,16 +222,14 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
 
   await saveHistory(conversationId, [...messages, { role: "assistant", content: reply }]);
 
-  return res.json({
-    data: {
-      reply,
-      conversationId,
-      usage: {
-        queries: limitCheck.usage.queries + 1,
-        remaining: limitCheck.remaining.queries !== null ? limitCheck.remaining.queries - 1 : null,
-      },
+  return res.json(apiSuccess({
+    reply,
+    conversationId,
+    usage: {
+      queries: limitCheck.usage.queries + 1,
+      remaining: limitCheck.remaining.queries !== null ? limitCheck.remaining.queries - 1 : null,
     },
-  });
+  }));
 });
 
 // ---------------------------------------------------------------------------
@@ -255,7 +243,7 @@ router.get("/ai/usage", requireAuth, async (req: Request, res: Response) => {
     select: { plan: true },
   });
   if (!account) {
-    return res.status(404).json({ error: { code: "NOT_FOUND", message: "Account not found" } });
+    return res.status(404).json(apiError("NOT_FOUND", "Account not found"));
   }
 
   const rawPlan = account.plan.toLowerCase();
@@ -265,25 +253,23 @@ router.get("/ai/usage", requireAuth, async (req: Request, res: Response) => {
   const plan = getPlan(planId);
   const { aiQueriesPerMonth, aiTokensPerMonth } = plan.limits;
 
-  return res.json({
-    data: {
-      plan: plan.name,
-      period: new Date().toISOString().slice(0, 7),
-      ai: {
-        queries: {
-          used: usage.queries,
-          limit: aiQueriesPerMonth === -1 ? null : aiQueriesPerMonth,
-          unlimited: aiQueriesPerMonth === -1,
-          overageRate: plan.overageRates.perExtraAiQuery,
-        },
-        tokens: {
-          used: usage.tokens,
-          limit: aiTokensPerMonth === -1 ? null : aiTokensPerMonth,
-          unlimited: aiTokensPerMonth === -1,
-        },
+  return res.json(apiSuccess({
+    plan: plan.name,
+    period: new Date().toISOString().slice(0, 7),
+    ai: {
+      queries: {
+        used: usage.queries,
+        limit: aiQueriesPerMonth === -1 ? null : aiQueriesPerMonth,
+        unlimited: aiQueriesPerMonth === -1,
+        overageRate: plan.overageRates.perExtraAiQuery,
+      },
+      tokens: {
+        used: usage.tokens,
+        limit: aiTokensPerMonth === -1 ? null : aiTokensPerMonth,
+        unlimited: aiTokensPerMonth === -1,
       },
     },
-  });
+  }));
 });
 
 export default router;

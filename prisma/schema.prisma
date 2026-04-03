@@ -88,6 +88,7 @@ model Session {
   @@index([token])
   @@index([expiresAt])
   @@index([userId])
+  @@index([userId, expiresAt])  // Composite: session cleanup + concurrent session queries
   @@map("sessions")
 }
 
@@ -261,6 +262,7 @@ model BillingInvoice {
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId, createdAt])
+  @@index([accountId, status])  // Billing queries filtered by payment status
   @@map("billing_invoices")
 }
 
