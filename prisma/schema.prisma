@@ -23,6 +23,8 @@ model Account {
   paymentTransactionId  String?   @map("payment_transaction_id")  // PowerTranz transaction identifier
   paymentRRN            String?   @map("payment_rrn")             // PowerTranz Retrieval Reference Number
   modulesSelected  String[]  @map("modules_selected") // module ids
+  trialEndsAt      DateTime? @map("trial_ends_at")
+  trialAiLimit     Int       @default(10) @map("trial_ai_limit")
   version          Int       @default(1)          // Optimistic concurrency control
   deletedAt        DateTime? @map("deleted_at")   // Soft delete
   createdAt        DateTime  @default(now()) @map("created_at")

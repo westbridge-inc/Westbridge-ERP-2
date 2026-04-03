@@ -1,11 +1,26 @@
 import { getRedis } from "../redis.js";
 import { getPlan, type PlanId } from "../modules.js";
+import { prisma } from "../data/prisma.js";
 import { logger } from "../logger.js";
 
 // Redis key: ai:usage:{accountId}:{YYYY-MM}
 function usageKey(accountId: string): string {
   const month = new Date().toISOString().slice(0, 7);
   return `ai:usage:${accountId}:${month}`;
+}
+
+/**
+ * Check if the account is currently on an active trial.
+ * Returns the trial AI query limit if on trial, or null if not.
+ */
+async function getTrialAiLimit(accountId: string): Promise<number | null> {
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: { trialEndsAt: true, trialAiLimit: true },
+  });
+  if (!account?.trialEndsAt) return null;
+  if (new Date() > account.trialEndsAt) return null; // trial expired
+  return account.trialAiLimit;
 }
 
 export interface AiUsage {
@@ -38,6 +53,26 @@ export async function checkAiLimit(
   accountId: string,
   planId: PlanId
 ): Promise<AiLimitCheck> {
+  // Trial override: if account is on an active trial, cap at trialAiLimit
+  const trialLimit = await getTrialAiLimit(accountId);
+  if (trialLimit !== null) {
+    const usage = await getAiUsage(accountId);
+    if (usage.queries >= trialLimit) {
+      logger.warn("ai.limit.trial_queries_exceeded", { accountId, usage, limit: trialLimit });
+      return {
+        allowed: false,
+        reason: `Trial AI query limit reached (${trialLimit} queries). Subscribe to unlock more AI queries.`,
+        usage,
+        remaining: { queries: 0, tokens: null },
+      };
+    }
+    return {
+      allowed: true,
+      usage,
+      remaining: { queries: trialLimit - usage.queries, tokens: null },
+    };
+  }
+
   const plan = getPlan(planId);
   const { aiQueriesPerMonth, aiTokensPerMonth } = plan.limits;
 

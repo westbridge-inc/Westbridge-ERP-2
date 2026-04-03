@@ -137,6 +137,22 @@ function createCleanupWorker(): Worker {
           count: result.count,
           retentionDays: DATA_RETENTION.AUDIT_LOGS_DAYS,
         });
+      } else if (task === "check-trial-expiry") {
+        const { checkTrialExpiry } = await import("../lib/services/subscription.service.js");
+        const result = await checkTrialExpiry();
+        logger.info("Trial expiry check completed", { jobId: job.id, updated: result.updated });
+      } else if (task === "check-grace-period") {
+        const { checkGracePeriodExpiry } = await import("../lib/services/subscription.service.js");
+        const result = await checkGracePeriodExpiry();
+        logger.info("Grace period check completed", { jobId: job.id, updated: result.updated });
+      } else if (task === "send-trial-warnings") {
+        const { sendTrialWarningEmails } = await import("../lib/services/subscription.service.js");
+        const result = await sendTrialWarningEmails();
+        logger.info("Trial warning emails sent", { jobId: job.id, sent: result.sent });
+      } else if (task === "cleanup-expired-trials") {
+        const { cleanupExpiredTrialData } = await import("../lib/services/subscription.service.js");
+        const result = await cleanupExpiredTrialData();
+        logger.info("Expired trial cleanup completed", { jobId: job.id, cleaned: result.cleaned });
       }
     },
     { connection },

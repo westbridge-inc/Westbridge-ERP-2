@@ -97,7 +97,7 @@ export interface ReportJobData {
 }
 
 export interface CleanupJobData {
-  task: "sessions" | "audit_logs";
+  task: "sessions" | "audit_logs" | "check-trial-expiry" | "check-grace-period" | "send-trial-warnings" | "cleanup-expired-trials";
 }
 
 export interface WebhookJobData {
@@ -151,5 +151,19 @@ export async function scheduleCleanupJobs(): Promise<void> {
   });
   await cleanupQueue.add("cleanup.audit_logs", { task: "audit_logs" } satisfies CleanupJobData, {
     repeat: { every: 24 * 60 * 60 * 1000 }, // daily
+  });
+
+  // Trial system jobs
+  await cleanupQueue.add("check-trial-expiry", { task: "check-trial-expiry" } satisfies CleanupJobData, {
+    repeat: { every: 60 * 60 * 1000 }, // hourly
+  });
+  await cleanupQueue.add("check-grace-period", { task: "check-grace-period" } satisfies CleanupJobData, {
+    repeat: { every: 60 * 60 * 1000 }, // hourly
+  });
+  await cleanupQueue.add("send-trial-warnings", { task: "send-trial-warnings" } satisfies CleanupJobData, {
+    repeat: { every: 24 * 60 * 60 * 1000 }, // daily at midnight
+  });
+  await cleanupQueue.add("cleanup-expired-trials", { task: "cleanup-expired-trials" } satisfies CleanupJobData, {
+    repeat: { every: 7 * 24 * 60 * 60 * 1000 }, // weekly
   });
 }

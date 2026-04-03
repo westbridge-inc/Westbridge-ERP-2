@@ -394,6 +394,20 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
     })
     .catch(() => null);
 
+  // Fetch trial info for the account
+  const account = await prisma.account
+    .findUnique({
+      where: { id: result.data.accountId },
+      select: { trialEndsAt: true, trialAiLimit: true },
+    })
+    .catch(() => null);
+
+  const now = new Date();
+  const isOnTrial = !!(account?.trialEndsAt && account.trialEndsAt > now);
+  const trialDaysRemaining = isOnTrial && account?.trialEndsAt
+    ? Math.max(0, Math.ceil((account.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+    : 0;
+
   return res
     .status(200)
     .set(responseTime())
@@ -405,6 +419,10 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
           role: result.data.role,
           email: user?.email ?? "",
           name: user?.name ?? "",
+          isOnTrial,
+          trialEndsAt: account?.trialEndsAt?.toISOString() ?? null,
+          trialDaysRemaining,
+          trialAiLimit: isOnTrial ? (account?.trialAiLimit ?? 10) : null,
         },
         meta(),
       ),

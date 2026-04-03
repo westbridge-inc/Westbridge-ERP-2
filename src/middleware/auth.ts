@@ -97,13 +97,29 @@ const ACCOUNT_STATUS_CACHE_PREFIX = "account:status:";
 const ACCOUNT_STATUS_CACHE_TTL_SEC = 60; // 1 minute cache to avoid DB lookups on every request
 const BLOCKED_STATUSES = new Set(["past_due", "suspended", "canceled", "cancelled"]);
 
-async function getAccountStatus(accountId: string): Promise<string | null> {
-  // Try Redis cache first
+interface AccountStatusInfo {
+  status: string | null;
+  trialEndsAt: Date | null;
+}
+
+async function getAccountStatusInfo(accountId: string): Promise<AccountStatusInfo> {
+  // Try Redis cache first (status only — trial check needs DB)
   const redis = getRedis();
   if (redis) {
     try {
       const cached = await redis.get(`${ACCOUNT_STATUS_CACHE_PREFIX}${accountId}`);
-      if (cached) return cached;
+      if (cached) {
+        // Parse cached trial info if present
+        try {
+          const parsed = JSON.parse(cached) as { status: string; trialEndsAt: string | null };
+          return {
+            status: parsed.status,
+            trialEndsAt: parsed.trialEndsAt ? new Date(parsed.trialEndsAt) : null,
+          };
+        } catch {
+          // Legacy cache format (plain string status) — fall through to DB
+        }
+      }
     } catch (e) {
       logger.warn("requireActiveSubscription: Redis cache read failed", {
         accountId,
@@ -115,15 +131,22 @@ async function getAccountStatus(accountId: string): Promise<string | null> {
   // Fall through to DB
   const account = await prisma.account.findUnique({
     where: { id: accountId },
-    select: { status: true },
+    select: { status: true, trialEndsAt: true },
   });
 
-  const status = account?.status ?? null;
+  const info: AccountStatusInfo = {
+    status: account?.status ?? null,
+    trialEndsAt: account?.trialEndsAt ?? null,
+  };
 
   // Cache the result in Redis
-  if (redis && status) {
+  if (redis && info.status) {
+    const cacheValue = JSON.stringify({
+      status: info.status,
+      trialEndsAt: info.trialEndsAt?.toISOString() ?? null,
+    });
     redis
-      .set(`${ACCOUNT_STATUS_CACHE_PREFIX}${accountId}`, status, "EX", ACCOUNT_STATUS_CACHE_TTL_SEC)
+      .set(`${ACCOUNT_STATUS_CACHE_PREFIX}${accountId}`, cacheValue, "EX", ACCOUNT_STATUS_CACHE_TTL_SEC)
       .catch((e: unknown) =>
         logger.warn("requireActiveSubscription: Redis cache write failed", {
           accountId,
@@ -132,7 +155,7 @@ async function getAccountStatus(accountId: string): Promise<string | null> {
       );
   }
 
-  return status;
+  return info;
 }
 
 export async function requireActiveSubscription(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -149,9 +172,30 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
   }
 
   try {
-    const status = await getAccountStatus(session.accountId);
+    const { status, trialEndsAt } = await getAccountStatusInfo(session.accountId);
 
     if (status && BLOCKED_STATUSES.has(status)) {
+      // Check if this is specifically a trial expiry
+      if (trialEndsAt && trialEndsAt <= new Date()) {
+        // Verify no paid subscription exists
+        const paidSub = await prisma.subscription.findFirst({
+          where: {
+            accountId: session.accountId,
+            status: { in: ["active"] },
+          },
+        });
+        if (!paidSub) {
+          res.status(403).json({
+            ok: false,
+            error: {
+              code: "TRIAL_EXPIRED",
+              message: "Your free trial has expired. Subscribe to a plan to restore access.",
+            },
+          });
+          return;
+        }
+      }
+
       res.status(403).json({
         ok: false,
         error: {
@@ -160,6 +204,26 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
         },
       });
       return;
+    }
+
+    // Inline trial check: if the account is active but trial has expired and no paid sub
+    if (trialEndsAt && trialEndsAt <= new Date()) {
+      const paidSub = await prisma.subscription.findFirst({
+        where: {
+          accountId: session.accountId,
+          status: { in: ["active"] },
+        },
+      });
+      if (!paidSub) {
+        res.status(403).json({
+          ok: false,
+          error: {
+            code: "TRIAL_EXPIRED",
+            message: "Your free trial has expired. Subscribe to a plan to restore access.",
+          },
+        });
+        return;
+      }
     }
 
     next();

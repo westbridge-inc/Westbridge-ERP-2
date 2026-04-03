@@ -136,3 +136,41 @@ export function accountActivatedEmail(data: AccountActivatedEmailData): string {
     <p style="font-size:13px;line-height:20px;color:${TEXT_TERTIARY};margin:0;">Need help? Reach out to us at <a href="mailto:support@westbridge.com" style="color:${LINK_COLOR};text-decoration:underline;">support@westbridge.com</a> and we'll be happy to assist.</p>
   `);
 }
+
+// ─── Trial Email Templates ───────────────────────────────────────────────────
+
+export interface TrialWarningEmailData {
+  companyName: string;
+  daysRemaining: number;
+  billingUrl: string;
+}
+
+export function trialWarningEmail(data: TrialWarningEmailData): string {
+  const dayWord = data.daysRemaining === 1 ? "day" : "days";
+  return layout(`
+    <h1 style="font-size:20px;font-weight:600;color:${TEXT_PRIMARY};margin:0 0 16px;line-height:28px;">Your trial expires in ${data.daysRemaining} ${dayWord}</h1>
+    <p style="font-size:15px;line-height:24px;color:${TEXT_SECONDARY};margin:0 0 8px;">The free trial for <strong style="color:${TEXT_PRIMARY};font-weight:600;">${esc(data.companyName)}</strong> is ending soon.</p>
+    <p style="font-size:15px;line-height:24px;color:${TEXT_SECONDARY};margin:0 0 8px;">To keep access to your data and all features, subscribe to a plan before your trial ends.</p>
+    <p style="font-size:15px;line-height:24px;color:${TEXT_SECONDARY};margin:0;">If you don't subscribe, your account will be paused and you won't be able to access your workspace.</p>
+    ${button(data.billingUrl, "Choose a plan")}
+    ${fallbackLink(data.billingUrl)}
+    <p style="font-size:13px;line-height:20px;color:${TEXT_TERTIARY};margin:16px 0 0 0;">Questions? Contact us at <a href="mailto:support@westbridge.com" style="color:${LINK_COLOR};text-decoration:underline;">support@westbridge.com</a> -- we're happy to help.</p>
+  `);
+}
+
+export interface TrialExpiredEmailData {
+  companyName: string;
+  billingUrl: string;
+}
+
+export function trialExpiredEmail(data: TrialExpiredEmailData): string {
+  return layout(`
+    <h1 style="font-size:20px;font-weight:600;color:${TEXT_PRIMARY};margin:0 0 16px;line-height:28px;">Your trial has expired</h1>
+    <p style="font-size:15px;line-height:24px;color:${TEXT_SECONDARY};margin:0 0 8px;">The 14-day free trial for <strong style="color:${TEXT_PRIMARY};font-weight:600;">${esc(data.companyName)}</strong> has ended.</p>
+    <p style="font-size:15px;line-height:24px;color:${TEXT_SECONDARY};margin:0 0 8px;">Your account is now paused. All your data is safe -- subscribe to a plan to restore access immediately.</p>
+    <p style="font-size:15px;line-height:24px;color:${TEXT_SECONDARY};margin:0;">Accounts that remain inactive for 60 days will have their data permanently removed.</p>
+    ${button(data.billingUrl, "Subscribe now")}
+    ${fallbackLink(data.billingUrl)}
+    <p style="font-size:13px;line-height:20px;color:${TEXT_TERTIARY};margin:16px 0 0 0;">Need help deciding on a plan? Reach out to us at <a href="mailto:support@westbridge.com" style="color:${LINK_COLOR};text-decoration:underline;">support@westbridge.com</a> and we'll be happy to assist.</p>
+  `);
+}
