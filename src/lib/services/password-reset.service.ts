@@ -106,8 +106,8 @@ export async function applyPasswordReset(
     if (!res.ok) {
       return err("Failed to update password. Please try again.");
     }
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Service temporarily unavailable");
+  } catch (_e) {
+    return err("Failed to update password. Please try again.");
   }
 
   // Mark token used, reset lockout state, and revoke all sessions (stolen tokens invalid after password change)

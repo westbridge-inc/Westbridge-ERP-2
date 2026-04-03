@@ -60,7 +60,7 @@ export async function createInvite(input: CreateInviteInput): Promise<Result<{ i
   if (!emailResult.ok) {
     // Roll back the invite token so the user can retry
     await prisma.inviteToken.delete({ where: { id: invite.id } }).catch(() => {});
-    return err(`Failed to send invite email: ${emailResult.error}`);
+    return err("Unable to send the invite email. Please try again.");
   }
 
   return ok({ inviteId: invite.id });
@@ -125,7 +125,7 @@ export async function acceptInvite(
     });
 
     return ok({ userId: result.id, accountId });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to accept invite");
+  } catch (_e) {
+    return err("Unable to accept the invite right now. Please try again.");
   }
 }

@@ -255,7 +255,7 @@ router.get("/ai/usage", requireAuth, async (req: Request, res: Response) => {
     select: { plan: true },
   });
   if (!account) {
-    return res.status(404).json({ error: "Not found" });
+    return res.status(404).json({ error: { code: "NOT_FOUND", message: "Account not found" } });
   }
 
   const rawPlan = account.plan.toLowerCase();

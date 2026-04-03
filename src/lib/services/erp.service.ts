@@ -30,14 +30,14 @@ const log = logger.child({ service: "erp" });
 function validateDoctype(doctype: string | undefined | null): Result<string, string> {
   if (!doctype?.trim()) return { ok: false, error: "doctype required" };
   if (!ALLOWED_DOCTYPES_SET.has(doctype)) {
-    return { ok: false, error: `Unsupported doctype: ${doctype}` };
+    return { ok: false, error: "Invalid or unsupported document type" };
   }
   return { ok: true, data: doctype };
 }
 
-function requireAccountId(accountId: string | undefined, operation: string): Result<string, string> {
+function requireAccountId(accountId: string | undefined, _operation: string): Result<string, string> {
   if (!accountId?.trim()) {
-    return { ok: false, error: `accountId required for ${operation}` };
+    return { ok: false, error: "Account information is required. Please log in again." };
   }
   return { ok: true, data: accountId };
 }

@@ -62,8 +62,8 @@ export async function createSubscription(
 
     logger.info("Subscription created", { accountId, planId, subscriptionId: subscription.id });
     return ok({ subscriptionId: subscription.id });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to create subscription");
+  } catch (_e) {
+    return err("Unable to set up your subscription. Please try again or contact support.");
   }
 }
 
@@ -181,8 +181,8 @@ export async function changePlan(accountId: string, newPlanId: string): Promise<
     ]);
 
     return ok({ message: `Plan changed to ${newPlanId}` });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to change plan");
+  } catch (_e) {
+    return err("Unable to change your plan right now. Please try again or contact support.");
   }
 }
 
@@ -212,7 +212,7 @@ export async function cancelSubscription(
     ]);
 
     return ok({ message: "Subscription canceled. Access continues until end of billing period." });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to cancel subscription");
+  } catch (_e) {
+    return err("Unable to cancel your subscription right now. Please try again or contact support.");
   }
 }

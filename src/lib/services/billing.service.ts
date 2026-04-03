@@ -73,12 +73,12 @@ export async function createAccount(
       status: "pending" as const,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Failed to create account";
+    const msg = e instanceof Error ? e.message : "";
     // Never leak Prisma/DB internals to the user
-    if (msg.includes("Unique constraint")) {
+    if (msg.includes("Unique constraint") || msg.includes("already exists")) {
       return err("An account with this email already exists. Please sign in.");
     }
-    return err(msg);
+    return err("Unable to create your account right now. Please try again.");
   }
 }
 
@@ -147,7 +147,7 @@ export async function markAccountPaid(
       });
     }
     return ok({ updated, accountId });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to mark account as paid");
+  } catch (_e) {
+    return err("Unable to process your payment right now. Please try again or contact support.");
   }
 }

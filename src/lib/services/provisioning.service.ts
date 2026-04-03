@@ -133,7 +133,7 @@ export async function provisionErpnextAccount(accountId: string): Promise<Result
       error: e instanceof Error ? e.message : String(e),
     });
     Sentry.captureException(e, { extra: { accountId, step: "provisioning" } });
-    return err(e instanceof Error ? e.message : "Provisioning failed");
+    return err("Unable to set up your account right now. Please try again or contact support.");
   }
 }
 

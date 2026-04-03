@@ -172,8 +172,8 @@ export async function createSession(
     }
 
     return ok({ token: raw, expiresAt });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to create session");
+  } catch (_e) {
+    return err("Unable to create your session. Please try again.");
   }
 }
 
@@ -450,8 +450,8 @@ export async function validateSession(
     }
 
     return ok(result);
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Session validation failed");
+  } catch (_e) {
+    return err("Your session could not be verified. Please log in again.");
   }
 }
 
@@ -537,7 +537,7 @@ export async function revokeAllUserSessions(userId: string): Promise<Result<{ co
     }
 
     return ok({ count: result.count });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to revoke sessions");
+  } catch (_e) {
+    return err("Unable to revoke sessions right now. Please try again.");
   }
 }

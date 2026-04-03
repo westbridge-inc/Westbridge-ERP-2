@@ -255,7 +255,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
       return res
         .status(500)
         .set(responseTime())
-        .json(apiError("SESSION_ERROR", sessionResult.error, undefined, meta()));
+        .json(apiError("SESSION_ERROR", "Unable to create your session. Please try again.", undefined, meta()));
     }
 
     const { token, expiresAt } = sessionResult.data;
@@ -383,7 +383,7 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
     return res
       .status(401)
       .set(responseTime())
-      .json(apiError("UNAUTHORIZED", result.error, undefined, meta()));
+      .json(apiError("UNAUTHORIZED", "Your session has expired. Please log in again.", undefined, meta()));
   }
 
   // Fetch name + email so the sidebar footer can show the real user
@@ -535,10 +535,20 @@ export async function handleResetPassword(req: Request, res: Response): Promise<
       newPassword: password,
     });
     if (!result.ok) {
+      // Sanitize: only pass through known user-facing messages from the reset service
+      const safeMessages = [
+        "Invalid or expired reset link.",
+        "This reset link has already been used.",
+        "This reset link has expired. Request a new one.",
+        "Failed to update password. Please try again.",
+      ];
+      const message = safeMessages.includes(result.error)
+        ? result.error
+        : "Unable to reset your password right now. Please try again.";
       return res
         .status(400)
         .set(responseTime())
-        .json(apiError("RESET_FAILED", result.error, undefined, meta()));
+        .json(apiError("RESET_FAILED", message, undefined, meta()));
     }
 
     return res
@@ -575,7 +585,7 @@ export async function handleChangePassword(req: Request, res: Response): Promise
       return res
         .status(401)
         .set(responseTime())
-        .json(apiError("UNAUTHORIZED", session.error, undefined, meta()));
+        .json(apiError("UNAUTHORIZED", "Your session has expired. Please log in again.", undefined, meta()));
     }
 
     // --- Rate limit (authenticated) ---

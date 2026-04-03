@@ -32,8 +32,8 @@ async function checkDatabase(): Promise<CheckResult> {
     ]);
     const latency = Date.now() - start;
     return { status: latency > 1000 ? "degraded" : "healthy", latency_ms: latency };
-  } catch (e) {
-    return { status: "unhealthy", latency_ms: Date.now() - start, message: e instanceof Error ? e.message : "unreachable" };
+  } catch (_e) {
+    return { status: "unhealthy", latency_ms: Date.now() - start, message: "unreachable" };
   }
 }
 
@@ -48,8 +48,8 @@ async function checkRedis(): Promise<CheckResult> {
     ]);
     const latency = Date.now() - start;
     return { status: latency > 500 ? "degraded" : "healthy", latency_ms: latency };
-  } catch (e) {
-    return { status: "unhealthy", latency_ms: Date.now() - start, message: e instanceof Error ? e.message : "unreachable" };
+  } catch (_e) {
+    return { status: "unhealthy", latency_ms: Date.now() - start, message: "unreachable" };
   }
 }
 
@@ -62,11 +62,11 @@ async function checkErpNext(): Promise<CheckResult> {
       signal: AbortSignal.timeout(5000),
     });
     const latency = Date.now() - start;
-    if (!res.ok) return { status: "degraded", latency_ms: latency, message: `HTTP ${res.status}` };
+    if (!res.ok) return { status: "degraded", latency_ms: latency, message: "upstream error" };
     if (latency > 1000) return { status: "degraded", latency_ms: latency, message: "slow response" };
     return { status: "healthy", latency_ms: latency };
-  } catch (e) {
-    return { status: "degraded", latency_ms: Date.now() - start, message: e instanceof Error ? e.message : "unreachable" };
+  } catch (_e) {
+    return { status: "degraded", latency_ms: Date.now() - start, message: "unreachable" };
   }
 }
 
@@ -116,12 +116,12 @@ router.get("/health", async (req: Request, res: Response) => {
   const checks = {
     database: dbCheck,
     redis: redisCheck,
-    erpnext: erpCheck,
+    erp: erpCheck,
     memory: memCheck,
     disk: diskCheck,
   };
 
-  // Database is critical; Redis is critical; ERPNext and system checks are non-critical
+  // Database is critical; Redis is critical; ERP and system checks are non-critical
   const criticalOk = dbCheck.status !== "unhealthy" && redisCheck.status !== "unhealthy";
   const allOk = Object.values(checks).every((c) => c.status === "healthy");
   const overallStatus: CheckStatus = allOk ? "healthy" : criticalOk ? "degraded" : "unhealthy";

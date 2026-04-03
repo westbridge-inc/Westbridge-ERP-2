@@ -221,7 +221,8 @@ export async function handleList(req: Request, res: Response): Promise<Response>
     if (!result.ok) {
       const status = result.error === "doctype required" ? 400 : 502;
       res.set(responseHeaders());
-      return res.status(status).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      const message = status === 400 ? result.error : "Unable to load data right now. Please try again.";
+      return res.status(status).json(apiError("ERP_ERROR", message, undefined, meta()));
     }
     void logAudit({
       accountId: session.accountId,
@@ -275,7 +276,8 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
     if (!result.ok) {
       const status = result.error === "Not found" ? 404 : 502;
       res.set(responseHeaders());
-      return res.status(status).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      const message = status === 404 ? "Document not found." : "Unable to load data right now. Please try again.";
+      return res.status(status).json(apiError("ERP_ERROR", message, undefined, meta()));
     }
 
     // Tenant isolation
@@ -357,7 +359,7 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
     );
     if (!result.ok) {
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      return res.status(502).json(apiError("ERP_ERROR", "Unable to create the document right now. Please try again.", undefined, meta()));
     }
     const created = result.data as { name?: string };
     void logAudit({
@@ -445,7 +447,7 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     );
     if (!result.ok) {
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      return res.status(502).json(apiError("ERP_ERROR", "Unable to update the document right now. Please try again.", undefined, meta()));
     }
     void logAudit({
       accountId: session.accountId,
@@ -512,7 +514,7 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
     const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);
     if (!result.ok) {
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", result.error, undefined, meta()));
+      return res.status(502).json(apiError("ERP_ERROR", "Unable to delete the document right now. Please try again.", undefined, meta()));
     }
     void logAudit({
       accountId: session.accountId,

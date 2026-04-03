@@ -73,13 +73,13 @@ async function fetchErp(
       if (res.status === 404) {
         return ok({ data: [] });
       }
-      lastError = `Service error ${res.status}: ${res.statusText}`;
+      lastError = "Unable to connect to your business data. Please try again.";
       if (!isRetryable(res.status)) return err(lastError);
       if (attempt < MAX_ATTEMPTS - 1) {
         await sleep(BACKOFF_BASE_MS * (attempt + 1));
       }
     } catch (e) {
-      lastError = e instanceof Error ? e.message : "Service request failed";
+      lastError = "Unable to connect to your business data. Please try again.";
       const isNetworkError = e instanceof TypeError || (e instanceof DOMException && e.name === "TimeoutError");
       if (!isNetworkError || attempt === MAX_ATTEMPTS - 1) return err(lastError);
       if (attempt < MAX_ATTEMPTS - 1) {

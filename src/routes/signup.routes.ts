@@ -126,10 +126,17 @@ router.post("/signup", async (req: Request, res: Response) => {
     const result = await createAccount(parsed.data);
 
     if (!result.ok) {
-      const status =
-        result.error === "An account with this email already exists. Please sign in." ? 409
-        : result.error === "Email, company name, and plan are required" || result.error === "Invalid plan" ? 400
-        : 500;
+      // Map known safe messages to appropriate status codes
+      const safeErrorMap: Record<string, number> = {
+        "An account with this email already exists. Please sign in.": 409,
+        "Email, company name, and plan are required": 400,
+        "Invalid plan": 400,
+        "Unable to create your account right now. Please try again.": 500,
+      };
+      const status = safeErrorMap[result.error] ?? 500;
+      const message = safeErrorMap[result.error] !== undefined
+        ? result.error
+        : "Unable to create your account right now. Please try again.";
       const { logger } = await import("../lib/logger.js");
       if (status === 500) logger.error("Signup API error", { error: result.error, request_id: requestId });
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
@@ -146,7 +153,7 @@ router.post("/signup", async (req: Request, res: Response) => {
       }
       res.set(responseHeaders());
       return res.status(status).json(
-        apiError("SIGNUP_FAILED", result.error, undefined, meta())
+        apiError("SIGNUP_FAILED", message, undefined, meta())
       );
     }
 

@@ -83,8 +83,8 @@ router.get(
       );
 
       if (!pdfRes.ok) {
-        logger.error("ERPNext PDF generation failed", { status: pdfRes.status, doctype, name });
-        return res.status(502).json(apiError("UPSTREAM_ERROR", "Failed to generate PDF"));
+        logger.error("PDF generation failed upstream", { status: pdfRes.status, doctype, name });
+        return res.status(502).json(apiError("PDF_ERROR", "Unable to generate the PDF right now. Please try again."));
       }
 
       const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
@@ -108,7 +108,7 @@ router.get(
       return res.send(pdfBuffer);
     } catch (e) {
       logger.error("PDF generation error", { error: e instanceof Error ? e.message : String(e) });
-      return res.status(500).json(apiError("SERVER_ERROR", "Failed to generate PDF"));
+      return res.status(500).json(apiError("SERVER_ERROR", "Unable to generate the PDF right now. Please try again."));
     }
   },
 );
@@ -155,7 +155,7 @@ router.post(
       );
 
       if (!pdfRes.ok) {
-        return res.status(502).json(apiError("UPSTREAM_ERROR", "Failed to generate PDF for email"));
+        return res.status(502).json(apiError("PDF_ERROR", "Unable to generate the PDF for email. Please try again."));
       }
 
       // TODO: wire pdfBuffer+filename into sendEmail once Resend attachment support is added
@@ -190,7 +190,7 @@ router.post(
       });
 
       if (!emailResult.ok) {
-        return res.status(500).json(apiError("EMAIL_FAILED", `Failed to send email: ${emailResult.error}`));
+        return res.status(500).json(apiError("EMAIL_FAILED", "Unable to send the email right now. Please try again."));
       }
 
       void logAudit({
@@ -208,7 +208,7 @@ router.post(
       return res.json(apiSuccess({ sent: true, to: recipientEmail }, apiMeta({ request_id: requestId })));
     } catch (e) {
       logger.error("Document email error", { error: e instanceof Error ? e.message : String(e) });
-      return res.status(500).json(apiError("SERVER_ERROR", "Failed to email document"));
+      return res.status(500).json(apiError("SERVER_ERROR", "Unable to email the document right now. Please try again."));
     }
   },
 );
@@ -239,14 +239,14 @@ router.post(
 
       if (!erpRes.ok) {
         await erpRes.text().catch(() => "");
-        return res.status(502).json(apiError("UPSTREAM_ERROR", "File upload failed"));
+        return res.status(502).json(apiError("UPLOAD_ERROR", "Unable to upload the file right now. Please try again."));
       }
 
       const data = await erpRes.json();
       return res.json(apiSuccess(data, apiMeta({ request_id: requestId })));
     } catch (e) {
       logger.error("File upload error", { error: e instanceof Error ? e.message : String(e) });
-      return res.status(500).json(apiError("SERVER_ERROR", "Upload failed"));
+      return res.status(500).json(apiError("SERVER_ERROR", "Unable to upload the file right now. Please try again."));
     }
   },
 );

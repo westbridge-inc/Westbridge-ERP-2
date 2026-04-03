@@ -48,9 +48,9 @@ export async function sendEmail(opts: SendEmailOptions): Promise<Result<{ id: st
       subject: opts.subject,
       html: opts.html,
     });
-    if (error) return err(error.message);
+    if (error) return err("Unable to send the email right now. Please try again.");
     return ok({ id: data?.id ?? "" });
-  } catch (e) {
-    return err(e instanceof Error ? e.message : "Failed to send email");
+  } catch (_e) {
+    return err("Unable to send the email right now. Please try again.");
   }
 }
