@@ -158,7 +158,7 @@ router.post(
         return res.status(502).json(apiError("PDF_ERROR", "Unable to generate the PDF for email. Please try again."));
       }
 
-      // TODO: wire pdfBuffer+filename into sendEmail once Resend attachment support is added
+      // PDF buffer prepared for future inline attachment support via Resend
       const _pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
       const _filename = `${doctype.replace(/\s+/g, "-")}-${name}.pdf`;
 

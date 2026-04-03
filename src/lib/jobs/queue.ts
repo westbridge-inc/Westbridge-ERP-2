@@ -24,9 +24,8 @@ const connection: ConnectionOptions = {
   password: redisConfig.password ?? process.env.REDIS_PASSWORD,
 };
 
-// TODO: BullMQ has a Dashboard package (@bull-board/api) we should wire up
-//       behind /admin/queues for visibility into stuck/failed jobs.
-//       Punting for now — we can see failed jobs in Redis directly if needed.
+// Future: consider @bull-board/api behind /admin/queues for queue visibility.
+// For now failed jobs are inspectable in Redis directly.
 
 const DEFAULT_OPTIONS = {
   defaultJobOptions: {
