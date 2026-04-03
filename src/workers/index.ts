@@ -148,11 +148,11 @@ function createCleanupWorker(): Worker {
       } else if (task === "send-trial-warnings") {
         const { sendTrialWarningEmails } = await import("../lib/services/subscription.service.js");
         const result = await sendTrialWarningEmails();
-        logger.info("Trial warning emails sent", { jobId: job.id, sent: result.sent });
+        logger.info("Trial warning emails sent", { jobId: job.id, sent3Day: result.sent3Day, sent1Day: result.sent1Day });
       } else if (task === "cleanup-expired-trials") {
         const { cleanupExpiredTrialData } = await import("../lib/services/subscription.service.js");
         const result = await cleanupExpiredTrialData();
-        logger.info("Expired trial cleanup completed", { jobId: job.id, cleaned: result.cleaned });
+        logger.info("Expired trial cleanup completed", { jobId: job.id, deleted: result.deleted });
       }
     },
     { connection },
