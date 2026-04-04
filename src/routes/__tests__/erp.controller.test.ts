@@ -3,13 +3,25 @@
  *
  * Tests the controller functions directly with mocked services.
  * Covers happy paths, error paths, and edge cases.
+ *
+ * Mocks (5 — external boundaries only):
+ *   1. prisma            — database
+ *   2. erp.service        — ERPNext external API
+ *   3. rate-limit-tiers   — Redis rate limiter
+ *   4. realtime           — Redis pub/sub
+ *   5. metering           — Redis counters
+ *
+ * Running for real:
+ *   - audit.service (runs against mocked prisma)
+ *   - dashboard.service (mocked — calls ERPNext)
+ *   - logger, validation, erp-constants (pure / no I/O)
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Request, Response } from "express";
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Mocks — external boundaries only
 // ---------------------------------------------------------------------------
 
 vi.mock("../../lib/data/prisma.js", () => ({
@@ -22,6 +34,7 @@ vi.mock("../../lib/data/prisma.js", () => ({
       }),
     },
     user: { findUnique: vi.fn() },
+    auditLog: { create: vi.fn().mockResolvedValue({}) },
   },
 }));
 
@@ -31,11 +44,6 @@ vi.mock("../../lib/services/erp.service.js", () => ({
   createDoc: vi.fn(),
   updateDoc: vi.fn(),
   deleteDoc: vi.fn(),
-}));
-
-vi.mock("../../lib/services/audit.service.js", () => ({
-  logAudit: vi.fn().mockResolvedValue(undefined),
-  auditContext: vi.fn().mockReturnValue({ ipAddress: "127.0.0.1", userAgent: "test" }),
 }));
 
 vi.mock("../../lib/api/rate-limit-tiers.js", () => ({
@@ -53,6 +61,7 @@ vi.mock("../../lib/metering.js", () => ({
   meter: { increment: vi.fn().mockResolvedValue(undefined) },
 }));
 
+// Dashboard service calls ERPNext — mock at service boundary
 vi.mock("../../lib/services/dashboard.service.js", () => ({
   buildDashboardData: vi.fn().mockResolvedValue({
     invoices: { count: 5, revenue: 2500 },
@@ -61,9 +70,14 @@ vi.mock("../../lib/services/dashboard.service.js", () => ({
   }),
 }));
 
+// Sentry — external error reporting
 vi.mock("@sentry/node", () => ({
   captureException: vi.fn(),
+  captureMessage: vi.fn(),
 }));
+
+// Audit service: let it run for real against mocked prisma
+// (only needs prisma.auditLog.create which is mocked above)
 
 // ---------------------------------------------------------------------------
 // Imports after mocks
@@ -123,7 +137,7 @@ describe("erp.controller", () => {
     vi.clearAllMocks();
   });
 
-  // ── handleList ──────────────────────────────────────────────────────────
+  // -- handleList -----------------------------------------------------------
   describe("handleList", () => {
     it("returns 400 when doctype is missing", async () => {
       const req = mockReq({ query: {} });
@@ -250,7 +264,7 @@ describe("erp.controller", () => {
     });
   });
 
-  // ── handleGetDoc ────────────────────────────────────────────────────────
+  // -- handleGetDoc ---------------------------------------------------------
   describe("handleGetDoc", () => {
     it("returns 400 when doctype or name missing", async () => {
       const req = mockReq({ query: { doctype: "Sales Invoice" } });
@@ -303,7 +317,7 @@ describe("erp.controller", () => {
     });
   });
 
-  // ── handleCreateDoc ─────────────────────────────────────────────────────
+  // -- handleCreateDoc ------------------------------------------------------
   describe("handleCreateDoc", () => {
     it("returns 400 when doctype is missing", async () => {
       const req = mockReq({
@@ -378,7 +392,7 @@ describe("erp.controller", () => {
     });
   });
 
-  // ── handleUpdateDoc ─────────────────────────────────────────────────────
+  // -- handleUpdateDoc ------------------------------------------------------
   describe("handleUpdateDoc", () => {
     it("returns 400 when name is missing", async () => {
       vi.mocked(getDoc).mockResolvedValueOnce({ ok: true, data: {} });
@@ -416,7 +430,7 @@ describe("erp.controller", () => {
     });
   });
 
-  // ── handleDeleteDoc ─────────────────────────────────────────────────────
+  // -- handleDeleteDoc ------------------------------------------------------
   describe("handleDeleteDoc", () => {
     it("returns 400 when doctype or name missing", async () => {
       const req = mockReq({
@@ -470,7 +484,7 @@ describe("erp.controller", () => {
     });
   });
 
-  // ── handleDashboard ─────────────────────────────────────────────────────
+  // -- handleDashboard ------------------------------------------------------
   describe("handleDashboard", () => {
     it("returns dashboard data on success", async () => {
       const req = mockReq({ method: "GET" });

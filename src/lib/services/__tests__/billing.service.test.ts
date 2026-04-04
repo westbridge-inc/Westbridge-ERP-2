@@ -1,30 +1,32 @@
+/**
+ * billing.service tests
+ *
+ * Mocks (4 — external boundaries only):
+ *   1. prisma                — database
+ *   2. paddle.client         — external payment API
+ *   3. email/index           — Resend email API
+ *   4. provisioning.service  — ERPNext provisioning (external API)
+ *
+ * Internal modules running for real:
+ *   - result.js (ok/err utilities)
+ *   - email/templates.js (pure string templates)
+ *   - subscription.service (mocked since it writes to DB)
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../data/prisma.js", () => ({
   prisma: {
-    account: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
-      updateMany: vi.fn(),
-    },
-    subscription: {
-      create: vi.fn(),
-    },
-    billingInvoice: {
-      create: vi.fn(),
-    },
+    account: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    subscription: { create: vi.fn(), updateMany: vi.fn() },
+    billingInvoice: { create: vi.fn() },
     $transaction: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }));
 
 vi.mock("../../data/paddle.client.js", () => ({
   verifyWebhookSignature: vi.fn(),
 }));
-
-vi.mock("../../utils/result.js", async () => {
-  const actual = await vi.importActual("../../utils/result.js");
-  return actual;
-});
 
 vi.mock("../../email/index.js", () => ({
   sendEmail: vi.fn().mockResolvedValue({ ok: true, data: { id: "e1" } }),
@@ -43,6 +45,10 @@ vi.mock("../subscription.service.js", () => ({
   createSubscription: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
+vi.mock("../../realtime.js", () => ({
+  publish: vi.fn(),
+}));
+
 import { createAccount, verifyPaddleWebhook, markAccountPaid } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
 import { verifyWebhookSignature } from "../../data/paddle.client.js";
@@ -59,9 +65,7 @@ describe("billing.service", () => {
     });
 
     it("returns error for invalid plan", async () => {
-      const result = await createAccount(
-        { email: "a@b.com", companyName: "Test", plan: "InvalidPlan" },
-      );
+      const result = await createAccount({ email: "a@b.com", companyName: "Test", plan: "InvalidPlan" });
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain("Invalid plan");
     });
@@ -71,15 +75,14 @@ describe("billing.service", () => {
         return fn({
           account: {
             findUnique: vi.fn().mockResolvedValue(null),
+            findFirst: vi.fn().mockResolvedValue(null),
             create: vi.fn().mockResolvedValue({ id: "acc_1", email: "a@b.com" }),
             delete: vi.fn(),
           },
         });
       });
 
-      const result = await createAccount(
-        { email: "a@b.com", companyName: "Test Co", plan: "Starter" },
-      );
+      const result = await createAccount({ email: "a@b.com", companyName: "Test Co", plan: "Starter" });
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data.accountId).toBe("acc_1");
@@ -92,19 +95,28 @@ describe("billing.service", () => {
         return fn({
           account: {
             findUnique: vi.fn().mockResolvedValue(null),
+            findFirst: vi.fn().mockResolvedValue(null),
             create: vi.fn().mockResolvedValue({ id: "acc_1", email: "a@b.com" }),
             delete: vi.fn(),
           },
         });
       });
 
-      const result = await createAccount(
-        { email: "a@b.com", companyName: "Test Co", plan: "Starter" },
-      );
+      const result = await createAccount({ email: "a@b.com", companyName: "Test Co", plan: "Starter" });
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.data).not.toHaveProperty("paymentUrl");
       }
+    });
+
+    it("validates email is not empty whitespace", async () => {
+      const result = await createAccount({ email: "  ", companyName: "Test", plan: "Starter" });
+      expect(result.ok).toBe(false);
+    });
+
+    it("validates companyName is not empty whitespace", async () => {
+      const result = await createAccount({ email: "a@b.com", companyName: "  ", plan: "Starter" });
+      expect(result.ok).toBe(false);
     });
   });
 

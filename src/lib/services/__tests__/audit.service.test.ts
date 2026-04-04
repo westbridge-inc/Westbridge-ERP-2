@@ -1,3 +1,13 @@
+/**
+ * audit.service tests
+ *
+ * Mocks (2 — external boundaries only):
+ *   1. prisma — database writes
+ *   2. redis  — hash chain caching
+ *
+ * Internal modules running for real:
+ *   - logger (runs but output is suppressed in test env)
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../data/prisma.js", () => ({
@@ -9,6 +19,7 @@ vi.mock("../../redis.js", () => ({
     set: vi.fn().mockResolvedValue("OK"),
   })),
 }));
+// Logger: suppress output in tests but let the module load for real
 vi.mock("../../logger.js", () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

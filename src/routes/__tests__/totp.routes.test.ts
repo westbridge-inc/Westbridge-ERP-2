@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Mocks — external boundaries needed to mount createApp()
 // ---------------------------------------------------------------------------
 
 vi.mock("../../lib/data/prisma.js", () => ({
@@ -69,9 +69,6 @@ vi.mock("../../lib/services/password-reset.service.js", () => ({
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { sent: true } }),
   applyPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { success: true } }),
 }));
-vi.mock("../../lib/password-policy.js", () => ({
-  validatePassword: vi.fn().mockReturnValue({ valid: true, errors: [] }),
-}));
 vi.mock("../../lib/services/erp.service.js", () => ({
   list: vi.fn().mockResolvedValue({ ok: true, data: [] }),
   getDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
@@ -115,9 +112,6 @@ vi.mock("../../lib/jobs/queue.js", () => {
     scheduleCleanupJobs: vi.fn(),
   };
 });
-vi.mock("../../lib/api/cache-headers.js", () => ({
-  cacheControl: { private: vi.fn().mockReturnValue("private, no-cache") },
-}));
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
@@ -137,6 +131,7 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
   identify: vi.fn(),
   capture: vi.fn(),
 }));
+// TOTP routes use encryption (needs ENCRYPTION_KEY env var)
 vi.mock("../../lib/encryption.js", () => ({
   encrypt: vi.fn().mockReturnValue("encrypted"),
   decrypt: vi.fn().mockReturnValue("JBSWY3DPEHPK3PXP"),
@@ -232,8 +227,6 @@ describe("TOTP Routes", () => {
         .set("x-csrf-token", "test-csrf-token")
         .send({ code: "123456" });
 
-      // The totp secret findUnique returns null, so verify endpoint returns 400 (NOT_SETUP)
-      // But if requireAuth middleware has additional token checks, it may return 401
       expect([400, 401]).toContain(res.status);
     });
   });

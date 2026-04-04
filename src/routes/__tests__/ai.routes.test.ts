@@ -2,12 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Mocks — external boundaries needed to mount createApp()
 // ---------------------------------------------------------------------------
-
-vi.mock("../../lib/logger.js", () => ({
-  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
 
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
@@ -69,9 +65,6 @@ vi.mock("../../lib/services/password-reset.service.js", () => ({
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { sent: true } }),
   applyPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { success: true } }),
 }));
-vi.mock("../../lib/password-policy.js", () => ({
-  validatePassword: vi.fn().mockReturnValue({ valid: true, errors: [] }),
-}));
 vi.mock("../../lib/services/erp.service.js", () => ({
   list: vi.fn().mockResolvedValue({ ok: true, data: [] }),
   getDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
@@ -115,9 +108,6 @@ vi.mock("../../lib/jobs/queue.js", () => {
     scheduleCleanupJobs: vi.fn(),
   };
 });
-vi.mock("../../lib/api/cache-headers.js", () => ({
-  cacheControl: { private: vi.fn().mockReturnValue("private, no-cache") },
-}));
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
@@ -138,22 +128,20 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
   capture: vi.fn(),
 }));
 
+// AI-specific external boundary mocks
 vi.mock("../../lib/ai/claude.js", () => ({
-  anthropic: null, // AI not configured
+  anthropic: null,
   AI_MODELS: { chat: "claude-sonnet-4-5", analysis: "claude-opus-4-5" },
   hasUnlimitedAi: vi.fn(),
   isAiConfigured: vi.fn().mockReturnValue(false),
 }));
-
 vi.mock("../../lib/ai/tools.js", () => ({
   ERP_TOOLS: [],
   executeTool: vi.fn(),
 }));
-
 vi.mock("../../lib/ai/context.js", () => ({
   buildSystemPrompt: vi.fn().mockReturnValue("system prompt"),
 }));
-
 vi.mock("../../lib/ai/limits.js", () => ({
   checkAiLimit: vi
     .fn()

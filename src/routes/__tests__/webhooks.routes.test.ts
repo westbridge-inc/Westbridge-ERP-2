@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import supertest from "supertest";
 
-vi.mock("../../lib/logger.js", () => ({
-  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+// ---------------------------------------------------------------------------
+// Mocks — external boundaries needed to mount createApp()
+// ---------------------------------------------------------------------------
 
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
@@ -64,9 +64,6 @@ vi.mock("../../lib/services/password-reset.service.js", () => ({
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { sent: true } }),
   applyPasswordReset: vi.fn().mockResolvedValue({ ok: true, data: { success: true } }),
 }));
-vi.mock("../../lib/password-policy.js", () => ({
-  validatePassword: vi.fn().mockReturnValue({ valid: true, errors: [] }),
-}));
 vi.mock("../../lib/services/erp.service.js", () => ({
   list: vi.fn().mockResolvedValue({ ok: true, data: [] }),
   getDoc: vi.fn().mockResolvedValue({ ok: true, data: {} }),
@@ -111,9 +108,6 @@ vi.mock("../../lib/jobs/queue.js", () => {
     scheduleCleanupJobs: vi.fn(),
   };
 });
-vi.mock("../../lib/api/cache-headers.js", () => ({
-  cacheControl: { private: vi.fn().mockReturnValue("private, no-cache") },
-}));
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),

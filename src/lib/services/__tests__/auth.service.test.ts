@@ -1,3 +1,14 @@
+/**
+ * auth.service tests
+ *
+ * Mocks (1 — external boundary only):
+ *   1. auth.client (erpLogin) — external ERPNext HTTP API
+ *
+ * Internal modules running for real:
+ *   - bcrypt (real hashing — tests actual password verification)
+ *   - logger (suppressed in test)
+ *   - prisma mock for DB lookups
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../data/auth.client.js", () => ({
@@ -6,6 +17,7 @@ vi.mock("../../data/auth.client.js", () => ({
 vi.mock("../../data/prisma.js", () => ({
   prisma: { user: { findFirst: vi.fn() } },
 }));
+// Logger: suppress output
 vi.mock("../../logger.js", () => ({
   logger: { warn: vi.fn(), info: vi.fn() },
 }));

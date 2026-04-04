@@ -1,3 +1,12 @@
+/**
+ * erp.service tests
+ *
+ * Mocks (1 — external boundary only):
+ *   1. erpnext.client — external ERPNext HTTP API
+ *
+ * Internal modules running for real:
+ *   - logger (suppressed in test)
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../data/erpnext.client.js", () => ({
@@ -8,6 +17,7 @@ vi.mock("../../data/erpnext.client.js", () => ({
   erpDelete: vi.fn(),
 }));
 
+// Logger: suppress output to avoid noisy test runs
 vi.mock("../../logger.js", () => ({
   logger: {
     child: () => ({
