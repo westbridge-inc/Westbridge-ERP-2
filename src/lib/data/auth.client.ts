@@ -22,7 +22,7 @@ export async function erpLogin(email: string, password: string): Promise<Result<
     if (!match) return err("No session returned");
 
     return ok(match[1]);
-  } catch (_e) {
+  } catch {
     return err("Unable to verify your credentials right now. Please try again.");
   }
 }

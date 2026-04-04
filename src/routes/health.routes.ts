@@ -32,7 +32,7 @@ async function checkDatabase(): Promise<CheckResult> {
     ]);
     const latency = Date.now() - start;
     return { status: latency > 1000 ? "degraded" : "healthy", latency_ms: latency };
-  } catch (_e) {
+  } catch {
     return { status: "unhealthy", latency_ms: Date.now() - start, message: "unreachable" };
   }
 }
@@ -48,7 +48,7 @@ async function checkRedis(): Promise<CheckResult> {
     ]);
     const latency = Date.now() - start;
     return { status: latency > 500 ? "degraded" : "healthy", latency_ms: latency };
-  } catch (_e) {
+  } catch {
     return { status: "unhealthy", latency_ms: Date.now() - start, message: "unreachable" };
   }
 }
@@ -65,7 +65,7 @@ async function checkErpNext(): Promise<CheckResult> {
     if (!res.ok) return { status: "degraded", latency_ms: latency, message: "upstream error" };
     if (latency > 1000) return { status: "degraded", latency_ms: latency, message: "slow response" };
     return { status: "healthy", latency_ms: latency };
-  } catch (_e) {
+  } catch {
     return { status: "degraded", latency_ms: Date.now() - start, message: "unreachable" };
   }
 }
@@ -105,11 +105,7 @@ router.get("/health", async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
 
-  const [dbCheck, redisCheck, erpCheck] = await Promise.all([
-    checkDatabase(),
-    checkRedis(),
-    checkErpNext(),
-  ]);
+  const [dbCheck, redisCheck, erpCheck] = await Promise.all([checkDatabase(), checkRedis(), checkErpNext()]);
   const memCheck = checkMemory();
   const diskCheck = checkDisk();
 
@@ -135,7 +131,7 @@ router.get("/health", async (req: Request, res: Response) => {
       checks,
       timestamp: new Date().toISOString(),
     },
-    { request_id: requestId }
+    { request_id: requestId },
   );
   return res
     .status(httpStatus)
@@ -148,10 +144,7 @@ router.get("/health", async (req: Request, res: Response) => {
 // GET /health/live — liveness probe
 // ---------------------------------------------------------------------------
 router.get("/health/live", async (_req: Request, res: Response) => {
-  return res
-    .status(200)
-    .set("Cache-Control", "no-store")
-    .json({ alive: true, uptime_seconds: getUptimeSeconds() });
+  return res.status(200).set("Cache-Control", "no-store").json({ alive: true, uptime_seconds: getUptimeSeconds() });
 });
 
 // ---------------------------------------------------------------------------
