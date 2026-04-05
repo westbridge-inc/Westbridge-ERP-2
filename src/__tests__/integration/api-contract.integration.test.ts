@@ -47,12 +47,38 @@ vi.mock("../../lib/data/prisma.js", () => ({
   },
 }));
 
-vi.mock("../../lib/redis.js", () => ({
-  getRedis: vi.fn().mockReturnValue({
-    ping: vi.fn().mockResolvedValue("PONG"),
-  }),
-  getRedisConfig: vi.fn().mockReturnValue({ host: "localhost", port: 6379 }),
-}));
+vi.mock("../../lib/redis.js", () => {
+  const pipeline = () => {
+    const pipe: Record<string, unknown> = {};
+    const self = () => pipe;
+    pipe.zadd = self;
+    pipe.zremrangebyscore = self;
+    pipe.zcard = self;
+    pipe.del = self;
+    pipe.pexpire = self;
+    pipe.expire = self;
+    pipe.set = self;
+    pipe.get = self;
+    pipe.exec = () =>
+      Promise.resolve([
+        [null, 0],
+        [null, 0],
+      ]);
+    return pipe;
+  };
+  return {
+    getRedis: vi.fn().mockReturnValue({
+      ping: vi.fn().mockResolvedValue("PONG"),
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue("OK"),
+      del: vi.fn().mockResolvedValue(1),
+      publish: vi.fn().mockResolvedValue(0),
+      subscribe: vi.fn().mockResolvedValue(undefined),
+      pipeline,
+    }),
+    getRedisConfig: vi.fn().mockReturnValue({ host: "localhost", port: 6379 }),
+  };
+});
 
 vi.mock("../../lib/services/session.service.js", () => ({
   validateSession: vi.fn().mockResolvedValue({

@@ -49,21 +49,22 @@ vi.mock("ioredis", () => {
       return Promise.resolve(0);
     }
     pipeline() {
-      return {
-        zadd: () => ({
-          zremrangebyscore: () => ({
-            zcard: () => ({
-              exec: () =>
-                Promise.resolve([
-                  [null, 1],
-                  [null, 0],
-                  [null, 1],
-                ]),
-            }),
-          }),
-        }),
-        exec: () => Promise.resolve([]),
-      };
+      const pipe: Record<string, unknown> = {};
+      const self = () => pipe;
+      pipe.zadd = self;
+      pipe.zremrangebyscore = self;
+      pipe.zcard = self;
+      pipe.del = self;
+      pipe.pexpire = self;
+      pipe.expire = self;
+      pipe.set = self;
+      pipe.get = self;
+      pipe.exec = () =>
+        Promise.resolve([
+          [null, 0],
+          [null, 0],
+        ]);
+      return pipe;
     }
     publish() {
       return Promise.resolve(0);
