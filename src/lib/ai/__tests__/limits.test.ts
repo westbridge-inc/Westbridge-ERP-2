@@ -14,6 +14,14 @@ vi.mock("../../logger.js", () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("../../data/prisma.js", () => ({
+  prisma: {
+    account: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+  },
+}));
+
 vi.mock("../../modules.js", () => ({
   getPlan: vi.fn((planId: string) => {
     if (planId === "enterprise") {

@@ -87,7 +87,7 @@ describe("queue", () => {
   describe("scheduleCleanupJobs", () => {
     it("schedules session and audit log cleanup", async () => {
       await scheduleCleanupJobs();
-      expect(mockAdd).toHaveBeenCalledTimes(2);
+      expect(mockAdd).toHaveBeenCalledTimes(6);
     });
   });
 });

@@ -30,7 +30,7 @@ import type { Request, Response } from "express";
 vi.mock("../../lib/data/prisma.js", () => ({
   prisma: {
     $executeRaw: vi.fn().mockResolvedValue(0),
-    account: { findUnique: vi.fn() },
+    account: { findUnique: vi.fn().mockResolvedValue(null) },
     user: { findUnique: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
   },

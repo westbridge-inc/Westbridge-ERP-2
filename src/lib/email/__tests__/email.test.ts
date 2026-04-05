@@ -44,7 +44,7 @@ describe("sendEmail", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain("Invalid recipient");
+      expect(result.error).toContain("Unable to send the email right now");
     }
   });
 
@@ -59,7 +59,7 @@ describe("sendEmail", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toContain("Network error");
+      expect(result.error).toContain("Unable to send the email right now");
     }
   });
 

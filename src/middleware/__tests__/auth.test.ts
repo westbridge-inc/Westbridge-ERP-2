@@ -14,6 +14,9 @@ vi.mock("../../lib/data/prisma.js", () => ({
     account: {
       findUnique: vi.fn(),
     },
+    subscription: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 
@@ -339,7 +342,7 @@ describe("Auth Middleware", () => {
 
     it("uses Redis cache when available", async () => {
       const mockRedis = {
-        get: vi.fn().mockResolvedValue("active"),
+        get: vi.fn().mockResolvedValue(JSON.stringify({ status: "active", trialEndsAt: null })),
         set: vi.fn().mockResolvedValue("OK"),
       };
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
