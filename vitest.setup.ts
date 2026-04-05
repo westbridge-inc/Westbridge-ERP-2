@@ -12,6 +12,9 @@ if (typeof globalThis.crypto === "undefined") {
   globalThis.crypto.randomUUID = webcrypto.randomUUID.bind(webcrypto);
 }
 
+// Flag: tells integration tests to skip when running under global mocks.
+process.env.__VITEST_GLOBAL_MOCKS__ = "true";
+
 // Prevent real Redis connections in unit tests.
 // Individual tests that need Redis behavior mock it themselves.
 vi.mock("ioredis", () => {

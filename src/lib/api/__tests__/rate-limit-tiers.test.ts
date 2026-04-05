@@ -180,9 +180,11 @@ describe("getPlanRateLimit", () => {
 //
 // These tests exercise the actual sliding window algorithm against a real
 // Redis instance. They are skipped when REDIS_URL is not set (i.e. local dev).
-// In CI, the integration-test job provides a Redis service container.
-
-const REDIS_AVAILABLE = !!process.env.REDIS_URL;
+// These tests require REAL Redis (not the global ioredis mock from vitest.setup.ts).
+// They run in the integration-test CI job which uses vitest.integration.config.ts
+// (no setupFiles = no global mock) with a Redis service container.
+// vitest.setup.ts sets __VITEST_GLOBAL_MOCKS__=true — skip when that's active.
+const REDIS_AVAILABLE = !!process.env.REDIS_URL && !process.env.__VITEST_GLOBAL_MOCKS__;
 
 describe.skipIf(!REDIS_AVAILABLE)("checkTieredRateLimit (Redis integration)", () => {
   const testIdentifier = `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;
