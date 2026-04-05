@@ -47,6 +47,6 @@ describe("auth.client — erpLogin", () => {
     const { erpLogin } = await import("../auth.client.js");
     const result = await erpLogin("test@test.com", "password");
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("ECONNREFUSED");
+    if (!result.ok) expect(result.error).toContain("Unable to verify your credentials");
   });
 });

@@ -49,7 +49,7 @@ describe("erp.service", () => {
     it("returns error for unsupported doctype", async () => {
       const r = await list("Hacker Table", "sid");
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error).toContain("Unsupported doctype");
+      if (!r.ok) expect(r.error).toContain("Invalid or unsupported document type");
     });
 
     it("delegates to erpList for allowed doctype", async () => {
@@ -74,7 +74,7 @@ describe("erp.service", () => {
     it("returns error for unsupported doctype", async () => {
       const r = await getDoc("Evil Type", "name", "sid");
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error).toContain("Unsupported doctype");
+      if (!r.ok) expect(r.error).toContain("Invalid or unsupported document type");
     });
 
     it("delegates to erpGet", async () => {
@@ -99,7 +99,7 @@ describe("erp.service", () => {
     it("returns error when accountId is missing", async () => {
       const r = await createDoc("Sales Invoice", "sid", {});
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error).toContain("accountId required");
+      if (!r.ok) expect(r.error).toContain("Account information is required");
     });
 
     it("delegates to erpCreate with valid inputs", async () => {
@@ -123,7 +123,7 @@ describe("erp.service", () => {
     it("returns error when accountId is missing", async () => {
       const r = await updateDoc("Sales Invoice", "INV-001", "sid", {});
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error).toContain("accountId required");
+      if (!r.ok) expect(r.error).toContain("Account information is required");
     });
 
     it("delegates to erpUpdate with valid inputs", async () => {
@@ -147,7 +147,7 @@ describe("erp.service", () => {
     it("returns error when accountId is missing", async () => {
       const r = await deleteDoc("Sales Invoice", "INV-001", "sid");
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.error).toContain("accountId required");
+      if (!r.ok) expect(r.error).toContain("Account information is required");
     });
 
     it("delegates to erpDelete with valid inputs", async () => {
