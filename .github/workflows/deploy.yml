@@ -152,16 +152,47 @@ jobs:
       - name: Setup Fly.io CLI
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
         uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Deploy to Fly.io
+      - name: Deploy canary (1 machine)
+        id: fly_canary
         if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
-        run: flyctl deploy --remote-only
+        run: |
+          flyctl deploy --strategy canary --wait-timeout 120
         env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+
+      - name: Verify canary health
+        id: fly_canary_health
+        if: env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
+        run: |
+          DEPLOY_URL="${{ vars.DEPLOY_URL || 'https://westbridge-api.fly.dev' }}"
+          echo "Checking canary health at $DEPLOY_URL/api/health/ready..."
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -so /dev/null -w "%{http_code}" "$DEPLOY_URL/api/health/ready" || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Canary is healthy"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Canary health check failed after 5 attempts"
+          exit 1
+
+      - name: Rollback canary on failure (Fly.io)
+        if: failure() && (steps.fly_canary.outcome == 'failure' || steps.fly_canary_health.outcome == 'failure') && env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
+        run: |
+          echo "Rolling back to previous release..."
+          flyctl releases --json | head -1
+          flyctl deploy --image $(flyctl releases --json | python3 -c "import sys,json; releases=json.load(sys.stdin); print(releases[1]['ImageRef'])" 2>/dev/null || echo "registry.fly.io/westbridge-api:latest")
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
       - name: Verify production health
         id: prod_health
-        if: env.RAILWAY_TOKEN != '' || env.FLY_API_TOKEN != ''
+        if: env.RAILWAY_TOKEN != ''
         run: |
           DEPLOY_URL="${{ vars.DEPLOY_URL || 'https://westbridge-api.fly.dev' }}"
           for i in $(seq 1 10); do
@@ -176,8 +207,3 @@ jobs:
         run: |
           echo "::error::Rolling back production deployment due to failed health check"
           railway rollback
-      - name: Rollback production (Fly.io)
-        if: failure() && steps.prod_health.outcome == 'failure' && env.FLY_API_TOKEN != '' && env.RAILWAY_TOKEN == ''
-        run: |
-          echo "::error::Rolling back production deployment due to failed health check"
-          flyctl releases rollback

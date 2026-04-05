@@ -11,7 +11,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json ./
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 
 # Generate Prisma client
 COPY prisma ./prisma
@@ -35,7 +35,7 @@ RUN addgroup -g 1001 -S westbridge && \
 # Copy only production dependencies
 COPY package.json package-lock.json ./
 # --ignore-scripts skips the prepare hook (husky is a devDependency, unavailable here)
-RUN npm ci --legacy-peer-deps --omit=dev --ignore-scripts && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy Prisma schema, migrations, and generated client
 COPY prisma ./prisma

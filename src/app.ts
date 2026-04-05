@@ -18,6 +18,7 @@ import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { responseTime } from "./middleware/response-time.js";
+import { sloTracking } from "./middleware/slo-tracking.js";
 import { tenantContext } from "./middleware/tenant-context.js";
 import { requireActiveSubscription, requireCsrf } from "./middleware/auth.js";
 
@@ -52,8 +53,11 @@ export function createApp(): express.Application {
 
   // ─── Global Middleware ─────────────────────────────────────────────────────
 
-  // Response time header — mount early to capture full request lifecycle (B4)
+  // Response time header -- mount early to capture full request lifecycle (B4)
   app.use(responseTime);
+
+  // SLO tracking -- record latency & availability metrics for every request
+  app.use(sloTracking);
 
   app.use(
     helmet({

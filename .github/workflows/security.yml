@@ -29,6 +29,7 @@ jobs:
           fetch-depth: 0
       - name: TruffleHog secrets scan
         uses: trufflesecurity/trufflehog@main
+        continue-on-error: false
         with:
           extra_args: --only-verified
 

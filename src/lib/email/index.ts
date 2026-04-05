@@ -5,6 +5,7 @@
 
 import { Resend } from "resend";
 import { ok, err, type Result } from "../utils/result.js";
+import { logger } from "../logger.js";
 
 let _resend: Resend | null = null;
 
@@ -31,7 +32,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<Result<{ id: st
   if (!process.env.RESEND_API_KEY) {
     const isDev = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
     if (isDev) {
-      console.warn(
+      logger.warn(
         `[email] RESEND_API_KEY not set — skipping email send in ${process.env.NODE_ENV}. ` +
           `To: ${opts.to}, Subject: ${opts.subject}`,
       );

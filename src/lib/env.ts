@@ -12,6 +12,7 @@
  */
 
 import { z } from "zod";
+import { logger } from "./logger.js";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -121,15 +122,15 @@ function parseEnv() {
 
     // AI is optional but warn if not configured
     if (!result.data.ANTHROPIC_API_KEY) {
-      console.warn("⚠️  ANTHROPIC_API_KEY not set — AI assistant will show 'coming soon' to users");
+      logger.warn("ANTHROPIC_API_KEY not set — AI assistant will show 'coming soon' to users");
     }
 
     // Non-fatal warnings for observability & config
     if (!result.data.SENTRY_DSN) {
-      console.warn("⚠️  SENTRY_DSN not set — error tracking is disabled in production");
+      logger.warn("SENTRY_DSN not set — error tracking is disabled in production");
     }
     if (result.data.FRONTEND_URL && !result.data.FRONTEND_URL.startsWith("https://")) {
-      console.warn(`⚠️  FRONTEND_URL is not HTTPS (${result.data.FRONTEND_URL}) — CORS may allow insecure origins`);
+      logger.warn(`FRONTEND_URL is not HTTPS (${result.data.FRONTEND_URL}) — CORS may allow insecure origins`);
     }
   }
 
