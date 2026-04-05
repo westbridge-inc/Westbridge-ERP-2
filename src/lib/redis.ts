@@ -71,6 +71,8 @@ export function getRedis(): Redis | Cluster | null {
         maxRetriesPerRequest: 3,
         retryStrategy,
         enableReadyCheck: true,
+        keepAlive: 10_000, // Send TCP keepalive every 10s — prevents Railway idle disconnects
+        connectTimeout: 5_000,
         reconnectOnError(err) {
           // Reconnect on READONLY errors (failover scenario)
           return err.message.includes("READONLY");

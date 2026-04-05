@@ -44,8 +44,28 @@ process.on("uncaughtException", (err) => {
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   logger.info("Westbridge API server running", { port: PORT });
+
+  // ─── Connection warmup — pre-establish DB and Redis pools ───────────────
+  // Without this, the first user request pays the connection setup cost
+  // (200-500ms on Railway). Warming up here makes all user requests fast.
+  try {
+    const warmupStart = Date.now();
+    const { getRedis } = await import("./lib/redis.js");
+    await Promise.all([
+      prisma.$queryRaw`SELECT 1`.then(() => logger.info("Database pool warmed up")),
+      getRedis()
+        ?.ping()
+        .then(() => logger.info("Redis connection warmed up")),
+    ]);
+    logger.info("Connection warmup complete", { duration_ms: Date.now() - warmupStart });
+  } catch (err) {
+    logger.warn("Connection warmup failed (will retry on first request)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   const workers = startWorkers();
   scheduleCleanupJobs().catch((err) => {
     logger.error("Failed to schedule cleanup jobs", { error: err instanceof Error ? err.message : String(err) });
