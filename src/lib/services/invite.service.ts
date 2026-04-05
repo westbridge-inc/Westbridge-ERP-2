@@ -125,7 +125,7 @@ export async function acceptInvite(
     });
 
     return ok({ userId: result.id, accountId });
-  } catch (_e) {
+  } catch {
     return err("Unable to accept the invite right now. Please try again.");
   }
 }

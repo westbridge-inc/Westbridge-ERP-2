@@ -63,7 +63,7 @@ export async function createSubscription(
 
     logger.info("Subscription created", { accountId, planId, subscriptionId: subscription.id });
     return ok({ subscriptionId: subscription.id });
-  } catch (_e) {
+  } catch {
     return err("Unable to set up your subscription. Please try again or contact support.");
   }
 }
@@ -182,7 +182,7 @@ export async function changePlan(accountId: string, newPlanId: string): Promise<
     ]);
 
     return ok({ message: `Plan changed to ${newPlanId}` });
-  } catch (_e) {
+  } catch {
     return err("Unable to change your plan right now. Please try again or contact support.");
   }
 }
@@ -237,7 +237,10 @@ export async function checkTrialExpiry(): Promise<{ updated: number }> {
   const ids = toBlock.map((a) => a.id);
   await prisma.$transaction([
     prisma.account.updateMany({ where: { id: { in: ids } }, data: { status: "past_due" } }),
-    prisma.subscription.updateMany({ where: { accountId: { in: ids }, status: "trialing" }, data: { status: "past_due" } }),
+    prisma.subscription.updateMany({
+      where: { accountId: { in: ids }, status: "trialing" },
+      data: { status: "past_due" },
+    }),
   ]);
 
   return { updated: toBlock.length };

@@ -28,9 +28,7 @@ export interface CreateAccountResult {
   status: "pending";
 }
 
-export async function createAccount(
-  input: CreateAccountInput,
-): Promise<Result<CreateAccountResult, string>> {
+export async function createAccount(input: CreateAccountInput): Promise<Result<CreateAccountResult, string>> {
   const { email, companyName, plan, modulesSelected } = input;
   if (!email?.trim() || !companyName?.trim() || !plan?.trim()) {
     return err("Email, company name, and plan are required");
@@ -43,11 +41,13 @@ export async function createAccount(
   try {
     const account = await prisma.$transaction(async (tx) => {
       // Check for existing account — findFirst bypasses soft-delete filter
-      const existing = await tx.account.findFirst({
-        where: { email: email.trim(), deletedAt: { not: null } },
-      }) ?? await tx.account.findFirst({
-        where: { email: email.trim() },
-      });
+      const existing =
+        (await tx.account.findFirst({
+          where: { email: email.trim(), deletedAt: { not: null } },
+        })) ??
+        (await tx.account.findFirst({
+          where: { email: email.trim() },
+        }));
 
       if (existing) {
         if (existing.status === "active") {
@@ -153,7 +153,7 @@ export async function markAccountPaid(
       });
     }
     return ok({ updated, accountId });
-  } catch (_e) {
+  } catch {
     return err("Unable to process your payment right now. Please try again or contact support.");
   }
 }

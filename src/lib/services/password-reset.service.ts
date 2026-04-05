@@ -14,10 +14,7 @@ function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
-export async function requestPasswordReset(
-  email: string,
-  baseUrl: string
-): Promise<Result<{ sent: boolean }, string>> {
+export async function requestPasswordReset(email: string, baseUrl: string): Promise<Result<{ sent: boolean }, string>> {
   // Always return ok to prevent user enumeration — we only actually send if found
   const user = await prisma.user.findFirst({
     where: { email, status: "active" },
@@ -60,9 +57,7 @@ export interface ValidateResetTokenResult {
   email: string;
 }
 
-export async function validateResetToken(
-  raw: string
-): Promise<Result<ValidateResetTokenResult, string>> {
+export async function validateResetToken(raw: string): Promise<Result<ValidateResetTokenResult, string>> {
   const tokenHash = hashToken(raw);
   const token = await prisma.passwordResetToken.findUnique({
     where: { tokenHash },
@@ -80,7 +75,7 @@ export interface ApplyPasswordResetInput {
 }
 
 export async function applyPasswordReset(
-  input: ApplyPasswordResetInput
+  input: ApplyPasswordResetInput,
 ): Promise<Result<{ success: boolean }, string>> {
   const validateResult = await validateResetToken(input.raw);
   if (!validateResult.ok) return err(validateResult.error);
@@ -96,9 +91,7 @@ export async function applyPasswordReset(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(erpApiKey && erpApiSecret
-          ? { Authorization: `token ${erpApiKey}:${erpApiSecret}` }
-          : {}),
+        ...(erpApiKey && erpApiSecret ? { Authorization: `token ${erpApiKey}:${erpApiSecret}` } : {}),
       },
       body: JSON.stringify({ new_password: input.newPassword, logout_all_sessions: 1, user: email }),
       signal: AbortSignal.timeout(10_000),
@@ -106,7 +99,7 @@ export async function applyPasswordReset(
     if (!res.ok) {
       return err("Failed to update password. Please try again.");
     }
-  } catch (_e) {
+  } catch {
     return err("Failed to update password. Please try again.");
   }
 
