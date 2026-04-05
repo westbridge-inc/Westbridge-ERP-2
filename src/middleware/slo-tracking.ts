@@ -12,6 +12,10 @@ import { httpRequestsTotal, httpRequestDuration, httpRequestsWithinSlo, normaliz
 export function sloTracking(req: Request, res: Response, next: NextFunction): void {
   const start = process.hrtime.bigint();
 
+  // Prevent MaxListenersExceededWarning — multiple middleware add finish listeners
+  const current = res.getMaxListeners();
+  if (current <= 15) res.setMaxListeners(current + 1);
+
   res.on("finish", () => {
     const durationNs = Number(process.hrtime.bigint() - start);
     const durationSec = durationNs / 1e9;
