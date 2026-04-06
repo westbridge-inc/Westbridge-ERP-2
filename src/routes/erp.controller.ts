@@ -33,6 +33,8 @@ import type { Request, Response } from "express";
 // ---------------------------------------------------------------------------
 const ERP_LIST_CACHE_PREFIX = "erp:list:";
 const ERP_LIST_CACHE_TTL_SEC = 90; // 90s — spec says 60-120s
+const ERP_DOC_CACHE_PREFIX = "erp:doc:";
+const ERP_DOC_CACHE_TTL_SEC = 60; // 60s — balance freshness with speed
 
 /**
  * Invalidate all cached ERP list responses for a given account + doctype.
@@ -46,14 +48,14 @@ function invalidateErpListCache(accountId: string, doctype: string): void {
   const stream = (redis as import("ioredis").Redis).scanStream({ match: pattern, count: 100 });
   stream.on("data", (keys: string[]) => {
     if (keys.length > 0) {
-      redis.del(...keys).catch((e: unknown) =>
-        logger.warn("ERP list cache invalidation failed", { error: e instanceof Error ? e.message : String(e) }),
-      );
+      redis
+        .del(...keys)
+        .catch((e: unknown) =>
+          logger.warn("ERP list cache invalidation failed", { error: e instanceof Error ? e.message : String(e) }),
+        );
     }
   });
-  stream.on("error", (e: Error) =>
-    logger.warn("ERP list cache scan failed", { error: e.message }),
-  );
+  stream.on("error", (e: Error) => logger.warn("ERP list cache scan failed", { error: e.message }));
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +342,21 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
       return res.status(400).json(apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta()));
     }
 
+    // ── ERP doc cache ─────────────────────────────────────────────────────
+    const docCacheKey = `${ERP_DOC_CACHE_PREFIX}${session.accountId}:${doctype}:${name}`;
+    const redisForDoc = getRedis();
+    if (redisForDoc) {
+      try {
+        const cached = await redisForDoc.get(docCacheKey);
+        if (cached) {
+          res.set({ ...responseHeaders(), "X-Cache": "HIT" });
+          return res.json(apiSuccess(JSON.parse(cached), meta()));
+        }
+      } catch (e) {
+        logger.warn("ERP doc cache read failed", { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
     const result = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
     if (!result.ok) {
       const status = result.error === "Not found" ? 404 : 502;
@@ -365,7 +382,17 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
       severity: "info",
       outcome: "success",
     });
-    res.set(responseHeaders());
+
+    // Cache the successful response
+    if (redisForDoc) {
+      redisForDoc
+        .set(docCacheKey, JSON.stringify(result.data), "EX", ERP_DOC_CACHE_TTL_SEC)
+        .catch((e: unknown) =>
+          logger.warn("ERP doc cache write failed", { error: e instanceof Error ? e.message : String(e) }),
+        );
+    }
+
+    res.set({ ...responseHeaders(), "X-Cache": "MISS" });
     return res.json(apiSuccess(result.data, meta()));
   } catch (error) {
     Sentry.captureException(error, { extra: { request_id: requestId } });
@@ -427,7 +454,9 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
     );
     if (!result.ok) {
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", "Unable to create the document right now. Please try again.", undefined, meta()));
+      return res
+        .status(502)
+        .json(apiError("ERP_ERROR", "Unable to create the document right now. Please try again.", undefined, meta()));
     }
     // Invalidate ERP list cache for this account + doctype after mutation
     invalidateErpListCache(session.accountId, doctype);
@@ -517,7 +546,9 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     );
     if (!result.ok) {
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", "Unable to update the document right now. Please try again.", undefined, meta()));
+      return res
+        .status(502)
+        .json(apiError("ERP_ERROR", "Unable to update the document right now. Please try again.", undefined, meta()));
     }
     // Invalidate ERP list cache for this account + doctype after mutation
     invalidateErpListCache(session.accountId, doctype);
@@ -586,7 +617,9 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
     const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);
     if (!result.ok) {
       res.set(responseHeaders());
-      return res.status(502).json(apiError("ERP_ERROR", "Unable to delete the document right now. Please try again.", undefined, meta()));
+      return res
+        .status(502)
+        .json(apiError("ERP_ERROR", "Unable to delete the document right now. Please try again.", undefined, meta()));
     }
     // Invalidate ERP list cache for this account + doctype after mutation
     invalidateErpListCache(session.accountId, doctype);

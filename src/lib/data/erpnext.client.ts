@@ -3,7 +3,17 @@
  * All ERPNext communication in the app goes through this client.
  */
 
+import { Agent } from "undici";
 import { Result, ok, err } from "../utils/result.js";
+
+// Persistent HTTP agent with keepalive — reuses TCP+TLS connections to ERPNext.
+// Without this, every request pays ~50ms for TCP handshake + TLS negotiation.
+// With keepalive, subsequent requests drop to ~10ms (just the query time).
+const erpAgent = new Agent({
+  keepAliveTimeout: 30_000, // Keep connections alive for 30s between requests
+  keepAliveMaxTimeout: 60_000,
+  connections: 20, // Pool size per origin
+});
 
 // Validate ERPNEXT_URL at module load in production to fail fast rather than
 // silently sending credentials over plain HTTP. Skip during Next.js build phase.
@@ -63,7 +73,8 @@ async function fetchErp(
         ...options,
         headers,
         signal: AbortSignal.timeout(5_000),
-      });
+        dispatcher: erpAgent,
+      } as RequestInit & { dispatcher: Agent });
       if (res.ok) {
         const data = await res.json();
         return ok(data);
