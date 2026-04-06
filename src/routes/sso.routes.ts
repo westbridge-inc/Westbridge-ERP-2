@@ -102,6 +102,26 @@ router.get("/sso/authorize", rateLimit("anonymous", "/api/sso/authorize"), async
     return res.status(500).json(apiError("SSO_ERROR", result.error));
   }
 
+  // ── Open redirect protection ────────────────────────────────────────
+  // The authorization URL is built from config.issuerUrl (admin-set) via
+  // OIDC discovery. Verify the final URL's hostname matches the configured
+  // issuerUrl's hostname AND uses HTTPS, to prevent a compromised discovery
+  // document or tampered config from redirecting users to an attacker domain.
+  try {
+    const authUrl = new URL(result.data.url);
+    const issuerUrl = new URL(config.issuerUrl);
+    if (authUrl.protocol !== "https:") {
+      return res.status(500).json(apiError("SSO_ERROR", "SSO authorization endpoint must use HTTPS"));
+    }
+    if (authUrl.hostname !== issuerUrl.hostname) {
+      return res
+        .status(500)
+        .json(apiError("SSO_ERROR", "SSO authorization endpoint hostname does not match configured issuer"));
+    }
+  } catch {
+    return res.status(500).json(apiError("SSO_ERROR", "Invalid SSO authorization URL"));
+  }
+
   return res.redirect(result.data.url);
 });
 

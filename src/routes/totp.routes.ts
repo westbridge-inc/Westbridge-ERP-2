@@ -35,18 +35,6 @@ function toBase32(buffer: Buffer): string {
   return output;
 }
 
-// TOTP generation (RFC 6238) — used by verifyTotp's inline variant; kept for programmatic token generation
-function _generateTotp(secret: Buffer, timeStep = 30, digits = 6): string {
-  const time = Math.floor(Date.now() / 1000 / timeStep);
-  const timeBuffer = Buffer.alloc(8);
-  timeBuffer.writeBigInt64BE(BigInt(time));
-  const hmac = createHmac("sha1", secret).update(timeBuffer).digest();
-  const offset = hmac[hmac.length - 1]! & 0xf;
-  const code =
-    ((hmac[offset]! & 0x7f) << 24) | (hmac[offset + 1]! << 16) | (hmac[offset + 2]! << 8) | hmac[offset + 3]!;
-  return String(code % 10 ** digits).padStart(digits, "0");
-}
-
 function fromBase32(str: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";
@@ -62,12 +50,20 @@ function fromBase32(str: string): Buffer {
   return Buffer.from(bytes);
 }
 
-// Verify with ±1 time step window
+// Verify TOTP with ±1 time step window (RFC 6238 clock skew tolerance).
+//
+// NOTE: SHA-1 is REQUIRED here by RFC 6238 for compatibility with every major
+// authenticator app (Google Authenticator, Authy, 1Password, Microsoft
+// Authenticator). HMAC-SHA1 is NOT weakened by SHA-1's collision vulnerabilities
+// because TOTP does not rely on collision resistance — it relies on HMAC's
+// pseudorandom function properties. Changing to SHA-256 would break 2FA for
+// every user enrolled in the system.
 function verifyTotp(secret: Buffer, code: string): boolean {
   for (const offset of [-1, 0, 1]) {
     const time = Math.floor(Date.now() / 1000 / 30) + offset;
     const timeBuffer = Buffer.alloc(8);
     timeBuffer.writeBigInt64BE(BigInt(time));
+    // nosemgrep: javascript.node-stdlib.cryptography.crypto-weak-algorithm.crypto-weak-algorithm
     const hmac = createHmac("sha1", secret).update(timeBuffer).digest();
     const off = hmac[hmac.length - 1]! & 0xf;
     const c = ((hmac[off]! & 0x7f) << 24) | (hmac[off + 1]! << 16) | (hmac[off + 2]! << 8) | hmac[off + 3]!;
