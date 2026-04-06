@@ -146,6 +146,44 @@ describe("audit.service", () => {
       });
       expect(csv).toContain('""quoted""');
     });
+
+    it("neutralizes formula injection (CSV injection / CWE-1236)", () => {
+      // Each formula trigger should be prefixed with a single quote to prevent
+      // execution when the CSV is opened in Excel/Sheets/LibreOffice.
+      const triggers = ["=cmd|'/c calc'!A0", "+1+1", "-1-1", "@SUM(A1)", "\tHIDDEN", "\rHIDDEN"];
+      for (const trigger of triggers) {
+        const csv = rowToCsv({
+          timestamp: new Date("2026-01-01T00:00:00Z"),
+          action: "test",
+          userId: null,
+          ipAddress: null,
+          severity: "info",
+          outcome: "success",
+          resource: null,
+          resourceId: trigger,
+          metadata: null,
+        });
+        // The escaped value should start with a single quote
+        expect(csv).toContain(`"'${trigger.replace(/"/g, '""')}"`);
+      }
+    });
+
+    it("does not prefix safe values", () => {
+      const csv = rowToCsv({
+        timestamp: new Date("2026-01-01T00:00:00Z"),
+        action: "auth.login",
+        userId: "user-123",
+        ipAddress: "1.2.3.4",
+        severity: "info",
+        outcome: "success",
+        resource: "User",
+        resourceId: "normal-id",
+        metadata: null,
+      });
+      // No leading quote should appear before normal values
+      expect(csv).toContain('"normal-id"');
+      expect(csv).not.toContain('"\'normal-id"');
+    });
   });
 
   describe("CSV_HEADER", () => {

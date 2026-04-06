@@ -192,10 +192,16 @@ export interface AuditRow {
 /** CSV header row matching the export spec. */
 export const CSV_HEADER = "timestamp,action,userId,ipAddress,severity,outcome,resource,resourceId,metadata\n";
 
-/** Convert a single audit log row to RFC 4180 CSV. */
+/** Convert a single audit log row to RFC 4180 CSV with formula injection protection. */
 export function rowToCsv(row: AuditRow): string {
+  // CSV/Formula Injection (CWE-1236) protection: if a value starts with =, +, -, @,
+  // tab, or carriage return, Excel/Sheets/LibreOffice may interpret it as a formula
+  // when the CSV is opened. Prefix with a single quote to neutralize.
+  // Reference: https://owasp.org/www-community/attacks/CSV_Injection
+  const FORMULA_TRIGGERS = /^[=+\-@\t\r]/;
   const esc = (v: unknown): string => {
-    const s = v === null || v === undefined ? "" : String(v);
+    let s = v === null || v === undefined ? "" : String(v);
+    if (FORMULA_TRIGGERS.test(s)) s = "'" + s;
     return `"${s.replace(/"/g, '""')}"`;
   };
   return (
