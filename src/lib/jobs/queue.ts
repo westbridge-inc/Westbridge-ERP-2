@@ -8,16 +8,14 @@
 import { Queue, type ConnectionOptions } from "bullmq";
 import { getRedisConfig } from "../redis.js";
 
-const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
-if (
-  process.env.NODE_ENV === "production" &&
-  !isBuildPhase &&
-  !process.env.REDIS_PASSWORD
-) {
-  throw new Error("REDIS_PASSWORD is required in production");
+const redisConfig = getRedisConfig();
+
+// Upstash Redis includes credentials in the URL (parsed by getRedisConfig).
+// REDIS_PASSWORD env var is only needed when using bare host/port config.
+if (process.env.NODE_ENV === "production" && !redisConfig.password && !process.env.REDIS_PASSWORD) {
+  throw new Error("Redis password is required in production (set REDIS_PASSWORD or include in REDIS_URL)");
 }
 
-const redisConfig = getRedisConfig();
 const connection: ConnectionOptions = {
   host: redisConfig.host,
   port: redisConfig.port,
@@ -97,7 +95,13 @@ export interface ReportJobData {
 }
 
 export interface CleanupJobData {
-  task: "sessions" | "audit_logs" | "check-trial-expiry" | "check-grace-period" | "send-trial-warnings" | "cleanup-expired-trials";
+  task:
+    | "sessions"
+    | "audit_logs"
+    | "check-trial-expiry"
+    | "check-grace-period"
+    | "send-trial-warnings"
+    | "cleanup-expired-trials";
 }
 
 export interface WebhookJobData {
@@ -119,7 +123,8 @@ export async function enqueueEmail(data: EmailJobData): Promise<void> {
   if (waiting > MAX_EMAIL_QUEUE_DEPTH) {
     const { logger } = await import("../logger.js");
     logger.error("enqueueEmail: queue depth exceeded — rejecting new job", {
-      waiting, limit: MAX_EMAIL_QUEUE_DEPTH,
+      waiting,
+      limit: MAX_EMAIL_QUEUE_DEPTH,
     });
     throw new Error("Email service temporarily unavailable — queue capacity reached");
   }
@@ -136,7 +141,8 @@ export async function enqueueReport(data: ReportJobData): Promise<string> {
   if (waiting > MAX_REPORT_QUEUE_DEPTH) {
     const { logger } = await import("../logger.js");
     logger.error("enqueueReport: queue depth exceeded — rejecting new job", {
-      waiting, limit: MAX_REPORT_QUEUE_DEPTH,
+      waiting,
+      limit: MAX_REPORT_QUEUE_DEPTH,
     });
     throw new Error("Report service temporarily unavailable — queue capacity reached");
   }

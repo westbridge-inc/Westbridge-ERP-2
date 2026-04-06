@@ -12,9 +12,9 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
-# Run Prisma migrations automatically before each deploy
+# Sync Prisma schema to database before each deploy
 [deploy]
-  release_command = "node ./node_modules/prisma/build/index.js migrate deploy"
+  release_command = "npx prisma db push --accept-data-loss"
 
 [env]
   NODE_ENV = "production"
