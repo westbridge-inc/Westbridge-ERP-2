@@ -62,7 +62,7 @@ export const ERP_TOOLS: Anthropic.Tool[] = [
         doctype: {
           type: "string",
           description:
-            "ERPNext doctype. Examples: 'Sales Invoice', 'Purchase Invoice', 'Stock Entry', 'Employee', 'Lead', 'Opportunity', 'Project', 'Salary Slip'",
+            "ERPNext doctype. Examples: 'Sales Invoice', 'Purchase Invoice', 'Stock Entry', 'Employee', 'Lead', 'Opportunity', 'Project'",
         },
         filters: {
           type: "array",

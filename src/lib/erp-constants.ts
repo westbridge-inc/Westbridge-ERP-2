@@ -18,7 +18,6 @@ export const ALLOWED_DOCTYPES = [
   "Stock Entry",
   "Expense Claim",
   "Leave Application",
-  "Salary Slip",
   "BOM",
   "Company",
   "Account",
@@ -37,8 +36,19 @@ export const ALLOWED_DOCTYPES_SET = new Set<string>(ALLOWED_DOCTYPES);
 
 /** Doctypes that have a `company` field — used for tenant isolation checks. */
 export const COMPANY_SCOPED_DOCTYPES = new Set([
-  "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
-  "Quotation", "Journal Entry", "Payment Entry", "Stock Entry",
-  "Expense Claim", "Leave Application", "Salary Slip", "Employee",
-  "Project", "Task", "Timesheet", "Attendance",
+  "Sales Invoice",
+  "Sales Order",
+  "Purchase Invoice",
+  "Purchase Order",
+  "Quotation",
+  "Journal Entry",
+  "Payment Entry",
+  "Stock Entry",
+  "Expense Claim",
+  "Leave Application",
+  "Employee",
+  "Project",
+  "Task",
+  "Timesheet",
+  "Attendance",
 ]);

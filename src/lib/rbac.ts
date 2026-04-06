@@ -17,21 +17,41 @@ import { logger } from "./logger.js";
 // --- Permission definitions ---
 
 export type Permission =
-  | "invoices:read"    | "invoices:write"    | "invoices:delete"
-  | "expenses:read"    | "expenses:write"    | "expenses:delete"
-  | "orders:read"      | "orders:write"      | "orders:delete"
-  | "customers:read"   | "customers:write"   | "customers:delete"
-  | "inventory:read"   | "inventory:write"
-  | "hr:read"          | "hr:write"
-  | "payroll:read"     | "payroll:write"
-  | "accounting:read"  | "accounting:write"
+  | "invoices:read"
+  | "invoices:write"
+  | "invoices:delete"
+  | "expenses:read"
+  | "expenses:write"
+  | "expenses:delete"
+  | "orders:read"
+  | "orders:write"
+  | "orders:delete"
+  | "customers:read"
+  | "customers:write"
+  | "customers:delete"
+  | "inventory:read"
+  | "inventory:write"
+  | "hr:read"
+  | "hr:write"
+  | "accounting:read"
+  | "accounting:write"
   | "analytics:read"
-  | "users:read"       | "users:invite"      | "users:remove"      | "users:manage_roles"
-  | "settings:read"    | "settings:write"
-  | "billing:read"     | "billing:manage"
-  | "api_keys:read"    | "api_keys:write"    | "api_keys:delete"
-  | "webhooks:read"    | "webhooks:write"    | "webhooks:delete"
-  | "reports:read"     | "reports:create"
+  | "users:read"
+  | "users:invite"
+  | "users:remove"
+  | "users:manage_roles"
+  | "settings:read"
+  | "settings:write"
+  | "billing:read"
+  | "billing:manage"
+  | "api_keys:read"
+  | "api_keys:write"
+  | "api_keys:delete"
+  | "webhooks:read"
+  | "webhooks:write"
+  | "webhooks:delete"
+  | "reports:read"
+  | "reports:create"
   | "audit_logs:read"
   // Superuser wildcard — granted only to owner. Named "admin:*" for historical
   // reasons but admin role does NOT have this permission; only owner does.
@@ -49,9 +69,16 @@ interface RoleDefinition {
 const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
   viewer: {
     permissions: [
-      "invoices:read", "expenses:read", "orders:read", "customers:read",
-      "inventory:read", "hr:read", "accounting:read", "analytics:read",
-      "users:read", "settings:read",
+      "invoices:read",
+      "expenses:read",
+      "orders:read",
+      "customers:read",
+      "inventory:read",
+      "hr:read",
+      "accounting:read",
+      "analytics:read",
+      "users:read",
+      "settings:read",
       // NOTE: billing:read is intentionally NOT granted to viewer.
       // Billing information (plan tier, payment methods, invoices) is sensitive
       // and is restricted to manager and above.
@@ -59,26 +86,35 @@ const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
   },
   member: {
     inherits: ["viewer"],
-    permissions: [
-      "invoices:write", "expenses:write", "orders:write", "customers:write",
-    ],
+    permissions: ["invoices:write", "expenses:write", "orders:write", "customers:write"],
   },
   manager: {
     inherits: ["member"],
     permissions: [
-      "invoices:delete", "expenses:delete", "orders:delete", "customers:delete",
-      "inventory:write", "hr:write", "payroll:read",
-      "billing:read", "reports:read",
-      "api_keys:read", "webhooks:read",
+      "invoices:delete",
+      "expenses:delete",
+      "orders:delete",
+      "customers:delete",
+      "inventory:write",
+      "hr:write",
+      "billing:read",
+      "reports:read",
+      "api_keys:read",
+      "webhooks:read",
     ],
   },
   admin: {
     inherits: ["manager"],
     permissions: [
-      "payroll:write", "accounting:write", "reports:create",
-      "users:invite", "users:remove", "settings:write",
-      "api_keys:write", "api_keys:delete",
-      "webhooks:write", "webhooks:delete",
+      "accounting:write",
+      "reports:create",
+      "users:invite",
+      "users:remove",
+      "settings:write",
+      "api_keys:write",
+      "api_keys:delete",
+      "webhooks:write",
+      "webhooks:delete",
       "audit_logs:read",
     ],
   },

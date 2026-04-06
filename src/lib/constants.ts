@@ -71,12 +71,11 @@ export const LOCALE = {
   DEFAULT_CURRENCY: "GYD" as const,
   DEFAULT_TIMEZONE: "America/Guyana",
   DATE_FORMAT: "DD/MM/YYYY",
-  VAT_RATE_GUYANA: 0.14, // 14%
 } as const;
 
 /**
  * Supported currencies — Caribbean-first, international-second.
- * For full Caribbean constants (NIS, PAYE, CARICOM) see ./caribbean/constants.ts
+ * For Caribbean constants (CARICOM, currencies) see ./caribbean/constants.ts
  */
 export const CURRENCY_CODES = ["GYD", "USD", "TTD", "BBD", "JMD", "XCD", "EUR", "GBP", "CAD"] as const;
 export type CurrencyCode = (typeof CURRENCY_CODES)[number];

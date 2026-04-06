@@ -83,8 +83,8 @@ describe("MODULE_BUNDLES", () => {
 });
 
 describe("MODULES", () => {
-  it("has at least 38 modules", () => {
-    expect(MODULES.length).toBeGreaterThanOrEqual(38);
+  it("has at least 30 modules", () => {
+    expect(MODULES.length).toBeGreaterThanOrEqual(30);
   });
 
   it("each module has a unique id", () => {

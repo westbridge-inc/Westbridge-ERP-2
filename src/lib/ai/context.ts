@@ -6,12 +6,11 @@ const MODULE_CONTEXT: Record<AiModule, string> = {
   crm: "You are in the Sales & CRM module. You can access leads, opportunities, quotations, sales orders, and customer data.",
   inventory:
     "You are in the Inventory & Supply Chain module. You can access stock entries, warehouses, purchase orders, BOMs, and suppliers.",
-  hr: "You are in the HR & Payroll module. You can access employees, salary slips, leave applications, expense claims, and appraisals.",
+  hr: "You are in the HR module. You can access employees, leave applications, expense claims, and appraisals.",
   manufacturing:
     "You are in the Manufacturing module. You can access work orders, production plans, BOMs, routings, and workstations.",
   projects: "You are in the Project Management module. You can access projects, tasks, timesheets, and milestones.",
-  biztools:
-    "You are in the Business Tools module. You can access POS invoices, website items, web pages, and custom reports.",
+  biztools: "You are in the Business Tools module. You can access web pages and custom reports.",
   general: "You have access to all ERP modules and data.",
 };
 

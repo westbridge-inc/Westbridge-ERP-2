@@ -54,7 +54,7 @@ export const DEMO_DATA: DashboardPayload = {
     { text: "Invoice #SI-00041 paid — $4,200", time: "2h ago", type: "success" },
     { text: "New sales order from Massy Distribution", time: "4h ago", type: "info" },
     { text: "Purchase order approved — $12,500", time: "6h ago", type: "success" },
-    { text: "Payroll run completed for 23 employees", time: "1d ago", type: "success" },
+    { text: "Stock entry recorded — 120 units of SKU-441", time: "1d ago", type: "info" },
     { text: "Invoice #SI-00039 overdue — $1,800", time: "2d ago", type: "error" },
   ],
   isDemo: true,
@@ -62,10 +62,7 @@ export const DEMO_DATA: DashboardPayload = {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-const MONTH_LABELS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function formatRelativeTime(dateStr: string): string {
   if (!dateStr) return "";
@@ -85,19 +82,11 @@ export async function buildDashboardData(
   erpnextCompany: string | null,
 ): Promise<DashboardPayload> {
   const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
 
   // Parallel ERP fetches — any individual failure falls back gracefully
   const [invoicesRes, ordersRes, employeesRes] = await Promise.allSettled([
-    list(
-      "Sales Invoice",
-      sessionId,
-      { limit_page_length: "100" },
-      accountId,
-      erpnextCompany,
-    ),
+    list("Sales Invoice", sessionId, { limit_page_length: "100" }, accountId, erpnextCompany),
     list(
       "Sales Order",
       sessionId,
@@ -123,9 +112,7 @@ export async function buildDashboardData(
   ]);
 
   // If all three calls failed, bail out to demo data
-  const anySucceeded = [invoicesRes, ordersRes, employeesRes].some(
-    (r) => r.status === "fulfilled" && r.value.ok,
-  );
+  const anySucceeded = [invoicesRes, ordersRes, employeesRes].some((r) => r.status === "fulfilled" && r.value.ok);
   if (!anySucceeded) return DEMO_DATA;
 
   // Revenue MTD — sum paid invoices this month
@@ -163,24 +150,19 @@ export async function buildDashboardData(
       revenueByMonth[month] += Number(inv.grand_total ?? 0);
     }
   }
-  const revenueData: RevenuePoint[] = Object.entries(revenueByMonth).map(
-    ([key, val]) => {
-      const [, m] = key.split("-");
-      return {
-        month: MONTH_LABELS[parseInt(m, 10) - 1],
-        value: parseFloat((val / 1_000_000).toFixed(2)),
-      };
-    },
-  );
+  const revenueData: RevenuePoint[] = Object.entries(revenueByMonth).map(([key, val]) => {
+    const [, m] = key.split("-");
+    return {
+      month: MONTH_LABELS[parseInt(m, 10) - 1],
+      value: parseFloat((val / 1_000_000).toFixed(2)),
+    };
+  });
 
   // Revenue change (last month vs month before)
   const monthValues = Object.values(revenueByMonth);
   const prevMonth = monthValues[monthValues.length - 2] ?? 0;
   const currMonth = monthValues[monthValues.length - 1] ?? 0;
-  const revenueChange =
-    prevMonth > 0
-      ? Math.round(((currMonth - prevMonth) / prevMonth) * 100)
-      : 0;
+  const revenueChange = prevMonth > 0 ? Math.round(((currMonth - prevMonth) / prevMonth) * 100) : 0;
 
   // Open sales orders
   const openDealsCount =
@@ -193,9 +175,7 @@ export async function buildDashboardData(
     employeesRes.status === "fulfilled" && employeesRes.value.ok
       ? (employeesRes.value.data as Record<string, unknown>[])
       : [];
-  const activeEmployees = employees.filter(
-    (e) => String(e.status ?? "") !== "Left",
-  );
+  const activeEmployees = employees.filter((e) => String(e.status ?? "") !== "Left");
   const employeeCount = activeEmployees.length || DEMO_DATA.employeeCount;
 
   // Delta: employees who joined this month
@@ -211,17 +191,13 @@ export async function buildDashboardData(
     if (status === "Paid") {
       activityItems.push({
         text: `Invoice ${String(inv.name ?? "")} paid — $${Number(inv.grand_total ?? 0).toLocaleString()}`,
-        time: formatRelativeTime(
-          String(inv.modified ?? inv.creation ?? ""),
-        ),
+        time: formatRelativeTime(String(inv.modified ?? inv.creation ?? "")),
         type: "success",
       });
     } else if (status === "Overdue") {
       activityItems.push({
         text: `Invoice ${String(inv.name ?? "")} overdue — $${Number(inv.outstanding_amount ?? inv.grand_total ?? 0).toLocaleString()}`,
-        time: formatRelativeTime(
-          String(inv.modified ?? inv.creation ?? ""),
-        ),
+        time: formatRelativeTime(String(inv.modified ?? inv.creation ?? "")),
         type: "error",
       });
     }

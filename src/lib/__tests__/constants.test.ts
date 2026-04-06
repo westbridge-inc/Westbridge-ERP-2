@@ -98,10 +98,6 @@ describe("LOCALE", () => {
   it("defaults to GYD (Caribbean-first)", () => {
     expect(LOCALE.DEFAULT_CURRENCY).toBe("GYD");
   });
-
-  it("Guyana VAT rate is 14%", () => {
-    expect(LOCALE.VAT_RATE_GUYANA).toBe(0.14);
-  });
 });
 
 describe("CURRENCY_CODES", () => {

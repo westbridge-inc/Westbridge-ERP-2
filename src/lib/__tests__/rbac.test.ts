@@ -56,19 +56,7 @@ describe("RBAC — hasPermission", () => {
     expect(hasPermission("manager", "billing:manage")).toBe(false);
   });
 
-  it("manager cannot write payroll", () => {
-    expect(hasPermission("manager", "payroll:write")).toBe(false);
-  });
-
-  it("manager can read payroll", () => {
-    expect(hasPermission("manager", "payroll:read")).toBe(true);
-  });
-
   // ── admin (inherits manager → member → viewer) ─────────────────────────
-
-  it("admin can write payroll", () => {
-    expect(hasPermission("admin", "payroll:write")).toBe(true);
-  });
 
   it("admin can invite users", () => {
     expect(hasPermission("admin", "users:invite")).toBe(true);
@@ -108,7 +96,7 @@ describe("RBAC — hasPermission", () => {
     expect(hasPermission("owner", "invoices:read")).toBe(true);
     expect(hasPermission("owner", "invoices:write")).toBe(true);
     expect(hasPermission("owner", "invoices:delete")).toBe(true);
-    expect(hasPermission("owner", "payroll:write")).toBe(true);
+    expect(hasPermission("owner", "hr:write")).toBe(true);
     expect(hasPermission("owner", "audit_logs:read")).toBe(true);
   });
 

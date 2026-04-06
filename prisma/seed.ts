@@ -163,11 +163,8 @@ async function main() {
         seedVersion: "1.0.0",
         caribbeanDefaults: {
           currency: "GYD",
-          vatRate: 0.14,
-          nisEmployerRate: 0.088,
-          nisEmployeeRate: 0.056,
-          nisCeiling: 280_000,
-          payeThreshold: 780_000,
+          country: "GY",
+          timezone: "America/Guyana",
         },
       },
       severity: "info",

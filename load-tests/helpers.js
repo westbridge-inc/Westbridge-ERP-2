@@ -1,26 +1,25 @@
-import http from 'k6/http';
-import { BASE_URL } from './config.js';
+import http from "k6/http";
+import { BASE_URL } from "./config.js";
 
 /**
  * Allowed ERPNext doctypes — mirrors ALLOWED_DOCTYPES from the backend.
  */
 const ALLOWED_DOCTYPES = [
-  'Sales Invoice',
-  'Sales Order',
-  'Purchase Invoice',
-  'Purchase Order',
-  'Quotation',
-  'Customer',
-  'Supplier',
-  'Item',
-  'Employee',
-  'Journal Entry',
-  'Payment Entry',
-  'Stock Entry',
-  'Expense Claim',
-  'Leave Application',
-  'Salary Slip',
-  'BOM',
+  "Sales Invoice",
+  "Sales Order",
+  "Purchase Invoice",
+  "Purchase Order",
+  "Quotation",
+  "Customer",
+  "Supplier",
+  "Item",
+  "Employee",
+  "Journal Entry",
+  "Payment Entry",
+  "Stock Entry",
+  "Expense Claim",
+  "Leave Application",
+  "BOM",
 ];
 
 /**
@@ -30,8 +29,8 @@ const ALLOWED_DOCTYPES = [
  */
 export function getAuthHeaders(csrfToken) {
   return {
-    'Content-Type': 'application/json',
-    'x-csrf-token': csrfToken,
+    "Content-Type": "application/json",
+    "x-csrf-token": csrfToken,
   };
 }
 
@@ -51,35 +50,31 @@ export function getAuthHeaders(csrfToken) {
  */
 export function loginAndGetSession() {
   const jar = http.cookieJar();
-  const email = __ENV.LOAD_TEST_EMAIL || 'loadtest@example.com';
-  const password = __ENV.LOAD_TEST_PASSWORD || 'Test1234!';
+  const email = __ENV.LOAD_TEST_EMAIL || "loadtest@example.com";
+  const password = __ENV.LOAD_TEST_PASSWORD || "Test1234!";
 
   // Step 1 — fetch CSRF token
   const csrfRes = http.get(`${BASE_URL}/api/csrf`, {
     jar,
-    tags: { name: 'csrf_fetch' },
+    tags: { name: "csrf_fetch" },
   });
-  let csrfToken = '';
+  let csrfToken = "";
   if (csrfRes.status === 200) {
     try {
       const body = csrfRes.json();
-      csrfToken = body.data && body.data.token ? body.data.token : '';
+      csrfToken = body.data && body.data.token ? body.data.token : "";
     } catch (_) {
       // If we cannot parse the body, fall back to the header
-      csrfToken = csrfRes.headers['X-Csrf-Token'] || '';
+      csrfToken = csrfRes.headers["X-Csrf-Token"] || "";
     }
   }
 
   // Step 2 — login
-  const loginRes = http.post(
-    `${BASE_URL}/api/auth/login`,
-    JSON.stringify({ email, password }),
-    {
-      headers: getAuthHeaders(csrfToken),
-      jar,
-      tags: { name: 'login' },
-    },
-  );
+  const loginRes = http.post(`${BASE_URL}/api/auth/login`, JSON.stringify({ email, password }), {
+    headers: getAuthHeaders(csrfToken),
+    jar,
+    tags: { name: "login" },
+  });
 
   return { jar, csrfToken, loginResponse: loginRes };
 }
