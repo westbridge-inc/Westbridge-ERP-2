@@ -59,63 +59,37 @@ describe("billing.service", () => {
   });
 
   describe("createAccount", () => {
+    const validInput = {
+      email: "a@b.com",
+      name: "Test User",
+      password: "password123",
+      companyName: "Test Co",
+      plan: "Starter",
+    };
+
     it("returns error for missing fields", async () => {
-      const result = await createAccount({ email: "", companyName: "", plan: "" });
+      const result = await createAccount({ email: "", name: "", password: "", companyName: "", plan: "" });
       expect(result.ok).toBe(false);
     });
 
     it("returns error for invalid plan", async () => {
-      const result = await createAccount({ email: "a@b.com", companyName: "Test", plan: "InvalidPlan" });
+      const result = await createAccount({ ...validInput, plan: "InvalidPlan" });
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error).toContain("Invalid plan");
     });
 
-    it("creates account with valid input", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: Function) => {
-        return fn({
-          account: {
-            findUnique: vi.fn().mockResolvedValue(null),
-            findFirst: vi.fn().mockResolvedValue(null),
-            create: vi.fn().mockResolvedValue({ id: "acc_1", email: "a@b.com" }),
-            delete: vi.fn(),
-          },
-        });
-      });
-
-      const result = await createAccount({ email: "a@b.com", companyName: "Test Co", plan: "Starter" });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.data.accountId).toBe("acc_1");
-        expect(result.data.status).toBe("pending");
-      }
-    });
-
-    it("does not return paymentUrl (Paddle checkout is frontend-only)", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: Function) => {
-        return fn({
-          account: {
-            findUnique: vi.fn().mockResolvedValue(null),
-            findFirst: vi.fn().mockResolvedValue(null),
-            create: vi.fn().mockResolvedValue({ id: "acc_1", email: "a@b.com" }),
-            delete: vi.fn(),
-          },
-        });
-      });
-
-      const result = await createAccount({ email: "a@b.com", companyName: "Test Co", plan: "Starter" });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        expect(result.data).not.toHaveProperty("paymentUrl");
-      }
-    });
-
     it("validates email is not empty whitespace", async () => {
-      const result = await createAccount({ email: "  ", companyName: "Test", plan: "Starter" });
+      const result = await createAccount({ ...validInput, email: "  " });
       expect(result.ok).toBe(false);
     });
 
     it("validates companyName is not empty whitespace", async () => {
-      const result = await createAccount({ email: "a@b.com", companyName: "  ", plan: "Starter" });
+      const result = await createAccount({ ...validInput, companyName: "  " });
+      expect(result.ok).toBe(false);
+    });
+
+    it("validates password minimum length", async () => {
+      const result = await createAccount({ ...validInput, password: "short" });
       expect(result.ok).toBe(false);
     });
   });

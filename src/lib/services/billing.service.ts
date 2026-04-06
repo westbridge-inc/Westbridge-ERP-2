@@ -12,26 +12,36 @@ import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
 import { publish } from "../realtime.js";
+import { hashPassword } from "./auth.service.js";
+import { createSession } from "./session.service.js";
 
 const VALID_PLANS: PlanSlug[] = ["Solo", "Starter", "Business", "Enterprise"];
 
 export interface CreateAccountInput {
   email: string;
+  name: string;
+  password: string;
   companyName: string;
   plan: string;
   modulesSelected?: string[];
   currency?: string;
+  request?: Request;
 }
 
 export interface CreateAccountResult {
   accountId: string;
-  status: "pending";
+  userId: string;
+  sessionToken: string;
+  status: "active";
 }
 
 export async function createAccount(input: CreateAccountInput): Promise<Result<CreateAccountResult, string>> {
-  const { email, companyName, plan, modulesSelected } = input;
-  if (!email?.trim() || !companyName?.trim() || !plan?.trim()) {
-    return err("Email, company name, and plan are required");
+  const { email, name, password, companyName, plan, modulesSelected, request } = input;
+  if (!email?.trim() || !name?.trim() || !password || !companyName?.trim() || !plan?.trim()) {
+    return err("Email, name, password, company name, and plan are required");
+  }
+  if (password.length < 8) {
+    return err("Password must be at least 8 characters");
   }
   const planSlug = plan as PlanSlug;
   if (!VALID_PLANS.includes(planSlug)) {
@@ -39,7 +49,9 @@ export async function createAccount(input: CreateAccountInput): Promise<Result<C
   }
 
   try {
-    const account = await prisma.$transaction(async (tx) => {
+    const passwordHash = await hashPassword(password);
+
+    const { account, user } = await prisma.$transaction(async (tx) => {
       // Check for existing account — findFirst bypasses soft-delete filter
       const existing =
         (await tx.account.findFirst({
@@ -60,7 +72,7 @@ export async function createAccount(input: CreateAccountInput): Promise<Result<C
       const trialEndsAt = new Date();
       trialEndsAt.setDate(trialEndsAt.getDate() + 14);
 
-      return tx.account.create({
+      const createdAccount = await tx.account.create({
         data: {
           email: email.trim(),
           companyName: companyName.trim(),
@@ -71,16 +83,44 @@ export async function createAccount(input: CreateAccountInput): Promise<Result<C
           trialAiLimit: 10,
         },
       });
+
+      // Create the owner user with the hashed password
+      const createdUser = await tx.user.create({
+        data: {
+          accountId: createdAccount.id,
+          email: email.trim(),
+          name: name.trim(),
+          role: "owner",
+          passwordHash,
+          status: "active",
+        },
+      });
+
+      return { account: createdAccount, user: createdUser };
     });
+
+    // Create a session so the user is automatically logged in after signup.
+    // Use a minimal Request if none provided (e.g., in tests).
+    const req =
+      request ?? (new Request("http://localhost/api/signup", { headers: { "user-agent": "signup" } }) as Request);
+    const sessionResult = await createSession(user.id, req);
+    if (!sessionResult.ok) {
+      return err("Account created but unable to start session. Please log in.");
+    }
 
     return ok({
       accountId: account.id,
-      status: "pending" as const,
+      userId: user.id,
+      sessionToken: sessionResult.data.token,
+      status: "active" as const,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     // Never leak Prisma/DB internals to the user
-    if (msg.includes("Unique constraint") || msg.includes("already exists")) {
+    if (msg.includes("already exists")) {
+      return err("An account with this email already exists. Please sign in.");
+    }
+    if (msg.includes("Unique constraint")) {
       return err("An account with this email already exists. Please sign in.");
     }
     return err("Unable to create your account right now. Please try again.");

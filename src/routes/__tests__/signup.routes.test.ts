@@ -57,8 +57,9 @@ vi.mock("../../lib/services/billing.service.js", () => ({
     ok: true,
     data: {
       accountId: "acc_new",
-      paymentUrl: "https://checkout.example.com/pay",
-      status: "pending",
+      userId: "user_new",
+      sessionToken: "session-token-abc",
+      status: "active",
     },
   }),
 }));
@@ -121,16 +122,14 @@ vi.mock("../../lib/api/cache-headers.js", () => ({
 vi.mock("../../lib/metering.js", () => ({
   meter: {
     increment: vi.fn().mockResolvedValue(undefined),
-    get: vi
-      .fn()
-      .mockResolvedValue({
-        api_calls: 0,
-        erp_docs_created: 0,
-        ai_tokens_input: 0,
-        ai_tokens_output: 0,
-        active_users_count: 0,
-        period: "2026-03",
-      }),
+    get: vi.fn().mockResolvedValue({
+      api_calls: 0,
+      erp_docs_created: 0,
+      ai_tokens_input: 0,
+      ai_tokens_output: 0,
+      active_users_count: 0,
+      period: "2026-03",
+    }),
     recordActiveUser: vi.fn().mockResolvedValue(undefined),
   },
   estimateAiCost: vi.fn().mockReturnValue(0),
@@ -156,6 +155,8 @@ const CSRF_COOKIE = "westbridge_csrf=test-csrf-token";
 
 const VALID_SIGNUP = {
   email: "newuser@acme.com",
+  name: "New User",
+  password: "password123",
   companyName: "Acme Corp",
   plan: "Starter",
 };
@@ -227,6 +228,8 @@ describe("Signup Routes", () => {
         .set("x-csrf-token", "test-csrf-token")
         .send({
           email: "user@mailinator.com",
+          name: "Spammer",
+          password: "password123",
           companyName: "Spammer Inc",
           plan: "Starter",
         });
@@ -242,6 +245,8 @@ describe("Signup Routes", () => {
         .set("x-csrf-token", "test-csrf-token")
         .send({
           email: "test@yopmail.com",
+          name: "Tester",
+          password: "password123",
           companyName: "Test Corp",
           plan: "Starter",
         });
@@ -259,8 +264,8 @@ describe("Signup Routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("accountId", "acc_new");
-      expect(res.body.data).toHaveProperty("paymentUrl");
-      expect(res.body.data).toHaveProperty("status", "pending");
+      expect(res.body.data).toHaveProperty("sessionToken");
+      expect(res.body.data).toHaveProperty("status", "active");
     });
 
     it("returns 409 when email already exists", async () => {
