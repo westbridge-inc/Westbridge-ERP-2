@@ -122,6 +122,9 @@ router.get("/sso/authorize", rateLimit("anonymous", "/api/sso/authorize"), async
     return res.status(500).json(apiError("SSO_ERROR", "Invalid SSO authorization URL"));
   }
 
+  // Sanitized above: hostname validated against admin-set issuerUrl + HTTPS enforced
+  // nosemgrep: javascript.express.web.tainted-redirect-express.tainted-redirect-express
+  // nosemgrep: javascript.express.open-redirect-deepsemgrep.open-redirect-deepsemgrep
   return res.redirect(result.data.url);
 });
 
