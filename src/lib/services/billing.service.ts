@@ -7,13 +7,14 @@
  */
 
 import { prisma } from "../data/prisma.js";
-import { verifyWebhookSignature, type PlanSlug } from "../data/paddle.client.js";
+import { verifyWebhookSignature, refundPaddleTransaction, type PlanSlug } from "../data/paddle.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
 import { publish } from "../realtime.js";
 import { hashPassword } from "./auth.service.js";
 import { createSession } from "./session.service.js";
+import { logger } from "../logger.js";
 
 const VALID_PLANS: PlanSlug[] = ["Solo", "Starter", "Business", "Enterprise"];
 
@@ -196,4 +197,114 @@ export async function markAccountPaid(
   } catch {
     return err("Unable to process your payment right now. Please try again or contact support.");
   }
+}
+
+// ─── Refunds ─────────────────────────────────────────────────────────────────
+
+const REFUND_WINDOW_DAYS = 14;
+
+export interface RefundRequest {
+  invoiceId: string;
+  accountId: string;
+  reason: string;
+  requestedBy: string; // userId of requester
+}
+
+export interface RefundResult {
+  refunded: boolean;
+  amount: string;
+  currency: string;
+  adjustmentId: string;
+}
+
+/**
+ * Process a refund for a billing invoice.
+ *
+ * Policy:
+ *   - Refunds allowed within REFUND_WINDOW_DAYS (14) of the original payment
+ *   - Already-refunded invoices are rejected
+ *   - Only the account owner or admin can request a refund (enforced by route)
+ *   - Refund issued through Paddle (Merchant of Record) — funds returned to
+ *     original payment method by Paddle within 5-10 business days
+ */
+export async function refundInvoice(req: RefundRequest): Promise<Result<RefundResult, string>> {
+  if (!req.invoiceId || !req.reason?.trim()) {
+    return err("Invoice ID and reason are required");
+  }
+
+  const invoice = await prisma.billingInvoice
+    .findFirst({
+      where: { id: req.invoiceId, accountId: req.accountId },
+    })
+    .catch(() => null);
+
+  if (!invoice) {
+    return err("Invoice not found");
+  }
+
+  if (invoice.status === "refunded") {
+    return err("This invoice has already been refunded");
+  }
+
+  if (invoice.status !== "paid") {
+    return err("Only paid invoices can be refunded");
+  }
+
+  if (!invoice.paidAt) {
+    return err("Invoice has no payment date — cannot determine refund eligibility");
+  }
+
+  const ageMs = Date.now() - invoice.paidAt.getTime();
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  if (ageDays > REFUND_WINDOW_DAYS) {
+    return err(
+      `Refund window has expired. Refunds are available within ${REFUND_WINDOW_DAYS} days of payment. This payment was ${Math.floor(ageDays)} days ago.`,
+    );
+  }
+
+  if (!invoice.transactionId) {
+    return err("Invoice has no payment provider transaction ID — cannot process refund");
+  }
+
+  // Issue the refund through Paddle
+  const result = await refundPaddleTransaction(invoice.transactionId, req.reason, "full");
+  if (!result.ok) {
+    logger.error("Refund failed", {
+      invoiceId: req.invoiceId,
+      accountId: req.accountId,
+      reason: result.error,
+    });
+    return err(result.error);
+  }
+
+  // Mark the invoice as refunded
+  await prisma.billingInvoice.update({
+    where: { id: req.invoiceId },
+    data: { status: "refunded" },
+  });
+
+  logger.info("Refund processed", {
+    invoiceId: req.invoiceId,
+    accountId: req.accountId,
+    requestedBy: req.requestedBy,
+    adjustmentId: result.adjustmentId,
+    amount: invoice.amount.toString(),
+  });
+
+  // Notify user
+  void publish(req.accountId, {
+    type: "notification.new",
+    payload: {
+      title: "Refund processed",
+      message: `Your refund of ${invoice.currency} ${invoice.amount.toString()} is on its way (5-10 business days).`,
+    },
+    timestamp: new Date().toISOString(),
+  });
+
+  return ok({
+    refunded: true,
+    amount: invoice.amount.toString(),
+    currency: invoice.currency,
+    adjustmentId: result.adjustmentId,
+  });
 }

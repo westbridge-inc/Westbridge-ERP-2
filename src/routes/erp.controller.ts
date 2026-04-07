@@ -181,13 +181,10 @@ export async function handleList(req: Request, res: Response): Promise<Response>
     }
     const ctx = auditContext(toWebRequest(req));
     const { accountId, erpnextSid } = session;
-    if (!erpnextSid) {
-      res.set(responseHeaders());
-      return res
-        .status(401)
-        .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
-    }
-    const sid = erpnextSid;
+    // Fall back to API-key auth when no per-user ERPNext session is available
+    // (e.g. fresh signup that hasn't completed ERPNext login flow yet).
+    // The ERP client uses ERPNEXT_API_KEY/SECRET when sid is "dev-local-session".
+    const sid = erpnextSid ?? "dev-local-session";
 
     const doctype = req.query.doctype as string | undefined;
     if (!doctype) {
@@ -323,12 +320,6 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
 
   try {
     const session = req.session!;
-    if (!session.erpnextSid) {
-      res.set(responseHeaders());
-      return res
-        .status(401)
-        .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
-    }
     const ctx = auditContext(toWebRequest(req));
 
     const doctype = req.query.doctype as string | undefined;
@@ -357,7 +348,7 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
       }
     }
 
-    const result = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
+    const result = await getDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
     if (!result.ok) {
       const status = result.error === "Not found" ? 404 : 502;
       res.set(responseHeaders());
@@ -413,13 +404,6 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
 
-    if (!session.erpnextSid) {
-      res.set(responseHeaders());
-      return res
-        .status(401)
-        .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
-    }
-
     const rateLimitPost = await checkTieredRateLimit(
       getClientIdentifier(toWebRequest(req)),
       "authenticated",
@@ -448,7 +432,7 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
     }
     const result = await createDoc(
       doctype,
-      session.erpnextSid as string,
+      session.erpnextSid ?? "dev-local-session",
       data as Record<string, unknown>,
       session.accountId,
     );
@@ -499,13 +483,6 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
 
-    if (!session.erpnextSid) {
-      res.set(responseHeaders());
-      return res
-        .status(401)
-        .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
-    }
-
     const parsed = erpDocCreateBodySchema.safeParse(req.body);
     if (!parsed.success) {
       const first = parsed.error.flatten().fieldErrors;
@@ -528,7 +505,7 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     }
 
     // Tenant isolation: always fetch and verify ownership before updating
-    const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
+    const existing = await getDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
     if (
       existing.ok &&
       (await verifyTenantAccess(doctype, session.accountId, existing.data as Record<string, unknown>))
@@ -540,7 +517,7 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     const result = await updateDoc(
       doctype,
       name,
-      session.erpnextSid as string,
+      session.erpnextSid ?? "dev-local-session",
       data as Record<string, unknown>,
       session.accountId,
     );
@@ -585,13 +562,6 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
 
-    if (!session.erpnextSid) {
-      res.set(responseHeaders());
-      return res
-        .status(401)
-        .json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
-    }
-
     const doctype = req.query.doctype as string | undefined;
     const name = req.query.name as string | undefined;
     if (!doctype || !name) {
@@ -605,7 +575,7 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
     }
 
     // Tenant isolation: always fetch and verify ownership before deleting
-    const existing = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
+    const existing = await getDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
     if (
       existing.ok &&
       (await verifyTenantAccess(doctype, session.accountId, existing.data as Record<string, unknown>))
@@ -614,7 +584,7 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
       return res.status(403).json(apiError("FORBIDDEN", "You do not have access to this document", undefined, meta()));
     }
 
-    const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);
+    const result = await deleteDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
     if (!result.ok) {
       res.set(responseHeaders());
       return res

@@ -157,7 +157,7 @@ describe("erp.controller", () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it("returns 401 when no ERP session", async () => {
+    it("falls back to API-key auth when no ERPNext session (e.g. fresh signup)", async () => {
       const req = mockReq({
         query: { doctype: "Sales Invoice" },
         session: { userId: "user-1", accountId: "acc-1", role: "owner", erpnextSid: null },
@@ -166,7 +166,8 @@ describe("erp.controller", () => {
 
       await handleList(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(401);
+      // Should NOT 401 — should fall through to the ERP list call (which uses API-key auth)
+      expect(res.status).not.toHaveBeenCalledWith(401);
     });
 
     it("returns 429 when rate limited", async () => {

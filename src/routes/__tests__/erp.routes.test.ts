@@ -215,12 +215,13 @@ describe("ERP Routes", () => {
       expect(Array.isArray(res.body.data)).toBe(true);
     });
 
-    it("returns 401 when ERP session is not available", async () => {
+    it("falls back to API-key auth when no ERPNext session (fresh signup)", async () => {
       mockAuthenticatedSession({ erpnextSid: null });
 
       const res = await request(app).get("/api/erp/list?doctype=Sales+Invoice").set("Cookie", SESSION_COOKIE);
 
-      expect(res.status).toBe(401);
+      // Should NOT 401 — falls back to ERPNEXT_API_KEY/SECRET in the ERP client
+      expect(res.status).not.toBe(401);
     });
 
     it("handles pagination parameters", async () => {
