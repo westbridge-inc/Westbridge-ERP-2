@@ -33,31 +33,18 @@ export interface DashboardPayload {
   isDemo?: boolean;
 }
 
-// ─── Demo / fallback data ───────────────────────────────────────────────────
+// ─── Empty / fallback data ──────────────────────────────────────────────────
+// New accounts and accounts with no ERP data show all zeros — never fake numbers.
 
-export const DEMO_DATA: DashboardPayload = {
-  revenueMTD: 48250,
-  revenueChange: 12,
-  outstandingCount: 7,
-  openDealsCount: 14,
-  employeeCount: 23,
-  employeeDelta: 2,
-  revenueData: [
-    { month: "Sep", value: 1.8 },
-    { month: "Oct", value: 2.1 },
-    { month: "Nov", value: 2.4 },
-    { month: "Dec", value: 1.9 },
-    { month: "Jan", value: 3.1 },
-    { month: "Feb", value: 3.4 },
-  ],
-  activity: [
-    { text: "Invoice #SI-00041 paid — $4,200", time: "2h ago", type: "success" },
-    { text: "New sales order from Massy Distribution", time: "4h ago", type: "info" },
-    { text: "Purchase order approved — $12,500", time: "6h ago", type: "success" },
-    { text: "Stock entry recorded — 120 units of SKU-441", time: "1d ago", type: "info" },
-    { text: "Invoice #SI-00039 overdue — $1,800", time: "2d ago", type: "error" },
-  ],
-  isDemo: true,
+export const EMPTY_DATA: DashboardPayload = {
+  revenueMTD: 0,
+  revenueChange: 0,
+  outstandingCount: 0,
+  openDealsCount: 0,
+  employeeCount: 0,
+  employeeDelta: 0,
+  revenueData: [],
+  activity: [],
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -113,7 +100,7 @@ export async function buildDashboardData(
 
   // If all three calls failed, bail out to demo data
   const anySucceeded = [invoicesRes, ordersRes, employeesRes].some((r) => r.status === "fulfilled" && r.value.ok);
-  if (!anySucceeded) return DEMO_DATA;
+  if (!anySucceeded) return EMPTY_DATA;
 
   // Revenue MTD — sum paid invoices this month
   const invoices =
@@ -166,9 +153,7 @@ export async function buildDashboardData(
 
   // Open sales orders
   const openDealsCount =
-    ordersRes.status === "fulfilled" && ordersRes.value.ok
-      ? (ordersRes.value.data as unknown[]).length
-      : DEMO_DATA.openDealsCount;
+    ordersRes.status === "fulfilled" && ordersRes.value.ok ? (ordersRes.value.data as unknown[]).length : 0;
 
   // Employee count (active employees only)
   const employees =
@@ -176,7 +161,7 @@ export async function buildDashboardData(
       ? (employeesRes.value.data as Record<string, unknown>[])
       : [];
   const activeEmployees = employees.filter((e) => String(e.status ?? "") !== "Left");
-  const employeeCount = activeEmployees.length || DEMO_DATA.employeeCount;
+  const employeeCount = activeEmployees.length;
 
   // Delta: employees who joined this month
   const employeeDelta = activeEmployees.filter((e) => {

@@ -4,7 +4,7 @@ vi.mock("../erp.service.js", () => ({
   list: vi.fn(),
 }));
 
-import { buildDashboardData, formatRelativeTime, DEMO_DATA } from "../dashboard.service.js";
+import { buildDashboardData, formatRelativeTime, EMPTY_DATA } from "../dashboard.service.js";
 import { list } from "../erp.service.js";
 
 describe("dashboard.service", () => {
@@ -34,12 +34,13 @@ describe("dashboard.service", () => {
   });
 
   describe("buildDashboardData", () => {
-    it("returns demo data when all ERP calls fail", async () => {
+    it("returns empty data (all zeros) when all ERP calls fail", async () => {
       (list as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "offline" });
 
       const result = await buildDashboardData("sid", "acc_1", "Co");
-      expect(result.isDemo).toBe(true);
-      expect(result).toEqual(DEMO_DATA);
+      expect(result).toEqual(EMPTY_DATA);
+      expect(result.revenueMTD).toBe(0);
+      expect(result.employeeCount).toBe(0);
     });
 
     it("returns real data when ERP calls succeed", async () => {

@@ -32,7 +32,7 @@ router.get("/billing/history", requireAuth, requirePermission("billing:read"), a
     const [account, invoices] = await Promise.all([
       prisma.account.findUnique({
         where: { id: session.accountId },
-        select: { plan: true, status: true, createdAt: true },
+        select: { plan: true, status: true, createdAt: true, trialEndsAt: true },
       }),
       prisma.billingInvoice.findMany({
         where: { accountId: session.accountId },
@@ -59,6 +59,7 @@ router.get("/billing/history", requireAuth, requirePermission("billing:read"), a
           plan: account?.plan ?? null,
           status: account?.status ?? null,
           accountCreatedAt: account?.createdAt ?? null,
+          trialEndsAt: account?.trialEndsAt ?? null,
         },
         meta(),
       ),
