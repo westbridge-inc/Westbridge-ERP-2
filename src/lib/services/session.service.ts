@@ -170,7 +170,12 @@ export async function createSession(
     }
 
     return ok({ token: raw, expiresAt });
-  } catch {
+  } catch (e) {
+    logger.error("createSession failed", {
+      userId,
+      error: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    });
     return err("Unable to create your session. Please try again.");
   }
 }
