@@ -55,25 +55,29 @@ export async function login(email: string, password: string): Promise<Result<str
   // password consisting entirely of whitespace is almost certainly a mistake.
   if (!password || !password.trim()) return err("Email and password required");
 
-  const erpResult = await erpLogin(trimmedEmail, password);
+  // Try local bcrypt verification first. Westbridge is the source of truth
+  // for user authentication — ERPNext is the data engine, not the auth provider.
+  // Users created via signup live in our DB with a bcrypt hash; ERPNext only
+  // sees them via API key auth (shared service account).
+  const user = await prisma.user
+    .findFirst({ where: { email: trimmedEmail }, select: { passwordHash: true } })
+    .catch(() => null);
 
-  // In development, fall back to local bcrypt verification when ERPNext is
-  // unreachable. This allows local testing without a running ERPNext instance.
-  if (!erpResult.ok && process.env.NODE_ENV === "development") {
-    logger.info("ERPNext login failed, trying local password fallback (dev mode)");
-    const user = await prisma.user
-      .findFirst({ where: { email: trimmedEmail }, select: { passwordHash: true } })
-      .catch(() => null);
-    if (user?.passwordHash) {
-      const match = await verifyPassword(password, user.passwordHash);
-      if (match) {
-        logger.info("Local password verification succeeded (dev mode)");
-        return ok("dev-local-session");
-      }
+  if (user?.passwordHash) {
+    const match = await verifyPassword(password, user.passwordHash);
+    if (match) {
+      logger.info("Local password verification succeeded", { email: trimmedEmail });
+      // Return the dev-local-session sentinel — the ERP client uses API key auth
+      // when it sees this value, so all ERPNext calls work normally.
+      return ok("dev-local-session");
     }
+    // User exists but password is wrong — return invalid credentials
+    return err("Invalid email or password");
   }
 
-  return erpResult;
+  // User not in our DB — fall back to ERPNext login (legacy users that were
+  // created in ERPNext directly before the signup flow stored hashes locally).
+  return erpLogin(trimmedEmail, password);
 }
 
 // ---------------------------------------------------------------------------

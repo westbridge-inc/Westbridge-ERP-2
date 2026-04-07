@@ -15,7 +15,7 @@ vi.mock("../../data/auth.client.js", () => ({
   erpLogin: vi.fn(),
 }));
 vi.mock("../../data/prisma.js", () => ({
-  prisma: { user: { findFirst: vi.fn() } },
+  prisma: { user: { findFirst: vi.fn().mockResolvedValue(null) } },
 }));
 // Logger: suppress output
 vi.mock("../../logger.js", () => ({
@@ -81,23 +81,52 @@ describe("auth.service", () => {
       expect(result.ok).toBe(false);
     });
 
-    it("returns ok on successful ERPNext login", async () => {
+    it("returns ok on successful ERPNext login (no local user)", async () => {
+      const { prisma } = await import("../../data/prisma.js");
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
       vi.mocked(erpLogin).mockResolvedValue({ ok: true, data: "session-id" });
       const result = await login("test@test.com", "password123");
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.data).toBe("session-id");
     });
 
-    it("returns error on ERPNext failure (production)", async () => {
+    it("returns error on ERPNext failure when no local user", async () => {
+      const { prisma } = await import("../../data/prisma.js");
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
       vi.mocked(erpLogin).mockResolvedValue({ ok: false, error: "Invalid credentials" });
       const result = await login("test@test.com", "wrong");
       expect(result.ok).toBe(false);
     });
 
     it("trims email before login", async () => {
+      const { prisma } = await import("../../data/prisma.js");
+      vi.mocked(prisma.user.findFirst).mockResolvedValue(null);
       vi.mocked(erpLogin).mockResolvedValue({ ok: true, data: "sid" });
       await login("  test@test.com  ", "pass");
       expect(erpLogin).toHaveBeenCalledWith("test@test.com", "pass");
+    });
+
+    it("verifies local bcrypt hash before falling back to ERPNext", async () => {
+      const { hashPassword } = await import("../auth.service.js");
+      const hash = await hashPassword("correctpassword");
+      const { prisma } = await import("../../data/prisma.js");
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({ passwordHash: hash } as never);
+      const result = await login("test@test.com", "correctpassword");
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.data).toBe("dev-local-session");
+      // Should NOT call ERPNext when local password matches
+      expect(erpLogin).not.toHaveBeenCalled();
+    });
+
+    it("returns error for wrong password when local user exists", async () => {
+      const { hashPassword } = await import("../auth.service.js");
+      const hash = await hashPassword("correctpassword");
+      const { prisma } = await import("../../data/prisma.js");
+      vi.mocked(prisma.user.findFirst).mockResolvedValue({ passwordHash: hash } as never);
+      const result = await login("test@test.com", "wrongpassword");
+      expect(result.ok).toBe(false);
+      // Should NOT fall through to ERPNext if local user exists
+      expect(erpLogin).not.toHaveBeenCalled();
     });
   });
 });
