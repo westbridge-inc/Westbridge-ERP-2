@@ -82,6 +82,29 @@ describe("Encryption — key validation", () => {
     vi.stubEnv("ENCRYPTION_KEY", "gg" + "0".repeat(62)); // 'gg' is not valid hex
     expect(() => encrypt("test")).toThrow("ENCRYPTION_KEY");
   });
+
+  // Regression test: production deploy had a 32-char key which silently
+  // failed. Verify both the valid length (64) and several invalid lengths
+  // are checked correctly.
+  it("regression: throws when ENCRYPTION_KEY is exactly 32 chars (was deployed with this!)", () => {
+    vi.stubEnv("ENCRYPTION_KEY", "a".repeat(32));
+    expect(() => encrypt("test")).toThrow(/64 hex characters/);
+  });
+
+  it("throws when ENCRYPTION_KEY is 63 chars (one short)", () => {
+    vi.stubEnv("ENCRYPTION_KEY", "a".repeat(63));
+    expect(() => encrypt("test")).toThrow(/64 hex characters/);
+  });
+
+  it("throws when ENCRYPTION_KEY is 65 chars (one over)", () => {
+    vi.stubEnv("ENCRYPTION_KEY", "a".repeat(65));
+    expect(() => encrypt("test")).toThrow(/64 hex characters/);
+  });
+
+  it("accepts ENCRYPTION_KEY of exactly 64 hex chars", () => {
+    vi.stubEnv("ENCRYPTION_KEY", "0123456789abcdef".repeat(4));
+    expect(() => encrypt("test")).not.toThrow();
+  });
 });
 
 describe("Encryption — tamper detection", () => {
