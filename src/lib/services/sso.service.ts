@@ -12,9 +12,13 @@
  *
  * Security:
  *   - PKCE (Proof Key for Code Exchange) for authorization code flow
- *   - State parameter with HMAC signature to prevent CSRF
- *   - Nonce in ID token to prevent replay attacks
- *   - ID token signature verification via JWKS
+ *   - State parameter with HMAC signature + Redis-pinned nonce to prevent CSRF
+ *   - User identity is sourced from the IdP's userinfo endpoint via the
+ *     access token (not from ID token claims), so we do not currently parse
+ *     or trust the ID token. This deliberately sidesteps the need for JWKS
+ *     verification at the cost of one extra HTTP call per login. If you
+ *     migrate to ID-token-based identity, add JWKS verification + nonce
+ *     claim validation here before trusting any claims.
  */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
@@ -108,14 +112,20 @@ export async function buildAuthorizationUrl(
   const codeVerifier = randomBytes(32).toString("base64url");
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
 
-  // State: HMAC-signed to prevent CSRF
+  // State: HMAC-signed to prevent CSRF + a server-stored nonce that pins the
+  // state to a single Redis key. Both must validate on callback or the login
+  // is rejected. SESSION_SECRET is the keying material; env.ts is the
+  // production gatekeeper that ensures SESSION_SECRET is non-default before
+  // the server starts, so here we tolerate the dev fallback for tests/local.
   const nonce = randomBytes(16).toString("hex");
   const statePayload = `${accountId}:${nonce}`;
   const stateSecret = process.env.SESSION_SECRET ?? "dev-secret";
   const stateSig = createHmac("sha256", stateSecret).update(statePayload).digest("hex").slice(0, 32);
   const state = `${statePayload}:${stateSig}`;
 
-  // Store code verifier and nonce in Redis (5 min TTL)
+  // Store code verifier and nonce in Redis (5 min TTL). The nonce is also
+  // sent to the IdP so that, if we ever switch to ID-token-claims-based
+  // identity, the round-trip nonce can be validated against the stored copy.
   const redis = getRedis();
   if (redis) {
     await redis.set(`sso:state:${state}`, JSON.stringify({ codeVerifier, nonce, accountId }), "EX", 300);
@@ -162,7 +172,9 @@ export async function handleCallback(
     accountId: string;
   };
 
-  // Verify state signature
+  // Verify state signature using the same SESSION_SECRET that signed it.
+  // env.ts is the production gatekeeper for SESSION_SECRET; the dev fallback
+  // must match the one used in buildAuthorizationUrl() so signatures verify.
   const stateSecret = process.env.SESSION_SECRET ?? "dev-secret";
   const parts = state.split(":");
   if (parts.length !== 3) return err("Malformed SSO state");

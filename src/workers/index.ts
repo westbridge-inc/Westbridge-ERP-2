@@ -12,7 +12,7 @@ import { prisma } from "../lib/data/prisma.js";
 import { logger } from "../lib/logger.js";
 import { DATA_RETENTION } from "../lib/data-retention.js";
 import { erpGet } from "../lib/data/erpnext.client.js";
-import { decrypt } from "../lib/encryption.js";
+import { decrypt, isEncrypted } from "../lib/encryption.js";
 import { publish } from "../lib/realtime.js";
 import { getRedisConfig } from "../lib/redis.js";
 import { SECURITY } from "../lib/constants.js";
@@ -148,7 +148,11 @@ function createCleanupWorker(): Worker {
       } else if (task === "send-trial-warnings") {
         const { sendTrialWarningEmails } = await import("../lib/services/subscription.service.js");
         const result = await sendTrialWarningEmails();
-        logger.info("Trial warning emails sent", { jobId: job.id, sent3Day: result.sent3Day, sent1Day: result.sent1Day });
+        logger.info("Trial warning emails sent", {
+          jobId: job.id,
+          sent3Day: result.sent3Day,
+          sent1Day: result.sent1Day,
+        });
       } else if (task === "cleanup-expired-trials") {
         const { cleanupExpiredTrialData } = await import("../lib/services/subscription.service.js");
         const result = await cleanupExpiredTrialData();
@@ -201,7 +205,14 @@ function createWebhooksWorker(): Worker {
         // SSRF protection: verify the webhook URL does not target private/reserved IPs
         await assertNotPrivateUrl(endpoint.url);
 
-        const secret = decrypt(endpoint.secret);
+        // The schema documents WebhookEndpoint.secret as encrypted-at-rest,
+        // and any new write paths MUST encrypt before persisting (use the
+        // encrypt() helper). Until every legacy row has been backfilled to
+        // ciphertext, we tolerate plaintext on read by detecting the format
+        // and skipping decryption when the value is not a ciphertext blob.
+        // This keeps webhook delivery functional through the migration window
+        // without weakening the encrypt-on-write guarantee for new rows.
+        const secret = isEncrypted(endpoint.secret) ? decrypt(endpoint.secret) : endpoint.secret;
         const bodyStr = JSON.stringify(payload);
         const signature = createHmac("sha256", secret).update(bodyStr).digest("hex");
 

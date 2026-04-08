@@ -2,7 +2,7 @@
  * Encryption unit tests — AES-256-GCM encrypt/decrypt, key validation, key rotation.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { encrypt, decrypt } from "../encryption.js";
+import { encrypt, decrypt, isEncrypted, validateEncryptionKey } from "../encryption.js";
 import { randomBytes as _randomBytes } from "crypto";
 
 // Valid 32-byte hex key for testing
@@ -189,5 +189,114 @@ describe("Encryption — key rotation", () => {
     vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "aabbccdd" + "0".repeat(56));
 
     expect(() => decrypt(ciphertext)).toThrow("Decryption failed");
+  });
+});
+
+describe("Encryption — isEncrypted", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("recognises a real ciphertext blob", () => {
+    const ct = encrypt("hello");
+    expect(isEncrypted(ct)).toBe(true);
+  });
+
+  it("rejects plaintext", () => {
+    expect(isEncrypted("hello world")).toBe(false);
+    expect(isEncrypted("plain-text-secret")).toBe(false);
+    expect(isEncrypted("base64==/+stuff")).toBe(false);
+  });
+
+  it("rejects malformed ciphertext lookalikes", () => {
+    // 24 hex chars (correct IV length) but no auth tag or data
+    expect(isEncrypted("a".repeat(24))).toBe(false);
+    // Two segments with hex but missing data segment
+    expect(isEncrypted("a".repeat(24) + ":" + "b".repeat(32))).toBe(false);
+    // Right shape but wrong IV length (12 hex = 6 bytes, not 12 bytes)
+    expect(isEncrypted("aaaaaaaaaaaa:" + "b".repeat(32) + ":" + "cc")).toBe(false);
+    // Right shape but wrong tag length
+    expect(isEncrypted("a".repeat(24) + ":" + "b".repeat(20) + ":" + "cc")).toBe(false);
+  });
+
+  it("rejects empty / non-string input", () => {
+    expect(isEncrypted("")).toBe(false);
+    // @ts-expect-error — runtime guard for non-string callers
+    expect(isEncrypted(null)).toBe(false);
+    // @ts-expect-error
+    expect(isEncrypted(undefined)).toBe(false);
+    // @ts-expect-error
+    expect(isEncrypted(123)).toBe(false);
+  });
+
+  it("rejects ciphertexts that contain uppercase hex (encrypt only emits lowercase)", () => {
+    // encrypt() always emits lowercase hex, so an uppercase blob is either
+    // hand-crafted or corrupted — either way we should not consider it valid.
+    const ct = encrypt("hi").toUpperCase();
+    expect(isEncrypted(ct)).toBe(false);
+  });
+});
+
+describe("Encryption — validateEncryptionKey (startup hook)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("passes with a valid 64-char hex key", () => {
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "");
+    expect(() => validateEncryptionKey()).not.toThrow();
+  });
+
+  it("passes with both ENCRYPTION_KEY and ENCRYPTION_KEY_PREVIOUS valid", () => {
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", ALTERNATE_KEY);
+    expect(() => validateEncryptionKey()).not.toThrow();
+  });
+
+  it("throws when ENCRYPTION_KEY is malformed (regression for silent prod failure)", () => {
+    vi.stubEnv("ENCRYPTION_KEY", "not-hex-and-too-short");
+    expect(() => validateEncryptionKey()).toThrow(/64 hex characters/);
+  });
+
+  it("throws when ENCRYPTION_KEY_PREVIOUS is set but malformed", () => {
+    // The current key is fine, so without a previous-key check this would
+    // pass and only fail later during a rotation-window decrypt — by which
+    // time the bad key has already been deployed.
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "not-a-valid-key");
+    expect(() => validateEncryptionKey()).toThrow(/64 hex characters/);
+  });
+
+  it("ignores ENCRYPTION_KEY_PREVIOUS when empty (the unrotated default)", () => {
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "");
+    expect(() => validateEncryptionKey()).not.toThrow();
+  });
+});
+
+describe("Encryption — IV length enforcement", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects ciphertext with a non-12-byte IV", () => {
+    const ciphertext = encrypt("guarded");
+    const parts = ciphertext.split(":");
+    // Replace 12-byte IV with an 8-byte one — still hex, still parseable,
+    // but cryptographically distinct from anything encrypt() emits.
+    const shortIv = "a".repeat(16); // 8 bytes
+    const tampered = `${shortIv}:${parts[1]}:${parts[2]}`;
+    expect(() => decrypt(tampered)).toThrow();
   });
 });

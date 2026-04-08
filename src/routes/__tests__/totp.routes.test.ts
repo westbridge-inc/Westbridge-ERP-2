@@ -249,4 +249,178 @@ describe("TOTP Routes", () => {
       expect(res.body.data).toHaveProperty("disabled", true);
     });
   });
+
+  describe("POST /api/auth/2fa/recover", () => {
+    // SHA-256("a1b2c3d4") — used by every recovery test as the "good" code.
+    const GOOD_CODE = "a1b2c3d4";
+
+    // Reset the totpSecret.findUnique mock between every recovery test so
+    // state from earlier describe blocks (which leave it set to { verified:
+    // true } with no backupCodes field) cannot leak into validation tests
+    // and turn an expected 400 into a 500.
+    beforeEach(() => {
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    });
+
+    it("returns 401 without authentication", async () => {
+      const res = await request(app).post("/api/auth/2fa/recover").send({ code: GOOD_CODE });
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 400 when code format is invalid", async () => {
+      mockSession("member");
+
+      // None of these are 8 hex chars after trim():
+      // - "short": 5 chars
+      // - "TOOLONGCODE": 11 chars (after lowercase still 11)
+      // - "ghijklmn": 8 chars but g/h/i/j/k/l/m/n are not hex
+      // - "1234567": 7 chars
+      // - "":       0 chars
+      const cases = ["short", "TOOLONGCODE", "ghijklmn", "1234567", ""];
+      for (const code of cases) {
+        const res = await request(app)
+          .post("/api/auth/2fa/recover")
+          .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+          .set("x-csrf-token", "test-csrf-token")
+          .send({ code });
+        expect(res.status).toBe(400);
+      }
+    });
+
+    it("returns 400 when 2FA not enabled (no totpSecret row)", async () => {
+      mockSession("member");
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      const res = await request(app)
+        .post("/api/auth/2fa/recover")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: GOOD_CODE });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("NOT_ENABLED");
+    });
+
+    it("returns 400 when 2FA setup is incomplete (verified=false)", async () => {
+      mockSession("member");
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        verified: false,
+        backupCodes: [],
+      });
+
+      const res = await request(app)
+        .post("/api/auth/2fa/recover")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: GOOD_CODE });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 401 when code does not match any stored hash", async () => {
+      mockSession("member");
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        verified: true,
+        backupCodes: ["deadbeef".repeat(8)], // 64 hex chars, valid SHA-256 shape, won't match
+      });
+
+      const res = await request(app)
+        .post("/api/auth/2fa/recover")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: GOOD_CODE });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe("INVALID_CODE");
+      // Critical: do NOT mutate the stored array on a miss
+      expect(prisma.totpSecret.update).not.toHaveBeenCalled();
+    });
+
+    it("succeeds when code matches and removes that hash from the array", async () => {
+      mockSession("member");
+      const { createHash } = await import("crypto");
+      const hash = createHash("sha256").update(GOOD_CODE).digest("hex");
+      // Store this code's hash plus three decoys
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        verified: true,
+        backupCodes: [hash, "decoy1".padEnd(64, "0"), "decoy2".padEnd(64, "0"), "decoy3".padEnd(64, "0")],
+      });
+
+      const res = await request(app)
+        .post("/api/auth/2fa/recover")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: GOOD_CODE });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.recovered).toBe(true);
+      expect(res.body.data.remainingCodes).toBe(3);
+      // The redeemed hash MUST be removed from the persisted array
+      expect(prisma.totpSecret.update).toHaveBeenCalledWith({
+        where: { userId: "usr_1" },
+        data: {
+          backupCodes: ["decoy1".padEnd(64, "0"), "decoy2".padEnd(64, "0"), "decoy3".padEnd(64, "0")],
+        },
+      });
+    });
+
+    it("warns when remaining codes is low (≤2)", async () => {
+      mockSession("member");
+      const { createHash } = await import("crypto");
+      const hash = createHash("sha256").update(GOOD_CODE).digest("hex");
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        verified: true,
+        backupCodes: [hash, "decoy".padEnd(64, "0")],
+      });
+
+      const res = await request(app)
+        .post("/api/auth/2fa/recover")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: GOOD_CODE });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.remainingCodes).toBe(1);
+      expect(res.body.data.warning).toContain("1 backup codes remain");
+    });
+
+    it("warns hard when last code is consumed", async () => {
+      mockSession("member");
+      const { createHash } = await import("crypto");
+      const hash = createHash("sha256").update(GOOD_CODE).digest("hex");
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        verified: true,
+        backupCodes: [hash],
+      });
+
+      const res = await request(app)
+        .post("/api/auth/2fa/recover")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: GOOD_CODE });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.remainingCodes).toBe(0);
+      expect(res.body.data.warning).toContain("last backup code");
+    });
+
+    it("normalises uppercase / whitespace in supplied code", async () => {
+      mockSession("member");
+      const { createHash } = await import("crypto");
+      const hash = createHash("sha256").update(GOOD_CODE).digest("hex");
+      (prisma.totpSecret.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        verified: true,
+        backupCodes: [hash],
+      });
+
+      const res = await request(app)
+        .post("/api/auth/2fa/recover")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ code: "  A1B2C3D4  " });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.recovered).toBe(true);
+    });
+  });
 });

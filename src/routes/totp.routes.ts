@@ -204,4 +204,111 @@ router.post("/auth/2fa/disable", requireAuth, requireCsrf, async (req: Request, 
   return res.json(apiSuccess({ disabled: true }, apiMeta({ request_id: requestId })));
 });
 
+// ─── POST /auth/2fa/recover ─────────────────────────────────────────────────
+//
+// Single-use backup code redemption. The client supplies one of the 8 codes
+// generated at /auth/2fa/setup. The matching SHA-256 hash is removed from
+// the user's `backupCodes` array on success so each code is one-shot.
+//
+// This endpoint requires a valid session (the user has already passed the
+// password step) and acts as the second factor in place of a TOTP code,
+// solving the lockout case where the user has lost their authenticator app.
+//
+// Rate-limited and CSRF-protected to prevent online brute-force of the
+// 32-bit-per-code search space.
+
+const recoverSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[0-9a-f]{8}$/, "Backup code must be 8 hex characters"),
+});
+
+router.post(
+  "/auth/2fa/recover",
+  requireAuth,
+  requireCsrf,
+  rateLimit("authenticated", "/api/auth/2fa/recover"),
+  async (req: Request, res: Response) => {
+    const session = req.session!;
+    const requestId = getRequestId(toWebRequest(req));
+    const ctx = auditContext(toWebRequest(req));
+
+    const parsed = recoverSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .json(apiError("VALIDATION", "Backup code must be 8 hexadecimal characters (e.g. a1b2c3d4)"));
+    }
+
+    const totp = await prisma.totpSecret.findUnique({ where: { userId: session.userId } });
+    if (!totp || !totp.verified) {
+      // Audit the attempt — recovery on a non-2FA account is suspicious enough
+      // to warrant a record even though we return a generic error.
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "auth.2fa.recover_attempted_no_2fa",
+        ...ctx,
+        severity: "warn",
+        outcome: "failure",
+      });
+      return res.status(400).json(apiError("NOT_ENABLED", "2FA is not enabled for this account"));
+    }
+
+    // Hash the supplied code and look for a match in the stored array.
+    // The codes are stored as SHA-256 hashes, never plaintext, so even a
+    // database leak does not yield usable backup codes.
+    const candidateHash = createHash("sha256").update(parsed.data.code).digest("hex");
+    const remaining = totp.backupCodes.filter((stored) => stored !== candidateHash);
+
+    if (remaining.length === totp.backupCodes.length) {
+      // No match: do NOT decrement remaining-codes counters or change state.
+      // The audit log captures the failure for incident response.
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "auth.2fa.recover_failed",
+        ...ctx,
+        severity: "warn",
+        outcome: "failure",
+      });
+      return res.status(401).json(apiError("INVALID_CODE", "Backup code is invalid or already used"));
+    }
+
+    // One-shot consumption: persist the array with the matched code removed.
+    await prisma.totpSecret.update({
+      where: { userId: session.userId },
+      data: { backupCodes: remaining },
+    });
+
+    void logAudit({
+      accountId: session.accountId,
+      userId: session.userId,
+      action: "auth.2fa.recover_succeeded",
+      metadata: { remainingCodes: remaining.length },
+      ...ctx,
+      severity: remaining.length === 0 ? "critical" : "warn",
+      outcome: "success",
+    });
+
+    return res.json(
+      apiSuccess(
+        {
+          recovered: true,
+          remainingCodes: remaining.length,
+          warning:
+            remaining.length === 0
+              ? "You have used your last backup code. Disable and re-enroll 2FA to generate new codes."
+              : remaining.length <= 2
+                ? `Only ${remaining.length} backup codes remain. Re-enroll 2FA soon to refresh them.`
+                : undefined,
+        },
+        apiMeta({ request_id: requestId }),
+      ),
+    );
+  },
+);
+
 export default router;

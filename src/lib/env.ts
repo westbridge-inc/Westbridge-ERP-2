@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import { logger } from "./logger.js";
+import { validateEncryptionKey } from "./encryption.js";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,8 @@ function parseEnv() {
   }
 
   // Safety checks for non-development/test environments (production, staging, etc.)
-  if (result.data.NODE_ENV !== "development" && result.data.NODE_ENV !== "test") {
+  const isProduction = result.data.NODE_ENV !== "development" && result.data.NODE_ENV !== "test";
+  if (isProduction) {
     const warnings: string[] = [];
     if (result.data.SESSION_SECRET === "change-me-in-production") {
       warnings.push("SESSION_SECRET is still the default — generate with: openssl rand -hex 32");
@@ -131,6 +133,37 @@ function parseEnv() {
     }
     if (result.data.FRONTEND_URL && !result.data.FRONTEND_URL.startsWith("https://")) {
       logger.warn(`FRONTEND_URL is not HTTPS (${result.data.FRONTEND_URL}) — CORS may allow insecure origins`);
+    }
+
+    // Postgres TLS: enforce sslmode=require (or stronger) so a misconfigured
+    // DATABASE_URL can never silently downgrade to plaintext over the wire.
+    // Loopback connections to a local DB sidecar are exempted because they
+    // never leave the host.
+    const dbUrl = result.data.DATABASE_URL;
+    const isLoopback = /@(localhost|127\.0\.0\.1|::1)[:/]/.test(dbUrl);
+    if (!isLoopback) {
+      const sslmode = new URL(dbUrl).searchParams.get("sslmode") ?? "";
+      const acceptable = new Set(["require", "verify-ca", "verify-full"]);
+      if (!acceptable.has(sslmode)) {
+        throw new Error(
+          `DATABASE_URL must include sslmode=require (or verify-ca/verify-full) in production. ` +
+            `Got sslmode=${sslmode || "<unset>"}. Append "?sslmode=require" to your connection string.`,
+        );
+      }
+    }
+  }
+
+  // Always validate encryption keys at startup (dev included) so a malformed
+  // ENCRYPTION_KEY surfaces immediately on boot rather than at first request.
+  // We skip this only when the default placeholder is in use (dev/test paths
+  // that don't actually exercise the crypto layer).
+  if (result.data.ENCRYPTION_KEY !== "change-me-in-production") {
+    try {
+      validateEncryptionKey();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`❌ Encryption key validation failed at startup: ${msg}`);
+      throw e;
     }
   }
 
