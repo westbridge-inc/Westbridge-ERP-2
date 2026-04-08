@@ -15,7 +15,9 @@ import { validatePassword } from "../password-policy.js";
 // Password hashing & verification
 // ---------------------------------------------------------------------------
 
-const BCRYPT_ROUNDS = 12;
+// 14 rounds = ~250ms hashing time on modern hardware (2026).
+// OWASP/NIST recommend 14+ for production password hashing.
+const BCRYPT_ROUNDS = 14;
 
 /**
  * Hash a password using bcrypt with 12 rounds.

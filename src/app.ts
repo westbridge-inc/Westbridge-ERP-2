@@ -13,6 +13,7 @@
 import express, { Router } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import compression from "compression";
 import helmet from "helmet";
 import * as Sentry from "@sentry/node";
 import { logger } from "./lib/logger.js";
@@ -58,6 +59,18 @@ export function createApp(): express.Application {
 
   // SLO tracking -- record latency & availability metrics for every request
   app.use(sloTracking);
+
+  // Gzip/Deflate compression — saves 40-60% bandwidth on JSON responses.
+  // Skip compression if client sends X-No-Compression header (debugging).
+  app.use(
+    compression({
+      filter: (req, res) => {
+        if (req.headers["x-no-compression"]) return false;
+        return compression.filter(req, res);
+      },
+      threshold: 1024, // Only compress responses larger than 1KB
+    }),
+  );
 
   app.use(
     helmet({
