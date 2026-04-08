@@ -127,6 +127,12 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     // --- Account lookup ---
     const account = await prisma.account.findUnique({ where: { email } }).catch(() => null);
     if (!account) {
+      // Constant-time response: do a dummy bcrypt comparison so the response
+      // time matches the case where the account exists with a wrong password.
+      // Prevents account enumeration via timing analysis.
+      const bcrypt = await import("bcrypt");
+      const dummyHash = "$2b$12$" + "a".repeat(53);
+      await bcrypt.compare(password, dummyHash).catch(() => false);
       return res
         .status(401)
         .set(responseTime())
@@ -180,12 +186,17 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         severity: "warn",
         outcome: "failure",
       });
-      const mins = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
+      // Don't leak exact lockout time — just say "locked" to prevent timing attacks
       return res
         .status(423)
         .set(responseTime())
         .json(
-          apiError("ACCOUNT_LOCKED", `Account temporarily locked. Try again in ${mins} minutes.`, undefined, meta()),
+          apiError(
+            "ACCOUNT_LOCKED",
+            "Account temporarily locked due to failed login attempts. Please try again later or reset your password.",
+            undefined,
+            meta(),
+          ),
         );
     }
 
@@ -404,9 +415,10 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
 
   const now = new Date();
   const isOnTrial = !!(account?.trialEndsAt && account.trialEndsAt > now);
-  const trialDaysRemaining = isOnTrial && account?.trialEndsAt
-    ? Math.max(0, Math.ceil((account.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
-    : 0;
+  const trialDaysRemaining =
+    isOnTrial && account?.trialEndsAt
+      ? Math.max(0, Math.ceil((account.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+      : 0;
 
   return res
     .status(200)
