@@ -179,7 +179,9 @@ export function createApp(): express.Application {
   apiRouter.use(ssoRoutes);
   apiRouter.use(documentRoutes);
   apiRouter.use(settingsRoutes);
-  apiRouter.use("/auth", totpRoutes);
+  // totpRoutes define their own "/auth/2fa/*" paths, so mount bare on the
+  // apiRouter. Mounting at "/auth" would produce `/api/auth/auth/2fa/*`.
+  apiRouter.use(totpRoutes);
 
   // Mount versioned API (canonical)
   app.use("/api/v1", apiRouter);

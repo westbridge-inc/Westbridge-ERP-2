@@ -165,9 +165,9 @@ describe("TOTP Routes", () => {
     vi.clearAllMocks();
   });
 
-  describe("POST /api/auth/auth/2fa/setup", () => {
+  describe("POST /api/auth/2fa/setup", () => {
     it("returns 401 without authentication", async () => {
-      const res = await request(app).post("/api/auth/auth/2fa/setup");
+      const res = await request(app).post("/api/auth/2fa/setup");
       expect(res.status).toBe(401);
     });
 
@@ -175,7 +175,7 @@ describe("TOTP Routes", () => {
       mockSession("member");
 
       const res = await request(app)
-        .post("/api/auth/auth/2fa/setup")
+        .post("/api/auth/2fa/setup")
         .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
         .set("x-csrf-token", "test-csrf-token");
 
@@ -192,7 +192,7 @@ describe("TOTP Routes", () => {
       });
 
       const res = await request(app)
-        .post("/api/auth/auth/2fa/setup")
+        .post("/api/auth/2fa/setup")
         .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
         .set("x-csrf-token", "test-csrf-token");
 
@@ -200,9 +200,9 @@ describe("TOTP Routes", () => {
     });
   });
 
-  describe("POST /api/auth/auth/2fa/verify", () => {
+  describe("POST /api/auth/2fa/verify", () => {
     it("returns 401 without authentication", async () => {
-      const res = await request(app).post("/api/auth/auth/2fa/verify").send({ code: "123456" });
+      const res = await request(app).post("/api/auth/2fa/verify").send({ code: "123456" });
       expect(res.status).toBe(401);
     });
 
@@ -210,7 +210,7 @@ describe("TOTP Routes", () => {
       mockSession("member");
 
       const res = await request(app)
-        .post("/api/auth/auth/2fa/verify")
+        .post("/api/auth/2fa/verify")
         .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
         .set("x-csrf-token", "test-csrf-token")
         .send({ code: "abc" });
@@ -222,7 +222,7 @@ describe("TOTP Routes", () => {
       mockSession("member");
 
       const res = await request(app)
-        .post("/api/auth/auth/2fa/verify")
+        .post("/api/auth/2fa/verify")
         .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
         .set("x-csrf-token", "test-csrf-token")
         .send({ code: "123456" });
@@ -231,9 +231,9 @@ describe("TOTP Routes", () => {
     });
   });
 
-  describe("POST /api/auth/auth/2fa/disable", () => {
+  describe("POST /api/auth/2fa/disable", () => {
     it("returns 401 without authentication", async () => {
-      const res = await request(app).post("/api/auth/auth/2fa/disable");
+      const res = await request(app).post("/api/auth/2fa/disable");
       expect(res.status).toBe(401);
     });
 
@@ -241,7 +241,7 @@ describe("TOTP Routes", () => {
       mockSession("member");
 
       const res = await request(app)
-        .post("/api/auth/auth/2fa/disable")
+        .post("/api/auth/2fa/disable")
         .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
         .set("x-csrf-token", "test-csrf-token");
 
