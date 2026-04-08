@@ -245,7 +245,15 @@ export async function handleList(req: Request, res: Response): Promise<Response>
     const account = await prisma.account
       .findUnique({ where: { id: accountId }, select: { erpnextCompany: true } })
       .catch(() => null);
-    const companyScope = COMPANY_SCOPED_DOCTYPES.has(doctype) ? account?.erpnextCompany : null;
+    const rawCompany = account?.erpnextCompany;
+    const hasValidCompany = !!rawCompany && rawCompany !== "__PROVISIONING_FAILED__";
+    // Tenant isolation: company-scoped doctypes without a provisioned company
+    // must never return unscoped ERPNext data. Short-circuit to an empty list.
+    if (COMPANY_SCOPED_DOCTYPES.has(doctype) && !hasValidCompany) {
+      res.set({ ...responseHeaders(), "X-Cache": "BYPASS" });
+      return res.json(apiSuccess([], { ...meta(), page, pageSize, hasMore: false }));
+    }
+    const companyScope = COMPANY_SCOPED_DOCTYPES.has(doctype) ? rawCompany : null;
 
     // ── ERP list cache (Section 82) ───────────────────────────────────────
     const cacheKey = `${ERP_LIST_CACHE_PREFIX}${accountId}:${doctype}:${JSON.stringify(params)}`;
@@ -640,7 +648,17 @@ export async function handleDashboard(req: Request, res: Response): Promise<Resp
       select: { erpnextCompany: true },
     });
 
-    const payload = await buildDashboardData(erpnextSid ?? userId, accountId, account?.erpnextCompany ?? null);
+    // Tenant isolation: if the account has no provisioned ERPNext company
+    // (fresh signup still in-flight, or provisioning failed), return empty
+    // data instead of unscoped ERPNext results. Never leak cross-tenant data.
+    const companyName = account?.erpnextCompany;
+    if (!companyName || companyName === "__PROVISIONING_FAILED__") {
+      const { EMPTY_DATA } = await import("../lib/services/dashboard.service.js");
+      res.set(responseHeaders());
+      return res.json(apiSuccess(EMPTY_DATA, meta()));
+    }
+
+    const payload = await buildDashboardData(erpnextSid ?? userId, accountId, companyName);
 
     res.set(responseHeaders());
     return res.json(apiSuccess(payload, meta()));

@@ -68,6 +68,16 @@ vi.mock("../../lib/services/dashboard.service.js", () => ({
     orders: { count: 3 },
     recentActivity: [],
   }),
+  EMPTY_DATA: {
+    revenueMTD: 0,
+    revenueChange: 0,
+    outstandingCount: 0,
+    openDealsCount: 0,
+    employeeCount: 0,
+    employeeDelta: 0,
+    revenueData: [],
+    activity: [],
+  },
 }));
 
 // Sentry — external error reporting
@@ -512,6 +522,83 @@ describe("erp.controller", () => {
       await handleDashboard(req, res);
 
       expect(res.status).toHaveBeenCalledWith(429);
+    });
+
+    // ── Tenant isolation ──────────────────────────────────────────────────
+    // CRITICAL: an un-provisioned account (fresh signup mid-provision) must
+    // never see cross-tenant ERPNext data. The dashboard must short-circuit
+    // to EMPTY_DATA before ever querying ERPNext.
+    it("short-circuits to empty data when account has no provisioned ERPNext company", async () => {
+      const { prisma } = await import("../../lib/data/prisma.js");
+      vi.mocked(prisma.account.findUnique).mockResolvedValueOnce({ erpnextCompany: null } as never);
+
+      const { buildDashboardData } = await import("../../lib/services/dashboard.service.js");
+      vi.mocked(buildDashboardData).mockClear();
+
+      const req = mockReq({ method: "GET" });
+      const res = mockRes();
+
+      await handleDashboard(req, res);
+
+      // MUST NOT call buildDashboardData (which would hit ERPNext unscoped)
+      expect(buildDashboardData).not.toHaveBeenCalled();
+
+      const jsonCall = vi.mocked(res.json).mock.calls[0]?.[0];
+      expect(jsonCall.data).toMatchObject({ revenueMTD: 0, employeeCount: 0 });
+    });
+
+    it("short-circuits to empty data when provisioning failed", async () => {
+      const { prisma } = await import("../../lib/data/prisma.js");
+      vi.mocked(prisma.account.findUnique).mockResolvedValueOnce({
+        erpnextCompany: "__PROVISIONING_FAILED__",
+      } as never);
+
+      const { buildDashboardData } = await import("../../lib/services/dashboard.service.js");
+      vi.mocked(buildDashboardData).mockClear();
+
+      const req = mockReq({ method: "GET" });
+      const res = mockRes();
+
+      await handleDashboard(req, res);
+
+      expect(buildDashboardData).not.toHaveBeenCalled();
+      const jsonCall = vi.mocked(res.json).mock.calls[0]?.[0];
+      expect(jsonCall.data).toMatchObject({ revenueMTD: 0, employeeCount: 0 });
+    });
+  });
+
+  // -- handleList tenant isolation ------------------------------------------
+  describe("handleList tenant isolation", () => {
+    it("returns empty list for company-scoped doctypes when no ERPNext company", async () => {
+      const { prisma } = await import("../../lib/data/prisma.js");
+      vi.mocked(prisma.account.findUnique).mockResolvedValueOnce({ erpnextCompany: null } as never);
+
+      const req = mockReq({ query: { doctype: "Sales Invoice" } });
+      const res = mockRes();
+
+      await handleList(req, res);
+
+      // list() MUST NOT have been called — data stays in ERPNext
+      expect(list).not.toHaveBeenCalled();
+
+      const jsonCall = vi.mocked(res.json).mock.calls[0]?.[0];
+      expect(jsonCall.data).toEqual([]);
+    });
+
+    it("returns empty list for company-scoped doctypes when provisioning failed", async () => {
+      const { prisma } = await import("../../lib/data/prisma.js");
+      vi.mocked(prisma.account.findUnique).mockResolvedValueOnce({
+        erpnextCompany: "__PROVISIONING_FAILED__",
+      } as never);
+
+      const req = mockReq({ query: { doctype: "Employee" } });
+      const res = mockRes();
+
+      await handleList(req, res);
+
+      expect(list).not.toHaveBeenCalled();
+      const jsonCall = vi.mocked(res.json).mock.calls[0]?.[0];
+      expect(jsonCall.data).toEqual([]);
     });
   });
 });

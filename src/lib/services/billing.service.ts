@@ -109,6 +109,29 @@ export async function createAccount(input: CreateAccountInput): Promise<Result<C
       return err("Account created but unable to start session. Please log in.");
     }
 
+    // Auto-provision ERPNext company + create subscription immediately on signup
+    // (fire-and-forget with retries). Without this, trial users would share an
+    // unscoped ERPNext instance — a tenant isolation leak. Runs in background so
+    // signup stays fast; dashboard endpoints return empty data until provisioning
+    // completes (see handleDashboard / handleList).
+    void import("./provisioning.service.js")
+      .then(({ provisionWithRetry }) => provisionWithRetry(account.id))
+      .catch((e: unknown) => {
+        logger.error("Provisioning kickoff failed", {
+          accountId: account.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+
+    void import("./subscription.service.js")
+      .then(({ createSubscription }) => createSubscription(account.id, planSlug))
+      .catch((e: unknown) => {
+        logger.error("Subscription creation failed", {
+          accountId: account.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+
     return ok({
       accountId: account.id,
       userId: user.id,

@@ -49,6 +49,14 @@ vi.mock("../../realtime.js", () => ({
   publish: vi.fn(),
 }));
 
+vi.mock("../auth.service.js", () => ({
+  hashPassword: vi.fn().mockResolvedValue("hashed-password"),
+}));
+
+vi.mock("../session.service.js", () => ({
+  createSession: vi.fn().mockResolvedValue({ ok: true, data: { token: "session-token" } }),
+}));
+
 import { createAccount, verifyPaddleWebhook, markAccountPaid } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
 import { verifyWebhookSignature } from "../../data/paddle.client.js";
@@ -91,6 +99,53 @@ describe("billing.service", () => {
     it("validates password minimum length", async () => {
       const result = await createAccount({ ...validInput, password: "short" });
       expect(result.ok).toBe(false);
+    });
+
+    // Regression: new trial accounts must auto-provision an ERPNext company +
+    // subscription immediately on signup. Without this, trial users share an
+    // unscoped ERPNext instance (cross-tenant data leak) until they pay.
+    it("triggers ERPNext provisioning and subscription creation on successful signup", async () => {
+      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn) => {
+        const tx = {
+          account: {
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({
+              id: "acc_new",
+              email: "new@b.com",
+              companyName: "New Co",
+              plan: "Starter",
+            }),
+          },
+          user: {
+            create: vi.fn().mockResolvedValue({
+              id: "user_new",
+              accountId: "acc_new",
+              email: "new@b.com",
+              name: "New User",
+            }),
+          },
+          $executeRaw: vi.fn(),
+        };
+        return fn(tx);
+      });
+
+      const result = await createAccount({
+        email: "new@b.com",
+        name: "New User",
+        password: "password123",
+        companyName: "New Co",
+        plan: "Starter",
+      });
+
+      expect(result.ok).toBe(true);
+
+      // Wait a tick so the fire-and-forget imports resolve
+      await new Promise((r) => setTimeout(r, 10));
+
+      const { provisionWithRetry } = await import("../provisioning.service.js");
+      const { createSubscription } = await import("../subscription.service.js");
+      expect(provisionWithRetry).toHaveBeenCalledWith("acc_new");
+      expect(createSubscription).toHaveBeenCalledWith("acc_new", "Starter");
     });
   });
 
