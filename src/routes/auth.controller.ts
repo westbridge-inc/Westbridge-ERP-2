@@ -405,11 +405,12 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
     })
     .catch(() => null);
 
-  // Fetch trial info for the account
+  // Fetch company + trial info for the account so the sidebar footer
+  // can show company name + plan (not user name + role).
   const account = await prisma.account
     .findUnique({
       where: { id: result.data.accountId },
-      select: { trialEndsAt: true, trialAiLimit: true },
+      select: { companyName: true, plan: true, trialEndsAt: true, trialAiLimit: true },
     })
     .catch(() => null);
 
@@ -431,6 +432,8 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
           role: result.data.role,
           email: user?.email ?? "",
           name: user?.name ?? "",
+          companyName: account?.companyName ?? "",
+          plan: account?.plan ?? null,
           isOnTrial,
           trialEndsAt: account?.trialEndsAt?.toISOString() ?? null,
           trialDaysRemaining,
