@@ -47,6 +47,7 @@ import ssoRoutes from "./routes/sso.routes.js";
 import documentRoutes from "./routes/document.routes.js";
 import settingsRoutes from "./routes/settings.routes.js";
 import totpRoutes from "./routes/totp.routes.js";
+import cortexRoutes from "./routes/cortex.routes.js";
 
 export function createApp(): express.Application {
   const app = express();
@@ -182,6 +183,8 @@ export function createApp(): express.Application {
   // totpRoutes define their own "/auth/2fa/*" paths, so mount bare on the
   // apiRouter. Mounting at "/auth" would produce `/api/auth/auth/2fa/*`.
   apiRouter.use(totpRoutes);
+  // cortexRoutes own the AI-Native overhaul (/cortex/chat, /cortex/conversations, ...)
+  apiRouter.use(cortexRoutes);
 
   // Mount versioned API (canonical)
   app.use("/api/v1", apiRouter);

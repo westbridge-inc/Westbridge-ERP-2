@@ -38,6 +38,11 @@ model Account {
   webhookEndpoints   WebhookEndpoint[]
   ssoConfig          SsoConfig?
   billingInvoices    BillingInvoice[]
+  cortexEvents       CortexEvent[]
+  cortexConversations CortexConversation[]
+  cortexExecutions   CortexExecutionLog[]
+  cortexApprovals    CortexApprovalRequest[]
+  cortexMemory       CortexMemory[]
 
   @@index([createdAt])
   @@index([deletedAt])
@@ -284,4 +289,159 @@ model WebhookEndpoint {
 
   @@index([accountId])
   @@map("webhook_endpoints")
+}
+
+// ─── CORTEX (AI Kernel) ───────────────────────────────────────────────────────
+//
+// Phase 1 of the AI-Native ERP overhaul. The Cortex layers an event-driven
+// agent kernel on top of the existing Prisma + BullMQ stack. All tables are
+// scoped by accountId (the existing tenant boundary). The legacy /api/ai/chat
+// route and src/lib/ai/* helpers continue to function in parallel — Cortex
+// adds persistent conversations, execution traces, an approval queue, and a
+// learning memory layer that the legacy chat does not provide.
+
+/// Immutable event log. Every business mutation (invoice.created,
+/// payment.received, document.uploaded, ...) writes one row here and queues a
+/// CortexEventJob for the orchestrator to handle.
+model CortexEvent {
+  id          String    @id @default(cuid())
+  accountId   String    @map("account_id")
+  eventType   String    @map("event_type")  // e.g. "invoice.created"
+  source      String                          // "user.action" | "api.webhook" | "email.inbound" | "agent.action" | "system.cron"
+  data        Json
+  userId      String?   @map("user_id")
+  agentId     String?   @map("agent_id")
+  traceId     String    @map("trace_id")
+  processed   Boolean   @default(false)
+  processedAt DateTime? @map("processed_at")
+  processedBy String?   @map("processed_by")  // agent id that handled it
+  result      Json?
+  createdAt   DateTime  @default(now())       @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, eventType, createdAt])
+  @@index([accountId, processed])
+  @@index([traceId])
+  @@map("cortex_events")
+}
+
+/// Persistent multi-turn conversations between users and the Bridge AI
+/// (conversation agent). Distinct from the Redis-backed history used by the
+/// legacy /api/ai/chat — these survive restarts, support cross-device resume,
+/// and feed the AI activity log.
+model CortexConversation {
+  id           String   @id @default(cuid())
+  accountId    String   @map("account_id")
+  userId       String   @map("user_id")
+  title        String?
+  /// Stored as Json so we can serialize Anthropic.MessageParam[] with tool
+  /// blocks intact across restarts. Capped to the last N turns by application
+  /// logic to keep rows reasonable.
+  messages     Json     @default("[]")
+  lastAgentId  String?  @map("last_agent_id")
+  lastTraceId  String?  @map("last_trace_id")
+  archived     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt      @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, userId, updatedAt])
+  @@index([accountId, archived])
+  @@map("cortex_conversations")
+}
+
+/// One row per agent run. Captures the inputs, the model + token usage, the
+/// number of tool calls, the latency, and the outcome so a human can audit
+/// what the AI did. Indexed by trace ID so a chat reply can be linked to the
+/// underlying execution.
+model CortexExecutionLog {
+  id              String   @id @default(cuid())
+  accountId       String   @map("account_id")
+  agentId         String   @map("agent_id")
+  traceId         String   @map("trace_id")
+  triggerEventId  String?  @map("trigger_event_id")
+  status          String                      // "success" | "failed" | "needs_approval" | "timeout"
+  model           String                      // e.g. "claude-opus-4-6"
+  inputTokens     Int      @map("input_tokens")
+  outputTokens    Int      @map("output_tokens")
+  costUsd         Float    @map("cost_usd")
+  latencyMs       Int      @map("latency_ms")
+  iterations      Int                         // agentic loop rounds
+  toolCallCount   Int      @map("tool_call_count")
+  toolCallErrors  Int      @map("tool_call_errors")
+  output          String?  @db.Text           // textual reply (truncated)
+  errorMessage    String?  @map("error_message") @db.Text
+  createdAt       DateTime @default(now())    @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, agentId, createdAt])
+  @@index([traceId])
+  @@map("cortex_execution_logs")
+}
+
+/// Pending actions the AI wants to take but cannot execute autonomously
+/// because they exceed the agent's autonomy level or financial limit. A human
+/// reviews and either approves (the action is then executed) or rejects.
+model CortexApprovalRequest {
+  id               String    @id @default(cuid())
+  accountId        String    @map("account_id")
+  title            String
+  description      String    @db.Text
+  approvalType     String    @map("approval_type")    // e.g. "payment.execute" | "vendor.create" | "invoice.large"
+  priority         String    @default("normal")        // "low" | "normal" | "high" | "critical"
+  status           String    @default("pending")       // "pending" | "approved" | "rejected" | "expired"
+  agentId          String    @map("agent_id")
+  traceId          String    @map("trace_id")
+  aiRecommendation String?   @map("ai_recommendation") @db.Text
+  aiReasoning      String?   @map("ai_reasoning")      @db.Text
+  aiConfidence     Float?    @map("ai_confidence")
+  /// Serialized tool call to execute on approval — { name, input } shape.
+  pendingAction    Json?     @map("pending_action")
+  approverUserIds  String[]  @map("approver_user_ids")
+  approverRoles    String[]  @map("approver_roles")
+  approvedBy       String?   @map("approved_by")
+  approvedAt       DateTime? @map("approved_at")
+  rejectedBy       String?   @map("rejected_by")
+  rejectedAt       DateTime? @map("rejected_at")
+  rejectionReason  String?   @map("rejection_reason") @db.Text
+  expiresAt        DateTime? @map("expires_at")
+  relatedDocType   String?   @map("related_doc_type")
+  relatedDocId     String?   @map("related_doc_id")
+  createdAt        DateTime  @default(now())          @map("created_at")
+  updatedAt        DateTime  @updatedAt               @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, status, createdAt])
+  @@index([accountId, approvalType, status])
+  @@map("cortex_approval_requests")
+}
+
+/// Per-tenant learning store. Captures business rules, recurring patterns,
+/// user preferences, and corrections so the system gets smarter over time.
+/// Confidence is reinforced on each repeat observation; entries with low
+/// confidence or that pass `expiresAt` are purged by the cleanup worker.
+model CortexMemory {
+  id                 String    @id @default(cuid())
+  accountId          String    @map("account_id")
+  memoryType         String    @map("memory_type")  // "business_rule" | "pattern" | "preference" | "correction" | "threshold"
+  key                String
+  value              Json
+  confidence         Float     @default(0.5)
+  learnedFromEvents  String[]  @map("learned_from_events")
+  learnedAt          DateTime  @default(now())     @map("learned_at")
+  lastReinforcedAt   DateTime? @map("last_reinforced_at")
+  reinforcementCount Int       @default(1)         @map("reinforcement_count")
+  isActive           Boolean   @default(true)      @map("is_active")
+  expiresAt          DateTime? @map("expires_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, memoryType, key])
+  @@index([accountId, memoryType])
+  @@index([accountId, isActive])
+  @@map("cortex_memory")
 }

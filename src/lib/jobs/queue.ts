@@ -71,6 +71,21 @@ export const webhooksQueue = new Queue("webhooks", {
   },
 });
 
+/**
+ * Cortex event processing queue. Every emitted event lands here so the
+ * orchestrator can wake up, look at the event type, and dispatch to the
+ * right specialist agent. Phase 1 ships the queue + emitter; Phase 2 adds
+ * the worker that drains it.
+ */
+export const cortexQueue = new Queue("cortex", {
+  ...DEFAULT_OPTIONS,
+  defaultJobOptions: {
+    ...DEFAULT_OPTIONS.defaultJobOptions,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5_000 },
+  },
+});
+
 // ─── Job type payloads ────────────────────────────────────────────────────────
 
 export interface EmailJobData {
@@ -109,6 +124,18 @@ export interface WebhookJobData {
   event: string;
   payload: Record<string, unknown>;
   deliveryId: string;
+}
+
+/**
+ * Cortex event payload — minimal pointer back to the persisted event row.
+ * The worker pulls the full row from the DB rather than re-serialising the
+ * data here so the queue stays small.
+ */
+export interface CortexEventJobData {
+  eventId: string;
+  accountId: string;
+  type: string;
+  traceId: string;
 }
 
 // ─── Queue helpers ────────────────────────────────────────────────────────────

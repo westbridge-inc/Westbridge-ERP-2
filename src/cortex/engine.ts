@@ -1,0 +1,383 @@
+/**
+ * Cortex Engine — agentic loop with autonomy gating + audit logging.
+ *
+ * Why a manual loop instead of the SDK's `client.beta.messages.toolRunner`:
+ * the tool runner is great for simple agents but it does not give us the
+ * hooks we need to (a) check each tool against the running autonomy level
+ * before executing, (b) compute and gate financial impact per call, (c)
+ * stop mid-loop and persist a CortexApprovalRequest, and (d) emit per-tool
+ * audit log entries with our own trace correlation. We trade ~50 lines of
+ * code for full control over the safety boundary.
+ *
+ * The loop:
+ *   1. Call Anthropic with the agent's system prompt + the running messages.
+ *   2. If the model returns plain text → done, return success.
+ *   3. If the model returns tool_use blocks → execute each tool through the
+ *      safety checks, append the results back into the messages, loop again.
+ *   4. If any tool requires approval → halt, return needs_approval with the
+ *      pending action serialised so the API can persist it.
+ *   5. Hard cap iterations + wall clock so a runaway agent always terminates.
+ *
+ * The engine NEVER instantiates the Anthropic client itself — it accepts one
+ * via dependency injection. This keeps the engine unit-testable with a fake
+ * client and prevents the engine module from crashing at import time when
+ * ANTHROPIC_API_KEY is unset.
+ */
+
+import type Anthropic from "@anthropic-ai/sdk";
+import { logger } from "../lib/logger.js";
+import {
+  AUTONOMY,
+  type CortexAgentDefinition,
+  type CortexExecutionResult,
+  type CortexToolCallRecord,
+  type CortexToolContext,
+  type CortexToolDefinition,
+} from "./protocol.js";
+
+// Per-million-token rates for cost computation. Mirrors the table in the
+// Claude API skill — kept in sync manually because the SDK does not expose
+// pricing programmatically.
+const MODEL_PRICING: Record<string, { inputPerMillion: number; outputPerMillion: number }> = {
+  "claude-opus-4-6": { inputPerMillion: 5, outputPerMillion: 25 },
+  "claude-sonnet-4-6": { inputPerMillion: 3, outputPerMillion: 15 },
+  "claude-haiku-4-5": { inputPerMillion: 1, outputPerMillion: 5 },
+};
+
+function costFor(model: string, inputTokens: number, outputTokens: number): number {
+  const rates = MODEL_PRICING[model] ?? MODEL_PRICING["claude-sonnet-4-6"]!;
+  return (inputTokens / 1_000_000) * rates.inputPerMillion + (outputTokens / 1_000_000) * rates.outputPerMillion;
+}
+
+/**
+ * Estimate the financial impact of a tool call from its arguments.
+ *
+ * This is a heuristic — the goal is to catch obvious mistakes (a payment
+ * tool called with $50,000 input) before the engine commits to running it.
+ * Tools that have no monetary footprint return 0; tools that handle money
+ * should put a top-level `amount` / `total` / `value` field in the input
+ * schema so the engine can read it without any tool-specific knowledge.
+ */
+function estimateFinancialImpactUsd(input: unknown): number {
+  if (!input || typeof input !== "object") return 0;
+  const obj = input as Record<string, unknown>;
+  for (const key of ["amount", "total", "value", "grand_total", "amount_usd"]) {
+    const v = obj[key];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+    if (typeof v === "string") {
+      const parsed = parseFloat(v);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return 0;
+}
+
+/** Convert our CortexToolDefinition[] to Anthropic.Tool[] for the SDK call. */
+function toClaudeTools(tools: CortexToolDefinition[]): Anthropic.Tool[] {
+  return tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.inputSchema as Anthropic.Tool["input_schema"],
+  }));
+}
+
+/** Extract the assistant text from a Claude response, joining all text blocks. */
+function extractText(message: Anthropic.Message): string {
+  return message.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
+
+export interface ExecuteAgentParams {
+  /** Anthropic client. Pass `null` to error gracefully when API key is unset. */
+  client: Anthropic | null;
+  /** The agent to run. Resolved from the registry by the caller. */
+  agent: CortexAgentDefinition;
+  /** Conversation history + the new user turn. The engine appends assistant + tool turns to this list. */
+  messages: Anthropic.MessageParam[];
+  /** Tool context. Passed verbatim to every tool handler. */
+  ctx: CortexToolContext;
+}
+
+/**
+ * Run an agentic loop. Returns a CortexExecutionResult that the caller is
+ * responsible for persisting (CortexExecutionLog) and acting on (the API
+ * route returns it; the worker queues approvals).
+ */
+export async function executeAgent(params: ExecuteAgentParams): Promise<CortexExecutionResult> {
+  const { client, agent, messages, ctx } = params;
+  const startTime = Date.now();
+  const toolCalls: CortexToolCallRecord[] = [];
+  const toolCallCountByName = new Map<string, number>();
+  let totalInput = 0;
+  let totalOutput = 0;
+  let iterations = 0;
+
+  // Hard fail when the SDK is not configured. The route is responsible for
+  // detecting this and returning a graceful 503; we just throw so the route
+  // can map it to a user-facing message.
+  if (!client) {
+    return {
+      status: "failed",
+      output: "",
+      traceId: ctx.traceId,
+      agentId: agent.id,
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
+      latencyMs: Date.now() - startTime,
+      iterations: 0,
+      toolCalls: [],
+      errorMessage: "ANTHROPIC_API_KEY is not configured",
+    };
+  }
+
+  // Wall-clock guard. The agent timeout is enforced via AbortSignal.timeout
+  // so each underlying HTTP call inherits the same deadline.
+  const deadline = AbortSignal.timeout(agent.timeoutMs);
+
+  const claudeTools = toClaudeTools(agent.tools);
+  const runningMessages: Anthropic.MessageParam[] = [...messages];
+
+  let lastMessage: Anthropic.Message | null = null;
+
+  // ── AGENTIC LOOP ──
+  while (iterations < agent.maxIterations) {
+    iterations++;
+
+    if (deadline.aborted) {
+      return {
+        status: "timeout",
+        output: lastMessage ? extractText(lastMessage) : "",
+        traceId: ctx.traceId,
+        agentId: agent.id,
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
+        costUsd: costFor(agent.model, totalInput, totalOutput),
+        latencyMs: Date.now() - startTime,
+        iterations,
+        toolCalls,
+        errorMessage: `Agent exceeded ${agent.timeoutMs}ms timeout`,
+      };
+    }
+
+    // Build the request. Adaptive thinking is opt-in per agent because not
+    // every agent benefits — routine reconciliation does NOT need it,
+    // financial-analytics does. The SDK rejects `thinking` on older models,
+    // so the agent definition is the source of truth.
+    //
+    // Use the explicit non-streaming params type so TypeScript narrows the
+    // return value to Message (not Stream). This module is the agentic
+    // foundation; streaming happens one layer up in the API route via the
+    // Conversation table + SSE chunks of the captured execution result.
+    const request: Anthropic.MessageCreateParamsNonStreaming = {
+      model: agent.model,
+      max_tokens: agent.maxTokens,
+      system: agent.systemPrompt,
+      messages: runningMessages,
+      tools: claudeTools.length > 0 ? claudeTools : undefined,
+      ...(agent.adaptiveThinking ? { thinking: { type: "adaptive" as const } } : {}),
+    };
+
+    let response: Anthropic.Message;
+    try {
+      response = await client.messages.create(request);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error("Cortex engine: Anthropic API call failed", {
+        agentId: agent.id,
+        traceId: ctx.traceId,
+        accountId: ctx.accountId,
+        iteration: iterations,
+        error: errorMessage,
+      });
+      return {
+        status: "failed",
+        output: lastMessage ? extractText(lastMessage) : "",
+        traceId: ctx.traceId,
+        agentId: agent.id,
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
+        costUsd: costFor(agent.model, totalInput, totalOutput),
+        latencyMs: Date.now() - startTime,
+        iterations,
+        toolCalls,
+        errorMessage,
+      };
+    }
+
+    lastMessage = response;
+    totalInput += response.usage.input_tokens;
+    totalOutput += response.usage.output_tokens;
+
+    // No tool calls → the agent is done thinking, return the text.
+    const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+    if (toolUses.length === 0) {
+      return {
+        status: "success",
+        output: extractText(response),
+        traceId: ctx.traceId,
+        agentId: agent.id,
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
+        costUsd: costFor(agent.model, totalInput, totalOutput),
+        latencyMs: Date.now() - startTime,
+        iterations,
+        toolCalls,
+      };
+    }
+
+    // Append the assistant turn (with tool_use blocks) BEFORE we run the
+    // tools — Claude requires this exact ordering on the next request.
+    runningMessages.push({ role: "assistant", content: response.content });
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+    for (const toolUse of toolUses) {
+      const toolDef = agent.tools.find((t) => t.name === toolUse.name);
+
+      if (!toolDef) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: `Error: unknown tool "${toolUse.name}". Available tools: ${agent.tools.map((t) => t.name).join(", ")}`,
+          is_error: true,
+        });
+        toolCalls.push({
+          tool: toolUse.name,
+          input: toolUse.input,
+          error: "unknown tool",
+          success: false,
+          durationMs: 0,
+        });
+        continue;
+      }
+
+      // Per-run call cap — prevents an agent from looping the same tool
+      // forever and burning through the daily token budget.
+      const calledSoFar = toolCallCountByName.get(toolDef.name) ?? 0;
+      if (calledSoFar >= toolDef.maxCallsPerRun) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: `Error: tool "${toolDef.name}" exceeded its per-run call cap of ${toolDef.maxCallsPerRun}. Stop calling this tool and respond to the user.`,
+          is_error: true,
+        });
+        toolCalls.push({
+          tool: toolDef.name,
+          input: toolUse.input,
+          error: "per-run cap exceeded",
+          success: false,
+          durationMs: 0,
+        });
+        continue;
+      }
+      toolCallCountByName.set(toolDef.name, calledSoFar + 1);
+
+      // Approval gate — refuse to execute if the tool requires approval and
+      // the agent is running below autonomous level.
+      if (toolDef.requiresApproval && ctx.autonomyLevel < AUTONOMY.AUTONOMOUS) {
+        return {
+          status: "needs_approval",
+          output: extractText(response),
+          traceId: ctx.traceId,
+          agentId: agent.id,
+          inputTokens: totalInput,
+          outputTokens: totalOutput,
+          costUsd: costFor(agent.model, totalInput, totalOutput),
+          latencyMs: Date.now() - startTime,
+          iterations,
+          toolCalls,
+          pendingAction: {
+            toolName: toolDef.name,
+            input: toolUse.input,
+            reason: `Tool "${toolDef.name}" requires human approval (agent autonomy ${ctx.autonomyLevel} < ${AUTONOMY.AUTONOMOUS}).`,
+          },
+        };
+      }
+
+      // Financial impact gate — only enforced for side-effecting tools.
+      if (toolDef.sideEffects) {
+        const impact = estimateFinancialImpactUsd(toolUse.input);
+        if (impact > agent.maxFinancialImpactUsd) {
+          return {
+            status: "needs_approval",
+            output: extractText(response),
+            traceId: ctx.traceId,
+            agentId: agent.id,
+            inputTokens: totalInput,
+            outputTokens: totalOutput,
+            costUsd: costFor(agent.model, totalInput, totalOutput),
+            latencyMs: Date.now() - startTime,
+            iterations,
+            toolCalls,
+            pendingAction: {
+              toolName: toolDef.name,
+              input: toolUse.input,
+              reason: `Estimated impact $${impact} exceeds agent limit $${agent.maxFinancialImpactUsd}.`,
+            },
+          };
+        }
+      }
+
+      // Execute the tool. Catch every error so the model can recover with a
+      // tool_result error block instead of crashing the loop.
+      const toolStart = Date.now();
+      try {
+        const result = await toolDef.handler(toolUse.input, ctx);
+        const durationMs = Date.now() - toolStart;
+        toolCalls.push({
+          tool: toolDef.name,
+          input: toolUse.input,
+          output: result,
+          success: true,
+          durationMs,
+        });
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: typeof result === "string" ? result : JSON.stringify(result),
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const durationMs = Date.now() - toolStart;
+        toolCalls.push({
+          tool: toolDef.name,
+          input: toolUse.input,
+          error: message,
+          success: false,
+          durationMs,
+        });
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: `Error: ${message}`,
+          is_error: true,
+        });
+      }
+    }
+
+    runningMessages.push({ role: "user", content: toolResults });
+  }
+
+  // Hit the iteration cap. Return whatever text the last assistant turn had
+  // so the user is not left staring at a blank reply.
+  return {
+    status: "failed",
+    output: lastMessage ? extractText(lastMessage) : "",
+    traceId: ctx.traceId,
+    agentId: agent.id,
+    inputTokens: totalInput,
+    outputTokens: totalOutput,
+    costUsd: costFor(agent.model, totalInput, totalOutput),
+    latencyMs: Date.now() - startTime,
+    iterations,
+    toolCalls,
+    errorMessage: `Agent exceeded ${agent.maxIterations}-iteration cap without finishing`,
+  };
+}
+
+// Test-only export so the unit suite can verify the cost table without
+// reaching into the module scope.
+export const __testing__ = { costFor, estimateFinancialImpactUsd };
