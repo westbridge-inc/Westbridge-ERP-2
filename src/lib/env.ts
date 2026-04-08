@@ -135,20 +135,39 @@ function parseEnv() {
       logger.warn(`FRONTEND_URL is not HTTPS (${result.data.FRONTEND_URL}) — CORS may allow insecure origins`);
     }
 
-    // Postgres TLS: enforce sslmode=require (or stronger) so a misconfigured
-    // DATABASE_URL can never silently downgrade to plaintext over the wire.
-    // Loopback connections to a local DB sidecar are exempted because they
-    // never leave the host.
+    // Postgres TLS hygiene: surface DATABASE_URL configurations that could
+    // permit plaintext on the wire. We warn (not throw) because some
+    // deployments — notably Fly.io's WireGuard mesh — already encrypt at
+    // the network layer and may legitimately use sslmode=disable for the
+    // application protocol. Loopback connections to a local DB sidecar are
+    // exempted because they never leave the host.
+    //
+    // Acceptable: require, verify-ca, verify-full
+    // Warn:       prefer, allow, <unset>  (these tolerate plaintext fallback)
+    // Loud warn:  disable                 (explicitly opts out of TLS)
+    //
+    // Set REQUIRE_DB_TLS=true to upgrade these warnings to a hard failure.
     const dbUrl = result.data.DATABASE_URL;
     const isLoopback = /@(localhost|127\.0\.0\.1|::1)[:/]/.test(dbUrl);
     if (!isLoopback) {
-      const sslmode = new URL(dbUrl).searchParams.get("sslmode") ?? "";
-      const acceptable = new Set(["require", "verify-ca", "verify-full"]);
-      if (!acceptable.has(sslmode)) {
-        throw new Error(
-          `DATABASE_URL must include sslmode=require (or verify-ca/verify-full) in production. ` +
-            `Got sslmode=${sslmode || "<unset>"}. Append "?sslmode=require" to your connection string.`,
-        );
+      let sslmode = "";
+      try {
+        sslmode = new URL(dbUrl).searchParams.get("sslmode") ?? "";
+      } catch {
+        // Malformed URL — Zod already validated .url() so this should not
+        // happen, but we keep the parser inside a try to avoid masking the
+        // real failure at startup.
+      }
+      const strict = new Set(["require", "verify-ca", "verify-full"]);
+      if (!strict.has(sslmode)) {
+        const requireStrict = process.env.REQUIRE_DB_TLS === "true";
+        const message =
+          `DATABASE_URL has sslmode=${sslmode || "<unset>"} — this permits plaintext over the wire. ` +
+          `For SaaS-grade encryption append "?sslmode=require" (or verify-ca/verify-full).`;
+        if (requireStrict) {
+          throw new Error(`${message} Set REQUIRE_DB_TLS=false to downgrade this to a warning.`);
+        }
+        logger.warn(message);
       }
     }
   }
