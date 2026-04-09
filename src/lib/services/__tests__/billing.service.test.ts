@@ -14,8 +14,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: {
+vi.mock("../../data/prisma-admin.js", () => ({
+  prismaAdmin: {
     account: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     subscription: { create: vi.fn(), updateMany: vi.fn() },
     billingInvoice: { create: vi.fn() },
@@ -58,7 +58,7 @@ vi.mock("../session.service.js", () => ({
 }));
 
 import { createAccount, verifyPaddleWebhook, markAccountPaid, refundWindowDaysFor } from "../billing.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 import { verifyWebhookSignature } from "../../data/paddle.client.js";
 
 describe("billing.service", () => {
@@ -105,7 +105,7 @@ describe("billing.service", () => {
     // subscription immediately on signup. Without this, trial users share an
     // unscoped ERPNext instance (cross-tenant data leak) until they pay.
     it("triggers ERPNext provisioning and subscription creation on successful signup", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn) => {
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn) => {
         const tx = {
           account: {
             findFirst: vi.fn().mockResolvedValue(null),
@@ -163,8 +163,8 @@ describe("billing.service", () => {
 
   describe("markAccountPaid", () => {
     it("activates account on payment", async () => {
-      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
-      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: "acc_1",
         email: "a@b.com",
         companyName: "Test",
@@ -179,7 +179,7 @@ describe("billing.service", () => {
     });
 
     it("handles no account found", async () => {
-      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prismaAdmin.account.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
 
       const result = await markAccountPaid("acc_missing");
       expect(result.ok).toBe(true);
@@ -189,7 +189,7 @@ describe("billing.service", () => {
     });
 
     it("returns error on exception", async () => {
-      (prisma.account.updateMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
+      (prismaAdmin.account.updateMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
 
       const result = await markAccountPaid("acc_1");
       expect(result.ok).toBe(false);

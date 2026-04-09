@@ -10,8 +10,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: { auditLog: { create: vi.fn() } },
+vi.mock("../../data/prisma-admin.js", () => ({
+  prismaAdmin: { auditLog: { create: vi.fn() } },
 }));
 vi.mock("../../redis.js", () => ({
   getRedis: vi.fn(() => ({
@@ -25,7 +25,7 @@ vi.mock("../../logger.js", () => ({
 }));
 
 import { logAudit, safeLogAudit, rowToCsv, CSV_HEADER } from "../audit.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 
 describe("audit.service", () => {
   beforeEach(() => {
@@ -34,7 +34,7 @@ describe("audit.service", () => {
 
   describe("logAudit", () => {
     it("writes audit log to database", async () => {
-      vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+      vi.mocked(prismaAdmin.auditLog.create).mockResolvedValue({} as never);
       await logAudit({
         accountId: "acc1",
         userId: "user1",
@@ -42,48 +42,48 @@ describe("audit.service", () => {
         severity: "info",
         outcome: "success",
       });
-      expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+      expect(prismaAdmin.auditLog.create).toHaveBeenCalledTimes(1);
     });
 
     it("skips DB write for system events (null accountId)", async () => {
       await logAudit({ accountId: null, action: "system.boot" });
-      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+      expect(prismaAdmin.auditLog.create).not.toHaveBeenCalled();
     });
 
     it("redacts IP last octet", async () => {
-      vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+      vi.mocked(prismaAdmin.auditLog.create).mockResolvedValue({} as never);
       await logAudit({
         accountId: "acc1",
         action: "test",
         ipAddress: "192.168.1.100",
       });
-      const call = vi.mocked(prisma.auditLog.create).mock.calls[0][0];
+      const call = vi.mocked(prismaAdmin.auditLog.create).mock.calls[0][0];
       expect(call.data.ipAddress).toBe("192.168.1.0");
     });
 
     it("hashes user agent", async () => {
-      vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+      vi.mocked(prismaAdmin.auditLog.create).mockResolvedValue({} as never);
       await logAudit({
         accountId: "acc1",
         action: "test",
         userAgent: "Mozilla/5.0",
       });
-      const call = vi.mocked(prisma.auditLog.create).mock.calls[0][0];
+      const call = vi.mocked(prismaAdmin.auditLog.create).mock.calls[0][0];
       expect(call.data.userAgent).toHaveLength(16);
       expect(call.data.userAgent).not.toBe("Mozilla/5.0");
     });
 
     it("includes hash chain in metadata", async () => {
-      vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+      vi.mocked(prismaAdmin.auditLog.create).mockResolvedValue({} as never);
       await logAudit({ accountId: "acc1", action: "test" });
-      const call = vi.mocked(prisma.auditLog.create).mock.calls[0][0];
+      const call = vi.mocked(prismaAdmin.auditLog.create).mock.calls[0][0];
       const meta = call.data.metadata as Record<string, unknown>;
       expect(meta._hash).toBeDefined();
       expect(meta._prevHash).toBeDefined();
     });
 
     it("redacts sensitive metadata keys recursively", async () => {
-      vi.mocked(prisma.auditLog.create).mockResolvedValue({} as never);
+      vi.mocked(prismaAdmin.auditLog.create).mockResolvedValue({} as never);
       await logAudit({
         accountId: "acc1",
         action: "test",
@@ -93,7 +93,7 @@ describe("audit.service", () => {
           nested: { secret_key: "also-redacted", visible: "ok" },
         },
       });
-      const call = vi.mocked(prisma.auditLog.create).mock.calls[0][0];
+      const call = vi.mocked(prismaAdmin.auditLog.create).mock.calls[0][0];
       const meta = call.data.metadata as Record<string, unknown>;
       expect(meta.safe).toBe("visible");
       expect(meta.password).toBe("[REDACTED]");
@@ -102,14 +102,14 @@ describe("audit.service", () => {
     });
 
     it("does not throw on DB error", async () => {
-      vi.mocked(prisma.auditLog.create).mockRejectedValue(new Error("DB down"));
+      vi.mocked(prismaAdmin.auditLog.create).mockRejectedValue(new Error("DB down"));
       await expect(logAudit({ accountId: "acc1", action: "test" })).resolves.toBeUndefined();
     });
   });
 
   describe("safeLogAudit", () => {
     it("does not throw even on error", () => {
-      vi.mocked(prisma.auditLog.create).mockRejectedValue(new Error("fail"));
+      vi.mocked(prismaAdmin.auditLog.create).mockRejectedValue(new Error("fail"));
       expect(() => safeLogAudit({ accountId: "acc1", action: "test" })).not.toThrow();
     });
   });

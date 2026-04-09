@@ -1,7 +1,14 @@
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { createHash } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { logger } from "../logger.js";
+
+// Phase 3: audit logging is system-level. It is invoked from every
+// layer of the stack — middleware, route handlers, background workers,
+// auth pre-context — and the audit_logs INSERT must succeed regardless
+// of whether a tenant pin is currently active. Use the cross-tenant
+// admin client so the write bypasses RLS by virtue of being the schema
+// owner.
 
 export type AuditSeverity = "info" | "warn" | "critical";
 export type AuditOutcome = "success" | "failure" | "error";
@@ -115,7 +122,7 @@ export async function logAudit(entry: AuditEntry): Promise<void> {
     });
     const entryHash = createHash("sha256").update(payload).digest("hex");
 
-    await prisma.auditLog.create({
+    await prismaAdmin.auditLog.create({
       data: {
         accountId,
         userId: entry.userId,

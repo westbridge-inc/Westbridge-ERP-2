@@ -19,8 +19,8 @@ vi.mock("../../logger.js", () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: {
+vi.mock("../../data/prisma-admin.js", () => ({
+  prismaAdmin: {
     user: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -37,7 +37,7 @@ import {
   _resetSsoStateKeyCacheForTests,
   type SsoConfig,
 } from "../sso.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 
 const mockConfig: SsoConfig = {
   accountId: "acc_1",
@@ -171,7 +171,7 @@ describe("sso.service", () => {
 
   describe("findOrCreateSsoUser", () => {
     it("returns existing user", async () => {
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: "usr_1",
         name: "John",
         email: "john@example.com",
@@ -186,7 +186,7 @@ describe("sso.service", () => {
     });
 
     it("updates name if changed", async () => {
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: "usr_1",
         name: "Old Name",
         email: "john@example.com",
@@ -194,12 +194,12 @@ describe("sso.service", () => {
 
       const result = await findOrCreateSsoUser("acc_1", "john@example.com", "New Name", mockConfig);
       expect(result.ok).toBe(true);
-      expect(prisma.user.update).toHaveBeenCalled();
+      expect(prismaAdmin.user.update).toHaveBeenCalled();
     });
 
     it("creates new user when auto-provision enabled", async () => {
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-      (prisma.user.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (prismaAdmin.user.create as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: "usr_2",
         name: "New User",
         email: "new@example.com",
@@ -213,7 +213,7 @@ describe("sso.service", () => {
     });
 
     it("returns error when auto-provision disabled", async () => {
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const noProvisionConfig = { ...mockConfig, autoProvision: false };
       const result = await findOrCreateSsoUser("acc_1", "new@example.com", "New User", noProvisionConfig);

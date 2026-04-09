@@ -27,17 +27,25 @@ import type { Request, Response } from "express";
 // Mocks — external boundaries only (5 + Sentry)
 // ---------------------------------------------------------------------------
 
-vi.mock("../../lib/data/prisma.js", () => ({
-  prisma: {
+// Phase 3: handleLogin / handleLoginTotp / handleValidate now use
+// `prismaAdmin` (cross-tenant pre-context lookups) instead of `prisma`.
+// Use vi.hoisted to share a single mock object between both module
+// targets so the existing test assertions on `prisma.X.method` continue
+// to work alongside production code that calls `prismaAdmin.X.method`.
+const { sharedPrismaMock } = vi.hoisted(() => ({
+  sharedPrismaMock: {
     $executeRaw: vi.fn().mockResolvedValue(0),
     account: { findUnique: vi.fn().mockResolvedValue(null) },
     user: { findUnique: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
-    // C1 fix: handleLogin now consults totpSecret.verified to decide whether
+    // C1 fix: handleLogin consults totpSecret.verified to decide whether
     // to gate the login behind a TOTP challenge.
     totpSecret: { findUnique: vi.fn().mockResolvedValue(null) },
-  },
+  } as Record<string, unknown>,
 }));
+
+vi.mock("../../lib/data/prisma.js", () => ({ prisma: sharedPrismaMock }));
+vi.mock("../../lib/data/prisma-admin.js", () => ({ prismaAdmin: sharedPrismaMock }));
 
 // C1 fix: handleLogin consults Redis to store the TOTP challenge.
 vi.mock("../../lib/redis.js", () => ({

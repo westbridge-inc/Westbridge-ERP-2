@@ -35,7 +35,7 @@ import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-ti
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
-import { toWebRequest, requireAuth, requireCsrf } from "../middleware/auth.js";
+import { toWebRequest, requireAuth, requireCsrf, runWithTenantContext } from "../middleware/auth.js";
 import { apiSuccess, apiError } from "../types/api.js";
 import { getPlan, type PlanId } from "../lib/modules.js";
 import { logger } from "../lib/logger.js";
@@ -128,203 +128,214 @@ router.post("/cortex/chat", async (req: Request, res: Response) => {
   }
   const session = sessionResult.data;
 
-  // ── Rate limit ──
-  const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/cortex/chat");
-  if (!rateLimit.allowed) {
-    return res
-      .status(429)
-      .set(rateLimitHeaders(rateLimit) as Record<string, string>)
-      .json(apiError("RATE_LIMITED", "Too many AI requests. Try again shortly."));
-  }
+  // Phase 3: this handler bypasses requireAuth (it does manual session
+  // validation because it streams via SSE), so the tenant context isn't
+  // pinned automatically. Capture a non-null `ai` reference for the
+  // closure (TS narrowing on `anthropic` doesn't survive the wrap), then
+  // run the rest of the handler under the tenant pin so every prisma
+  // call below is RLS-bound to session.accountId.
+  const ai = anthropic;
+  return runWithTenantContext(session.accountId, async () => {
+    // ── Rate limit ──
+    const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/cortex/chat");
+    if (!rateLimit.allowed) {
+      return res
+        .status(429)
+        .set(rateLimitHeaders(rateLimit) as Record<string, string>)
+        .json(apiError("RATE_LIMITED", "Too many AI requests. Try again shortly."));
+    }
 
-  // ── Parse body ──
-  const parsed = chatSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json(apiError("INVALID_REQUEST", "message is required (max 4000 chars)"));
-  }
-  const { message, conversationId: requestedConvId } = parsed.data;
+    // ── Parse body ──
+    const parsed = chatSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json(apiError("INVALID_REQUEST", "message is required (max 4000 chars)"));
+    }
+    const { message, conversationId: requestedConvId } = parsed.data;
 
-  // ── Account + plan ──
-  const account = await prisma.account.findUnique({
-    where: { id: session.accountId },
-    select: { plan: true, companyName: true, erpnextCompany: true },
-  });
-  if (!account) {
-    return res.status(404).json(apiError("NOT_FOUND", "Account not found"));
-  }
-  const planId = normalizePlan(account.plan);
-
-  // Pre-check the AI quota BEFORE flushing SSE headers so we can return a
-  // proper 402 status code on the wire (the SSE stream is always 200 once
-  // headers flush). The engine ALSO runs this check via its usageGate as
-  // defence-in-depth for autonomous code paths that bypass this route — the
-  // double-check is a single Redis read so the cost is negligible.
-  const limitCheck = await defaultUsageGate.checkLimit(session.accountId);
-  if (!limitCheck.allowed) {
-    return res
-      .status(402)
-      .json(apiError("AI_LIMIT_REACHED", limitCheck.reason ?? "AI usage limit reached for this billing period"));
-  }
-
-  // ── Load or create the persistent conversation ──
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { name: true },
-  });
-
-  let conversation;
-  if (requestedConvId) {
-    conversation = await prisma.cortexConversation.findFirst({
-      where: { id: requestedConvId, accountId: session.accountId, userId: session.userId },
+    // ── Account + plan ──
+    const account = await prisma.account.findUnique({
+      where: { id: session.accountId },
+      select: { plan: true, companyName: true, erpnextCompany: true },
     });
-  }
-  if (!conversation) {
-    conversation = await prisma.cortexConversation.create({
-      data: {
-        accountId: session.accountId,
-        userId: session.userId,
-        title: message.slice(0, 80),
-        messages: [],
-        lastAgentId: "conversation",
-      },
+    if (!account) {
+      return res.status(404).json(apiError("NOT_FOUND", "Account not found"));
+    }
+    const planId = normalizePlan(account.plan);
+
+    // Pre-check the AI quota BEFORE flushing SSE headers so we can return a
+    // proper 402 status code on the wire (the SSE stream is always 200 once
+    // headers flush). The engine ALSO runs this check via its usageGate as
+    // defence-in-depth for autonomous code paths that bypass this route — the
+    // double-check is a single Redis read so the cost is negligible.
+    const limitCheck = await defaultUsageGate.checkLimit(session.accountId);
+    if (!limitCheck.allowed) {
+      return res
+        .status(402)
+        .json(apiError("AI_LIMIT_REACHED", limitCheck.reason ?? "AI usage limit reached for this billing period"));
+    }
+
+    // ── Load or create the persistent conversation ──
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { name: true },
     });
-  }
 
-  // ── Build the running message list ──
-  const storedMessages = (conversation.messages as unknown as CortexStoredMessage[]) ?? [];
-  const claudeHistory = toClaudeMessages(storedMessages);
-  const newUserTurn: Anthropic.MessageParam = { role: "user", content: message };
-  const runningMessages: Anthropic.MessageParam[] = [...claudeHistory, newUserTurn];
-
-  // ── Build the per-call agent definition ──
-  const systemPrompt = buildConversationSystemPrompt({
-    companyName: account.companyName,
-    planName: getPlan(planId).name,
-    userName: user?.name ?? "User",
-    userRole: session.role,
-    currentDate: new Date().toISOString().slice(0, 10),
-  });
-  const agent = buildConversationAgent(systemPrompt);
-
-  // ── Open the SSE stream ──
-  const traceId = randomUUID();
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no"); // disable nginx proxy buffering
-  res.flushHeaders?.();
-
-  // Send the trace + conversation IDs immediately so the client can
-  // correlate this stream with the activity log + persistent history.
-  sseWrite(res, "start", {
-    traceId,
-    conversationId: conversation.id,
-    agentId: agent.id,
-  });
-
-  // ── Run the agent ──
-  let result;
-  try {
-    result = await executeAgent({
-      client: anthropic,
-      agent,
-      messages: runningMessages,
-      ctx: {
-        accountId: session.accountId,
-        userId: session.userId,
-        agentId: agent.id,
-        traceId,
-        autonomyLevel: agent.autonomyLevel,
-        erpnextCompany: account.erpnextCompany,
-        erpnextSid: session.erpnextSid ?? null,
-        prisma,
-      },
-      // The gate clamps autonomy to plan ceiling, refuses runs when the
-      // tenant is over quota, and records token usage per iteration.
-      usageGate: defaultUsageGate,
-    });
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    logger.error("Cortex /chat: engine threw", {
-      accountId: session.accountId,
-      traceId,
-      error: errorMessage,
-    });
-    sseWrite(res, "error", { code: "ENGINE_ERROR", message: errorMessage });
-    res.end();
-    return;
-  }
-
-  // ── Stream the result back ──
-  // Phase 1: we run the agent to completion server-side then emit the full
-  // text + structured metadata as SSE events. Phase 2 will switch to true
-  // streaming via client.messages.stream() so users see tokens as they
-  // arrive — that requires the engine to expose iteration callbacks, which
-  // is a more invasive change. The wire format is forward-compatible.
-  if (result.toolCalls.length > 0) {
-    for (const call of result.toolCalls) {
-      sseWrite(res, "tool_use", {
-        tool: call.tool,
-        success: call.success,
-        durationMs: call.durationMs,
-        ...(call.error ? { error: call.error } : {}),
+    let conversation;
+    if (requestedConvId) {
+      conversation = await prisma.cortexConversation.findFirst({
+        where: { id: requestedConvId, accountId: session.accountId, userId: session.userId },
       });
     }
-  }
-
-  if (result.status === "needs_approval" && result.pendingAction) {
-    // Persist the approval request so a human can act on it later.
-    const approval = await prisma.cortexApprovalRequest.create({
-      data: {
-        accountId: session.accountId,
-        title: `Approve: ${result.pendingAction.toolName}`,
-        description: result.pendingAction.reason,
-        approvalType: result.pendingAction.toolName,
-        priority: "normal",
-        agentId: agent.id,
-        traceId,
-        aiRecommendation: result.output || null,
-        aiReasoning: result.pendingAction.reason,
-        pendingAction: {
-          toolName: result.pendingAction.toolName,
-          input: result.pendingAction.input,
+    if (!conversation) {
+      conversation = await prisma.cortexConversation.create({
+        data: {
+          accountId: session.accountId,
+          userId: session.userId,
+          title: message.slice(0, 80),
+          messages: [],
+          lastAgentId: "conversation",
         },
-        approverRoles: ["owner", "admin"],
-      },
-      select: { id: true },
-    });
-    sseWrite(res, "needs_approval", {
-      approvalRequestId: approval.id,
-      reason: result.pendingAction.reason,
-    });
-  }
+      });
+    }
 
-  sseWrite(res, "delta", { text: result.output });
-  sseWrite(res, "done", {
-    traceId,
-    conversationId: conversation.id,
-    status: result.status,
-    iterations: result.iterations,
-    inputTokens: result.inputTokens,
-    outputTokens: result.outputTokens,
-    costUsd: Number(result.costUsd.toFixed(6)),
-    latencyMs: result.latencyMs,
-    ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
-  });
-  res.end();
+    // ── Build the running message list ──
+    const storedMessages = (conversation.messages as unknown as CortexStoredMessage[]) ?? [];
+    const claudeHistory = toClaudeMessages(storedMessages);
+    const newUserTurn: Anthropic.MessageParam = { role: "user", content: message };
+    const runningMessages: Anthropic.MessageParam[] = [...claudeHistory, newUserTurn];
 
-  // ── Persist execution log + conversation update + meter ──
-  // These all run after the response has been streamed to the client so
-  // any DB hiccup does not block the user.
-  void persistRunArtefacts({
-    accountId: session.accountId,
-    conversationId: conversation.id,
-    storedMessages,
-    newUserTurn,
-    result,
-    agentId: agent.id,
-    traceId,
-  });
+    // ── Build the per-call agent definition ──
+    const systemPrompt = buildConversationSystemPrompt({
+      companyName: account.companyName,
+      planName: getPlan(planId).name,
+      userName: user?.name ?? "User",
+      userRole: session.role,
+      currentDate: new Date().toISOString().slice(0, 10),
+    });
+    const agent = buildConversationAgent(systemPrompt);
+
+    // ── Open the SSE stream ──
+    const traceId = randomUUID();
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // disable nginx proxy buffering
+    res.flushHeaders?.();
+
+    // Send the trace + conversation IDs immediately so the client can
+    // correlate this stream with the activity log + persistent history.
+    sseWrite(res, "start", {
+      traceId,
+      conversationId: conversation.id,
+      agentId: agent.id,
+    });
+
+    // ── Run the agent ──
+    let result;
+    try {
+      result = await executeAgent({
+        client: ai,
+        agent,
+        messages: runningMessages,
+        ctx: {
+          accountId: session.accountId,
+          userId: session.userId,
+          agentId: agent.id,
+          traceId,
+          autonomyLevel: agent.autonomyLevel,
+          erpnextCompany: account.erpnextCompany,
+          erpnextSid: session.erpnextSid ?? null,
+          prisma,
+        },
+        // The gate clamps autonomy to plan ceiling, refuses runs when the
+        // tenant is over quota, and records token usage per iteration.
+        usageGate: defaultUsageGate,
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error("Cortex /chat: engine threw", {
+        accountId: session.accountId,
+        traceId,
+        error: errorMessage,
+      });
+      sseWrite(res, "error", { code: "ENGINE_ERROR", message: errorMessage });
+      res.end();
+      return;
+    }
+
+    // ── Stream the result back ──
+    // Phase 1: we run the agent to completion server-side then emit the full
+    // text + structured metadata as SSE events. Phase 2 will switch to true
+    // streaming via client.messages.stream() so users see tokens as they
+    // arrive — that requires the engine to expose iteration callbacks, which
+    // is a more invasive change. The wire format is forward-compatible.
+    if (result.toolCalls.length > 0) {
+      for (const call of result.toolCalls) {
+        sseWrite(res, "tool_use", {
+          tool: call.tool,
+          success: call.success,
+          durationMs: call.durationMs,
+          ...(call.error ? { error: call.error } : {}),
+        });
+      }
+    }
+
+    if (result.status === "needs_approval" && result.pendingAction) {
+      // Persist the approval request so a human can act on it later.
+      const approval = await prisma.cortexApprovalRequest.create({
+        data: {
+          accountId: session.accountId,
+          title: `Approve: ${result.pendingAction.toolName}`,
+          description: result.pendingAction.reason,
+          approvalType: result.pendingAction.toolName,
+          priority: "normal",
+          agentId: agent.id,
+          traceId,
+          aiRecommendation: result.output || null,
+          aiReasoning: result.pendingAction.reason,
+          pendingAction: {
+            toolName: result.pendingAction.toolName,
+            input: result.pendingAction.input,
+          },
+          approverRoles: ["owner", "admin"],
+        },
+        select: { id: true },
+      });
+      sseWrite(res, "needs_approval", {
+        approvalRequestId: approval.id,
+        reason: result.pendingAction.reason,
+      });
+    }
+
+    sseWrite(res, "delta", { text: result.output });
+    sseWrite(res, "done", {
+      traceId,
+      conversationId: conversation.id,
+      status: result.status,
+      iterations: result.iterations,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      costUsd: Number(result.costUsd.toFixed(6)),
+      latencyMs: result.latencyMs,
+      ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+    });
+    res.end();
+
+    // ── Persist execution log + conversation update + meter ──
+    // These all run after the response has been streamed to the client so
+    // any DB hiccup does not block the user. The fire-and-forget call
+    // inherits the AsyncLocalStorage context, so the persist writes are
+    // also RLS-pinned to the current tenant.
+    void persistRunArtefacts({
+      accountId: session.accountId,
+      conversationId: conversation.id,
+      storedMessages,
+      newUserTurn,
+      result,
+      agentId: agent.id,
+      traceId,
+    });
+  }); // close runWithTenantContext callback
 });
 
 interface PersistArgs {

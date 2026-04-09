@@ -33,15 +33,27 @@
  *   - scripts/provision-rls-role.sh
  */
 import { prisma } from "./prisma.js";
+import { tenantContextStorage, tenantPinInProgress } from "./tenant-als.js";
 
 type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 export async function withTenantScope<T>(accountId: string, fn: (tx: TransactionClient) => Promise<T>): Promise<T> {
-  return prisma.$transaction(async (tx) => {
-    // is_local=true: this setting only persists for the duration of THIS
-    // transaction, which is exactly what we want — when the transaction
-    // commits, the next request gets a clean slate.
-    await tx.$executeRaw`SELECT set_config('app.current_account_id', ${accountId}, true)`;
-    return fn(tx);
+  // Set the AsyncLocalStorage tenant context so that any code path
+  // INSIDE the callback that happens to call `prisma.X.method()`
+  // (instead of `tx.X.method()`) still sees the right tenant. The
+  // Prisma extension reads this storage on every operation.
+  return tenantContextStorage.run({ accountId }, async () => {
+    return prisma.$transaction(async (tx) => {
+      // is_local=true: this setting only persists for the duration of
+      // THIS transaction, which is exactly what we want — when the
+      // transaction commits, the next request gets a clean slate.
+      await tx.$executeRaw`SELECT set_config('app.current_account_id', ${accountId}, true)`;
+      // Mark recursion guard so the Prisma `$allOperations` extension
+      // doesn't try to open NESTED transactions for each `tx.X.method()`
+      // call inside fn — we already have the variable set on this
+      // connection, additional pinning would just add overhead (and
+      // Prisma rejects nested $transactions).
+      return tenantPinInProgress.run(true, () => fn(tx));
+    });
   });
 }

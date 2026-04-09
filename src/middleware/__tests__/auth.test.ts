@@ -20,6 +20,33 @@ vi.mock("../../lib/data/prisma.js", () => ({
   },
 }));
 
+// Phase 3: requireActiveSubscription now reads from prismaAdmin (the
+// cross-tenant client) so the lookup runs irrespective of tenant pin.
+vi.mock("../../lib/data/prisma-admin.js", () => ({
+  prismaAdmin: {
+    account: {
+      findUnique: vi.fn(),
+    },
+    subscription: {
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+  },
+}));
+
+// Phase 3: requireAuth wraps next() in tenantContextStorage.run() so
+// the rest of the middleware chain has the tenant context. Provide a
+// pass-through stub so the test's next() spy still fires.
+vi.mock("../../lib/data/tenant-als.js", () => ({
+  tenantContextStorage: {
+    run: vi.fn((_value, fn) => fn()),
+    getStore: vi.fn(),
+  },
+  tenantPinInProgress: {
+    run: vi.fn((_value, fn) => fn()),
+    getStore: vi.fn(),
+  },
+}));
+
 vi.mock("../../lib/redis.js", () => ({
   getRedis: vi.fn().mockReturnValue(null),
 }));
@@ -57,10 +84,15 @@ import {
 import { validateSession } from "../../lib/services/session.service.js";
 import { validateCsrf as mockValidateCsrf } from "../../lib/csrf.js";
 import { getRedis } from "../../lib/redis.js";
-import { prisma } from "../../lib/data/prisma.js";
+import { prismaAdmin } from "../../lib/data/prisma-admin.js";
 
-const mockPrisma = prisma as unknown as {
+// Phase 3: requireActiveSubscription now reads via prismaAdmin (the
+// cross-tenant client) so it can check account status before tenant
+// pinning takes effect. Existing assertions on prisma.account.findUnique
+// were rewritten to mockPrismaAdmin.account.findUnique.
+const mockPrismaAdmin = prismaAdmin as unknown as {
   account: { findUnique: ReturnType<typeof vi.fn> };
+  subscription: { findFirst: ReturnType<typeof vi.fn> };
 };
 
 // ---------------------------------------------------------------------------
@@ -237,7 +269,7 @@ describe("Auth Middleware", () => {
     });
 
     it("calls next() when account status is active", async () => {
-      mockPrisma.account.findUnique.mockResolvedValue({ status: "active" });
+      mockPrismaAdmin.account.findUnique.mockResolvedValue({ status: "active" });
 
       const req = mockReq({
         path: "/api/erp/list",
@@ -252,7 +284,7 @@ describe("Auth Middleware", () => {
     });
 
     it("returns 403 when account status is past_due", async () => {
-      mockPrisma.account.findUnique.mockResolvedValue({ status: "past_due" });
+      mockPrismaAdmin.account.findUnique.mockResolvedValue({ status: "past_due" });
 
       const req = mockReq({
         path: "/api/erp/list",
@@ -273,7 +305,7 @@ describe("Auth Middleware", () => {
     });
 
     it("returns 403 when account status is suspended", async () => {
-      mockPrisma.account.findUnique.mockResolvedValue({ status: "suspended" });
+      mockPrismaAdmin.account.findUnique.mockResolvedValue({ status: "suspended" });
 
       const req = mockReq({
         path: "/api/erp/list",
@@ -289,7 +321,7 @@ describe("Auth Middleware", () => {
     });
 
     it("returns 403 when account status is canceled", async () => {
-      mockPrisma.account.findUnique.mockResolvedValue({ status: "canceled" });
+      mockPrismaAdmin.account.findUnique.mockResolvedValue({ status: "canceled" });
 
       const req = mockReq({
         path: "/api/erp/list",
@@ -305,7 +337,7 @@ describe("Auth Middleware", () => {
     });
 
     it("returns 503 on DB errors (fail-closed)", async () => {
-      mockPrisma.account.findUnique.mockRejectedValue(new Error("Connection refused"));
+      mockPrismaAdmin.account.findUnique.mockRejectedValue(new Error("Connection refused"));
 
       const req = mockReq({
         path: "/api/erp/list",
@@ -326,7 +358,7 @@ describe("Auth Middleware", () => {
     });
 
     it("calls next() when account is not found (null status)", async () => {
-      mockPrisma.account.findUnique.mockResolvedValue(null);
+      mockPrismaAdmin.account.findUnique.mockResolvedValue(null);
 
       const req = mockReq({
         path: "/api/erp/list",
@@ -359,7 +391,7 @@ describe("Auth Middleware", () => {
       expect(mockRedis.get).toHaveBeenCalled();
       expect(next).toHaveBeenCalled();
       // DB should NOT have been called since cache returned value
-      expect(mockPrisma.account.findUnique).not.toHaveBeenCalled();
+      expect(mockPrismaAdmin.account.findUnique).not.toHaveBeenCalled();
     });
   });
 

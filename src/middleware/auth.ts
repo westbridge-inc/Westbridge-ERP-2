@@ -1,5 +1,23 @@
 /**
- * Express auth middleware: validates session cookie and attaches session data to the request.
+ * Express auth middleware: validates session cookie, attaches session
+ * data to the request, AND pins the per-request tenant context for
+ * RLS-bound Prisma queries.
+ *
+ * The tenant pin is the runtime side of Phase 3 of the tenant
+ * isolation hardening spec. After this middleware validates the
+ * session and learns which `accountId` the request belongs to, it runs
+ * the rest of the middleware chain inside `tenantContextStorage.run()`.
+ * That AsyncLocalStorage value is read by the Prisma `$extends` in
+ * `lib/data/prisma.ts` to bind PostgreSQL's `app.current_account_id`
+ * for every query the request handler issues.
+ *
+ * IMPORTANT: this middleware MUST run before any per-tenant Prisma
+ * query in the request handler chain. Routes that authenticate via
+ * `requireAuth` get the tenant pin for free. Routes that don't need
+ * authentication but DO need tenant scoping (e.g. webhook handlers
+ * that already verified a signature) must call `runWithTenantContext`
+ * directly with the tenant id they verified — see the helper at the
+ * bottom of this file.
  */
 
 import type { Request, Response, NextFunction } from "express";
@@ -9,7 +27,8 @@ import { hasPermission, type Permission } from "../lib/rbac.js";
 import { logAudit } from "../lib/services/audit.service.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { apiError } from "../types/api.js";
-import { prisma } from "../lib/data/prisma.js";
+import { prismaAdmin } from "../lib/data/prisma-admin.js";
+import { tenantContextStorage } from "../lib/data/tenant-als.js";
 import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -67,7 +86,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     }
 
     req.session = result.data;
-    next();
+    // Pin the tenant context for the rest of this request's middleware
+    // chain and route handler. AsyncLocalStorage propagates through all
+    // promise/await boundaries, so any downstream `prisma.X.method()`
+    // call will be wrapped by the tenant-pin extension and run with
+    // `app.current_account_id` set in PostgreSQL. RLS policies then
+    // filter rows to the requesting tenant.
+    //
+    // NOTE: cross-tenant lookups (validateSession itself, the
+    // requireActiveSubscription cache, audit logging, etc.) use
+    // `prismaAdmin` so they bypass this pin — they need to operate
+    // before or across the tenant boundary by design.
+    tenantContextStorage.run({ accountId: result.data.accountId }, () => next());
   } catch {
     res.status(500).json({ ok: false, error: { code: "AUTH_ERROR", message: "Authentication check failed" } });
   }
@@ -128,8 +158,12 @@ async function getAccountStatusInfo(accountId: string): Promise<AccountStatusInf
     }
   }
 
-  // Fall through to DB
-  const account = await prisma.account.findUnique({
+  // Fall through to DB. Use prismaAdmin (cross-tenant) because
+  // requireActiveSubscription runs as part of the auth chain and we
+  // can't assume a tenant pin is set yet — and even if it is, looking
+  // up an account row by id is exactly the operation that establishes
+  // the tenant boundary, so it shouldn't be RLS-filtered.
+  const account = await prismaAdmin.account.findUnique({
     where: { id: accountId },
     select: { status: true, trialEndsAt: true },
   });
@@ -177,8 +211,9 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     if (status && BLOCKED_STATUSES.has(status)) {
       // Check if this is specifically a trial expiry
       if (trialEndsAt && trialEndsAt <= new Date()) {
-        // Verify no paid subscription exists
-        const paidSub = await prisma.subscription.findFirst({
+        // Verify no paid subscription exists. Cross-tenant lookup —
+        // use prismaAdmin so RLS doesn't gate the cache decision.
+        const paidSub = await prismaAdmin.subscription.findFirst({
           where: {
             accountId: session.accountId,
             status: { in: ["active"] },
@@ -208,7 +243,7 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
 
     // Inline trial check: if the account is active but trial has expired and no paid sub
     if (trialEndsAt && trialEndsAt <= new Date()) {
-      const paidSub = await prisma.subscription.findFirst({
+      const paidSub = await prismaAdmin.subscription.findFirst({
         where: {
           accountId: session.accountId,
           status: { in: ["active"] },
@@ -312,6 +347,21 @@ export function requireCsrf(req: Request, res: Response, next: NextFunction): vo
     return;
   }
   next();
+}
+
+/**
+ * Run the given async function with the tenant context bound to
+ * `accountId`. Use this from non-`requireAuth` code paths that have
+ * just verified a tenant some other way (e.g., a webhook handler
+ * that already validated the Paddle signature, or an SSO callback
+ * that just exchanged a code for a verified user) but still need
+ * subsequent Prisma queries to be RLS-pinned.
+ *
+ * Most code does NOT need this — `requireAuth` handles the common
+ * case automatically.
+ */
+export async function runWithTenantContext<T>(accountId: string, fn: () => Promise<T>): Promise<T> {
+  return tenantContextStorage.run({ accountId }, fn);
 }
 
 /**

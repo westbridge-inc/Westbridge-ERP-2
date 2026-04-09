@@ -14,8 +14,13 @@ import { z } from "zod";
 // Mocks — must be declared before importing the app
 // ---------------------------------------------------------------------------
 
-vi.mock("../../lib/data/prisma.js", () => ({
-  prisma: {
+// Phase 3: handleLogin now uses prismaAdmin (login runs before requireAuth
+// establishes a tenant context). validateSession is fully mocked below, but
+// the login path still hits the real client unless we mock prismaAdmin too.
+// vi.hoisted lets one mock object be exposed under both `prisma` and
+// `prismaAdmin` module names so the spies are shared.
+const { sharedPrismaMock } = vi.hoisted(() => ({
+  sharedPrismaMock: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
     $executeRaw: vi.fn().mockResolvedValue(0),
     account: {
@@ -51,8 +56,11 @@ vi.mock("../../lib/data/prisma.js", () => ({
     totpSecret: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
-  },
+  } as Record<string, unknown>,
 }));
+
+vi.mock("../../lib/data/prisma.js", () => ({ prisma: sharedPrismaMock }));
+vi.mock("../../lib/data/prisma-admin.js", () => ({ prismaAdmin: sharedPrismaMock }));
 
 vi.mock("../../lib/redis.js", () => {
   const pipeline = () => {

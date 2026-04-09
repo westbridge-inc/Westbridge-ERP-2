@@ -8,7 +8,7 @@
 
 import { randomBytes } from "crypto";
 import { ok, err, type Result } from "../utils/result.js";
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { logger } from "../logger.js";
 import { logAudit } from "./audit.service.js";
 import { sendEmail } from "../email/index.js";
@@ -37,7 +37,7 @@ export interface ProvisionResult {
  * 3. Updates the Account record with the erpnextCompany name
  */
 export async function provisionErpnextAccount(accountId: string): Promise<Result<ProvisionResult, string>> {
-  const account = await prisma.account.findUnique({
+  const account = await prismaAdmin.account.findUnique({
     where: { id: accountId },
     select: { email: true, companyName: true, currency: true, country: true },
   });
@@ -120,7 +120,7 @@ export async function provisionErpnextAccount(accountId: string): Promise<Result
     }).catch(() => {});
 
     // 4. Update Westbridge account with ERPNext company name
-    await prisma.account.update({
+    await prismaAdmin.account.update({
       where: { id: accountId },
       data: { erpnextCompany: companyName },
     });
@@ -175,7 +175,7 @@ export async function provisionWithRetry(accountId: string): Promise<Result<Prov
   });
 
   // Flag the account so support/ops can identify accounts with failed provisioning
-  await prisma.account
+  await prismaAdmin.account
     .update({
       where: { id: accountId },
       data: { erpnextCompany: "__PROVISIONING_FAILED__" },
@@ -187,7 +187,7 @@ export async function provisionWithRetry(accountId: string): Promise<Result<Prov
       });
     });
 
-  const account = await prisma.account.findUnique({
+  const account = await prismaAdmin.account.findUnique({
     where: { id: accountId },
     select: { email: true, companyName: true },
   });

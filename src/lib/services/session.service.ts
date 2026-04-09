@@ -4,7 +4,7 @@
 
 import { createHash, randomBytes } from "crypto";
 import { isIP } from "net";
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { logAudit, auditContext } from "../services/audit.service.js";
 import { reportSecurityEvent } from "../security-monitor.js";
@@ -86,7 +86,7 @@ export async function createSession(
     // Run the session count check and creation inside a serialized transaction
     // to prevent a TOCTOU race where two concurrent logins both see count < 5
     // and both proceed to create a session, exceeding the limit.
-    await prisma.$transaction(async (tx) => {
+    await prismaAdmin.$transaction(async (tx) => {
       const now = new Date();
       const activeSessions = await tx.session.findMany({
         where: { userId, expiresAt: { gt: now } },
@@ -150,7 +150,7 @@ export async function createSession(
     }
 
     // Audit oldest-session eviction after the transaction commits.
-    const user = await prisma.user
+    const user = await prismaAdmin.user
       .findUnique({ where: { id: userId }, include: { account: true } })
       .catch((e: unknown) => {
         logger.error("createSession: failed to load user for audit", {
@@ -213,7 +213,7 @@ export async function validateSession(
           // Validate expiry from cached value — do not skip even on cache hits.
           if (parsed.expiresAt <= nowMs) {
             // Session expired: delete from DB and cache, return error.
-            void prisma.session.deleteMany({ where: { token: tokenHash } }).catch((e: unknown) =>
+            void prismaAdmin.session.deleteMany({ where: { token: tokenHash } }).catch((e: unknown) =>
               logger.error("validateSession: DB cleanup failed (expiry)", {
                 error: e instanceof Error ? e.message : String(e),
               }),
@@ -228,7 +228,7 @@ export async function validateSession(
 
           // Validate idle timeout from cached lastActiveAt.
           if (nowMs - parsed.lastActiveAt > idleTimeoutMs) {
-            void prisma.session.deleteMany({ where: { token: tokenHash } }).catch((e: unknown) =>
+            void prismaAdmin.session.deleteMany({ where: { token: tokenHash } }).catch((e: unknown) =>
               logger.error("validateSession: DB cleanup failed (idle)", {
                 error: e instanceof Error ? e.message : String(e),
               }),
@@ -281,7 +281,7 @@ export async function validateSession(
             parsed.lastActiveAt = nowMs;
             redis.set(cacheKey, JSON.stringify(parsed), "EX", SESSION_CACHE_TTL_SEC).catch(() => {});
             // Lazy DB update — fire and forget
-            void prisma.session
+            void prismaAdmin.session
               .updateMany({ where: { token: tokenHash }, data: { lastActiveAt: now } })
               .catch(() => {});
           }
@@ -311,7 +311,7 @@ export async function validateSession(
       }
     }
 
-    const session = await prisma.session.findUnique({
+    const session = await prismaAdmin.session.findUnique({
       where: { token: tokenHash },
       include: { user: { include: { account: true } } },
     });
@@ -332,7 +332,7 @@ export async function validateSession(
           outcome: "failure",
         });
       }
-      await prisma.session.delete({ where: { id: session.id } }).catch((e: unknown) =>
+      await prismaAdmin.session.delete({ where: { id: session.id } }).catch((e: unknown) =>
         logger.warn("validateSession: DB delete failed (expiry)", {
           error: e instanceof Error ? e.message : String(e),
         }),
@@ -355,7 +355,7 @@ export async function validateSession(
           outcome: "failure",
         });
       }
-      await prisma.session.delete({ where: { id: session.id } }).catch((e: unknown) =>
+      await prismaAdmin.session.delete({ where: { id: session.id } }).catch((e: unknown) =>
         logger.warn("validateSession: DB delete failed (idle)", {
           error: e instanceof Error ? e.message : String(e),
         }),
@@ -392,7 +392,7 @@ export async function validateSession(
     const shouldUpdate = nowMs - lastActiveTs.getTime() > ACTIVE_UPDATE_INTERVAL_MS;
     if (shouldUpdate) {
       // Wrap in its own try/catch so a DB write failure does not deny a valid session.
-      await prisma.session
+      await prismaAdmin.session
         .update({
           where: { id: session.id },
           data: { lastActiveAt: now },
@@ -451,7 +451,7 @@ export async function validateSession(
 }
 
 export async function deleteExpiredSessions(): Promise<void> {
-  await prisma.session
+  await prismaAdmin.session
     .deleteMany({ where: { expiresAt: { lt: new Date() } } })
     .catch((e: unknown) =>
       logger.error("deleteExpiredSessions: DB delete failed", { error: e instanceof Error ? e.message : String(e) }),
@@ -469,7 +469,7 @@ export async function revokeSession(
   if (!token?.trim()) return ok({ revoked: false });
   const tokenHash = hashToken(token);
   try {
-    const deleted = await prisma.session.deleteMany({ where: { token: tokenHash } });
+    const deleted = await prismaAdmin.session.deleteMany({ where: { token: tokenHash } });
     const cacheKey = `${SESSION_CACHE_PREFIX}${tokenHash}`;
     getRedis()
       ?.del(cacheKey)
@@ -502,7 +502,7 @@ export async function revokeSession(
  */
 export async function revokeAllUserSessions(userId: string): Promise<Result<{ count: number }, string>> {
   try {
-    const result = await prisma.session.deleteMany({ where: { userId } });
+    const result = await prismaAdmin.session.deleteMany({ where: { userId } });
 
     // Flush all Redis cache entries for this user immediately.
     const redis = getRedis();

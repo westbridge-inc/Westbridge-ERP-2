@@ -24,7 +24,7 @@
 import { createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "crypto";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { getRedis } from "../redis.js";
 
 // ─── State HMAC key (HKDF-derived from SESSION_SECRET) ──────────────────────
@@ -295,14 +295,14 @@ export async function findOrCreateSsoUser(
   name: string,
   config: SsoConfig,
 ): Promise<Result<{ userId: string; isNew: boolean }, string>> {
-  const user = await prisma.user.findUnique({
+  const user = await prismaAdmin.user.findUnique({
     where: { accountId_email: { accountId, email } },
   });
 
   if (user) {
     // Update name if changed
     if (user.name !== name && name) {
-      await prisma.user.update({ where: { id: user.id }, data: { name } });
+      await prismaAdmin.user.update({ where: { id: user.id }, data: { name } });
     }
     return ok({ userId: user.id, isNew: false });
   }
@@ -311,7 +311,7 @@ export async function findOrCreateSsoUser(
     return err("User not found. Contact your account administrator to be invited.");
   }
 
-  const newUser = await prisma.user.create({
+  const newUser = await prismaAdmin.user.create({
     data: {
       accountId,
       email,

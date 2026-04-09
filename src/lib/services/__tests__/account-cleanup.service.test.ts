@@ -5,8 +5,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: {
+vi.mock("../../data/prisma-admin.js", () => ({
+  prismaAdmin: {
     user: { findMany: vi.fn(), update: vi.fn() },
     session: { deleteMany: vi.fn() },
     apiKey: { deleteMany: vi.fn() },
@@ -25,7 +25,7 @@ vi.mock("../audit.service.js", () => ({
 }));
 
 import { softDeleteAccount, hardDeleteAccount, findAccountsDueForHardDelete } from "../account-cleanup.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 
 describe("account-cleanup.service", () => {
   beforeEach(() => {
@@ -45,12 +45,12 @@ describe("account-cleanup.service", () => {
         passwordResetToken: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
         account: { update: vi.fn().mockResolvedValue({}) },
       };
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn) => fn(tx));
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn) => fn(tx));
       return tx;
     }
 
     it("anonymizes every user in the account", async () => {
-      (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }, { id: "u2" }]);
+      (prismaAdmin.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }, { id: "u2" }]);
       const tx = mockTransactionRunner();
 
       const result = await softDeleteAccount("acc_1", { initiatorUserId: "u1" });
@@ -75,7 +75,7 @@ describe("account-cleanup.service", () => {
     });
 
     it("revokes ALL credential tables (sessions, api keys, webhooks, sso, invites, password resets)", async () => {
-      (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }]);
+      (prismaAdmin.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }]);
       const tx = mockTransactionRunner();
 
       await softDeleteAccount("acc_1", { initiatorUserId: "u1" });
@@ -90,7 +90,7 @@ describe("account-cleanup.service", () => {
     });
 
     it("stamps account.deletedAt so the cleanup worker can find it", async () => {
-      (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }]);
+      (prismaAdmin.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }]);
       const tx = mockTransactionRunner();
 
       await softDeleteAccount("acc_1", { initiatorUserId: "u1" });
@@ -107,8 +107,8 @@ describe("account-cleanup.service", () => {
     });
 
     it("returns err when the transaction throws", async () => {
-      (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }]);
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db down"));
+      (prismaAdmin.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "u1" }]);
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db down"));
 
       const result = await softDeleteAccount("acc_1", { initiatorUserId: "u1" });
 
@@ -119,13 +119,13 @@ describe("account-cleanup.service", () => {
   // ─── findAccountsDueForHardDelete ──────────────────────────────────────
   describe("findAccountsDueForHardDelete", () => {
     it("queries soft-deleted accounts older than 30 days", async () => {
-      (prisma.account.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "acc_a" }, { id: "acc_b" }]);
+      (prismaAdmin.account.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([{ id: "acc_a" }, { id: "acc_b" }]);
 
       const now = new Date("2026-04-09T00:00:00Z");
       const ids = await findAccountsDueForHardDelete(now);
 
       expect(ids).toEqual(["acc_a", "acc_b"]);
-      const call = (prisma.account.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const call = (prismaAdmin.account.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(call.where.status).toBe("deleted");
       // Cutoff = now - 30d = 2026-03-10
       const expectedCutoff = new Date("2026-03-10T00:00:00Z");
@@ -133,7 +133,7 @@ describe("account-cleanup.service", () => {
     });
 
     it("returns an empty list when no rows are due", async () => {
-      (prisma.account.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.account.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       const ids = await findAccountsDueForHardDelete(new Date());
       expect(ids).toEqual([]);
     });
@@ -144,9 +144,9 @@ describe("account-cleanup.service", () => {
     it("anonymizes audit logs THEN deletes the account (order matters for FK SET NULL)", async () => {
       const updateMany = vi.fn().mockResolvedValue({ count: 42 });
       const deleteAccount = vi.fn().mockResolvedValue({});
-      (prisma.auditLog.updateMany as ReturnType<typeof vi.fn>) = updateMany;
-      (prisma.account.delete as ReturnType<typeof vi.fn>) = deleteAccount;
-      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.auditLog.updateMany as ReturnType<typeof vi.fn>) = updateMany;
+      (prismaAdmin.account.delete as ReturnType<typeof vi.fn>) = deleteAccount;
+      (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         erpnextCompany: null,
       });
 
@@ -177,11 +177,11 @@ describe("account-cleanup.service", () => {
     });
 
     it("returns err when account.delete throws (does NOT silently swallow)", async () => {
-      (prisma.auditLog.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
-      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.auditLog.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         erpnextCompany: null,
       });
-      (prisma.account.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("FK violation"));
+      (prismaAdmin.account.delete as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("FK violation"));
 
       const result = await hardDeleteAccount("acc_1");
 
@@ -192,16 +192,16 @@ describe("account-cleanup.service", () => {
     it("does NOT block delete if ERPNext deprovision fails", async () => {
       // ERPNEXT_API_KEY/SECRET unset → deleteErpnextCompany is a no-op,
       // so just confirm the delete still runs even when erpnextCompany is set.
-      (prisma.auditLog.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
-      (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.auditLog.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
         erpnextCompany: "Acme Corp",
       });
-      (prisma.account.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.account.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await hardDeleteAccount("acc_1");
 
       expect(result.ok).toBe(true);
-      expect(prisma.account.delete).toHaveBeenCalled();
+      expect(prismaAdmin.account.delete).toHaveBeenCalled();
     });
   });
 });

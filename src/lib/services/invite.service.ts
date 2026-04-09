@@ -4,6 +4,15 @@
 
 import { randomBytes, createHash } from "crypto";
 import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
+
+// Phase 3: createInvite is called from POST /invite (authenticated, the
+// requesting account is in tenant context). validateInviteToken and
+// acceptInvite are called from /invite GET and POST /invite/accept,
+// both UNAUTHENTICATED (the invitee is identified only by the token).
+// → createInvite uses `prisma` so the user/account creation is RLS-pinned
+// → validate/accept use `prismaAdmin` because there's no tenant context
+//   yet and the invite token must be looked up by hash globally.
 import { sendEmail } from "../email/index.js";
 import { inviteEmail } from "../email/templates.js";
 import { ok, err, type Result } from "../utils/result.js";
@@ -75,7 +84,7 @@ export interface ValidateInviteResult {
 
 export async function validateInviteToken(raw: string): Promise<Result<ValidateInviteResult, string>> {
   const tokenHash = hashToken(raw);
-  const invite = await prisma.inviteToken.findUnique({ where: { tokenHash } });
+  const invite = await prismaAdmin.inviteToken.findUnique({ where: { tokenHash } });
   if (!invite) return err("Invalid or expired invite link.");
   if (invite.usedAt) return err("This invite has already been used.");
   if (invite.expiresAt < new Date()) return err("This invite link has expired.");
@@ -101,7 +110,7 @@ export async function acceptInvite(
   const { inviteId, accountId, email, role } = validateResult.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prismaAdmin.$transaction(async (tx) => {
       // Mark token as used
       await tx.inviteToken.update({
         where: { id: inviteId },

@@ -5,8 +5,14 @@ import request from "supertest";
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock("../../lib/data/prisma.js", () => ({
-  prisma: {
+// invite.routes.ts is dual-import (Phase 3): authenticated handlers
+// (POST /invite, GET /team/invites, POST /team/invites/:id/resend) use
+// `prisma`, while unauthenticated token redemption (GET /invite,
+// POST /invite/accept) uses `prismaAdmin`. Use vi.hoisted to share one
+// mock object across both module names so the route's calls land on the
+// same spies regardless of which client name is used.
+const { sharedPrismaMock } = vi.hoisted(() => ({
+  sharedPrismaMock: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
     $executeRaw: vi.fn().mockResolvedValue(0),
     account: {
@@ -33,8 +39,11 @@ vi.mock("../../lib/data/prisma.js", () => ({
       findMany: vi.fn().mockResolvedValue([]),
     },
     $transaction: vi.fn(),
-  },
+  } as Record<string, unknown>,
 }));
+
+vi.mock("../../lib/data/prisma.js", () => ({ prisma: sharedPrismaMock }));
+vi.mock("../../lib/data/prisma-admin.js", () => ({ prismaAdmin: sharedPrismaMock }));
 
 vi.mock("../../lib/redis.js", () => ({
   getRedis: vi.fn().mockReturnValue(null),

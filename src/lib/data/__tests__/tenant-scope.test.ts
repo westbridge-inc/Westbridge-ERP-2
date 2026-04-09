@@ -12,6 +12,7 @@ vi.mock("../prisma.js", () => ({
 }));
 
 import { withTenantScope } from "../tenant-scope.js";
+import { tenantContextStorage, tenantPinInProgress } from "../tenant-als.js";
 
 describe("tenant-scope", () => {
   beforeEach(() => {
@@ -122,9 +123,7 @@ describe("tenant-scope", () => {
   it("propagates errors from the transaction itself", async () => {
     mockTransaction.mockRejectedValue(new Error("Transaction failed"));
 
-    await expect(
-      withTenantScope("acc_1", async () => "ok"),
-    ).rejects.toThrow("Transaction failed");
+    await expect(withTenantScope("acc_1", async () => "ok")).rejects.toThrow("Transaction failed");
   });
 
   it("uses prisma.$transaction for atomicity", async () => {
@@ -168,5 +167,66 @@ describe("tenant-scope", () => {
     const result = await withTenantScope("acc_1", async () => complexData);
 
     expect(result).toEqual(complexData);
+  });
+
+  // ── Phase 3 ALS plumbing ───────────────────────────────────────────────────
+  // withTenantScope now ALSO publishes the tenant id into
+  // `tenantContextStorage` so that bare `prisma.X.method()` calls inside
+  // the callback (i.e. those that use the request-scoped client instead
+  // of the explicit tx client) still get tenant-pinned by the Prisma
+  // extension. And it sets `tenantPinInProgress=true` so the extension
+  // doesn't open NESTED transactions for each query inside the wrapped
+  // transaction (Postgres rejects nested $transactions).
+
+  it("sets tenantContextStorage to the active accountId inside the callback", async () => {
+    let seen: string | undefined;
+    mockTransaction.mockImplementation(async (fn: Function) => fn({ $executeRaw: mockExecuteRaw }));
+
+    await withTenantScope("acc_als", async () => {
+      seen = tenantContextStorage.getStore()?.accountId;
+    });
+
+    expect(seen).toBe("acc_als");
+  });
+
+  it("sets tenantPinInProgress=true so $allOperations skips re-wrapping", async () => {
+    let seenInProgress: boolean | undefined;
+    mockTransaction.mockImplementation(async (fn: Function) => fn({ $executeRaw: mockExecuteRaw }));
+
+    await withTenantScope("acc_als", async () => {
+      seenInProgress = tenantPinInProgress.getStore();
+    });
+
+    expect(seenInProgress).toBe(true);
+  });
+
+  it("clears tenantContextStorage and tenantPinInProgress after the callback returns", async () => {
+    mockTransaction.mockImplementation(async (fn: Function) => fn({ $executeRaw: mockExecuteRaw }));
+
+    await withTenantScope("acc_als", async () => {});
+
+    expect(tenantContextStorage.getStore()).toBeUndefined();
+    expect(tenantPinInProgress.getStore()).toBeUndefined();
+  });
+
+  it("isolates ALS state across concurrent withTenantScope calls", async () => {
+    // The whole point of AsyncLocalStorage: two parallel calls must NOT
+    // see each other's tenant id. If this ever fails, RLS is silently
+    // broken under concurrent load.
+    mockTransaction.mockImplementation(async (fn: Function) => fn({ $executeRaw: mockExecuteRaw }));
+
+    const seen: Array<string | undefined> = [];
+    await Promise.all([
+      withTenantScope("acc_A", async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        seen.push(tenantContextStorage.getStore()?.accountId);
+      }),
+      withTenantScope("acc_B", async () => {
+        await new Promise((r) => setTimeout(r, 1));
+        seen.push(tenantContextStorage.getStore()?.accountId);
+      }),
+    ]);
+
+    expect(new Set(seen)).toEqual(new Set(["acc_A", "acc_B"]));
   });
 });

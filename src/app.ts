@@ -20,7 +20,6 @@ import { logger } from "./lib/logger.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { responseTime } from "./middleware/response-time.js";
 import { sloTracking } from "./middleware/slo-tracking.js";
-import { tenantContext } from "./middleware/tenant-context.js";
 import { requireActiveSubscription, requireCsrf } from "./middleware/auth.js";
 
 // Route imports
@@ -152,8 +151,12 @@ export function createApp(): express.Application {
   // Create a shared router for all API routes
   const apiRouter = Router();
 
-  // RLS tenant context: set PostgreSQL session variable for every authenticated request (B1)
-  apiRouter.use(tenantContext);
+  // Tenant context for RLS-bound Prisma queries is now pinned by
+  // `requireAuth` in src/middleware/auth.ts AFTER the session is
+  // validated (so we know which tenant the request belongs to).
+  // The previous global `tenantContext` middleware was deleted because
+  // it ran BEFORE auth and was therefore always a no-op — see Phase 3
+  // of the tenant isolation hardening spec for the full rationale.
 
   // Block past_due/canceled accounts from accessing non-billing endpoints
   apiRouter.use(requireActiveSubscription);
