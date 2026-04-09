@@ -87,7 +87,19 @@ describe("queue", () => {
   describe("scheduleCleanupJobs", () => {
     it("schedules session and audit log cleanup", async () => {
       await scheduleCleanupJobs();
-      expect(mockAdd).toHaveBeenCalledTimes(6);
+      expect(mockAdd).toHaveBeenCalledTimes(7);
+    });
+
+    // B1: regression test — the daily account purge worker MUST be
+    // scheduled, otherwise soft-deleted accounts pile up indefinitely
+    // and we breach the Privacy Policy promise of 30-day erasure.
+    it("schedules the daily purge-deleted-accounts task (B1)", async () => {
+      await scheduleCleanupJobs();
+      expect(mockAdd).toHaveBeenCalledWith(
+        "purge-deleted-accounts",
+        expect.objectContaining({ task: "purge-deleted-accounts" }),
+        expect.objectContaining({ repeat: { every: 24 * 60 * 60 * 1000 } }),
+      );
     });
   });
 });

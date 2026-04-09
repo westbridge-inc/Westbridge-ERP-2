@@ -165,6 +165,35 @@ function createCleanupWorker(): Worker {
         const { cleanupExpiredTrialData } = await import("../lib/services/subscription.service.js");
         const result = await cleanupExpiredTrialData();
         logger.info("Expired trial cleanup completed", { jobId: job.id, deleted: result.deleted });
+      } else if (task === "purge-deleted-accounts") {
+        // B1: hard-delete accounts whose 30-day grace period has elapsed.
+        // Drives the Privacy Policy promise of full erasure within 30 days
+        // of cancellation. Each account is purged sequentially so a single
+        // failure doesn't poison the rest of the batch.
+        const { findAccountsDueForHardDelete, hardDeleteAccount } =
+          await import("../lib/services/account-cleanup.service.js");
+        const due = await findAccountsDueForHardDelete();
+        let purged = 0;
+        let failed = 0;
+        for (const accountId of due) {
+          const result = await hardDeleteAccount(accountId);
+          if (result.ok) {
+            purged += 1;
+          } else {
+            failed += 1;
+            logger.error("purge-deleted-accounts: hard delete failed", {
+              jobId: job.id,
+              accountId,
+              error: result.error,
+            });
+          }
+        }
+        logger.info("purge-deleted-accounts completed", {
+          jobId: job.id,
+          due: due.length,
+          purged,
+          failed,
+        });
       }
     },
     { connection },

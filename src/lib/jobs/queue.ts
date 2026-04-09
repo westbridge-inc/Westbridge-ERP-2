@@ -116,7 +116,11 @@ export interface CleanupJobData {
     | "check-trial-expiry"
     | "check-grace-period"
     | "send-trial-warnings"
-    | "cleanup-expired-trials";
+    | "cleanup-expired-trials"
+    // B1: hard-delete accounts whose 30-day soft-delete grace period
+    // has elapsed. Cascades through every child row via the FK relations
+    // in schema.prisma; audit logs are anonymized in place beforehand.
+    | "purge-deleted-accounts";
 }
 
 export interface WebhookJobData {
@@ -199,4 +203,13 @@ export async function scheduleCleanupJobs(): Promise<void> {
   await cleanupQueue.add("cleanup-expired-trials", { task: "cleanup-expired-trials" } satisfies CleanupJobData, {
     repeat: { every: 7 * 24 * 60 * 60 * 1000 }, // weekly
   });
+
+  // B1: Daily account purge worker. Hard-deletes accounts whose 30-day
+  // soft-delete grace period has elapsed. The Privacy Policy promises
+  // production purge within 30 days, so this MUST run at least daily.
+  await cleanupQueue.add(
+    "purge-deleted-accounts",
+    { task: "purge-deleted-accounts" } satisfies CleanupJobData,
+    { repeat: { every: 24 * 60 * 60 * 1000 } }, // daily
+  );
 }
