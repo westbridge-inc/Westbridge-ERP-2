@@ -12,9 +12,25 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
-# Sync Prisma schema to database before each deploy
+# Sync Prisma schema to database before each deploy.
+#
+# We use `db push` (not `migrate deploy`) because the migration history is
+# partially out of sync with prod — the cortex_kernel migration was applied
+# via db push originally, before we started writing migration files. The
+# --accept-data-loss flag was REMOVED in 2026-04-09 after a Big-4 audit
+# flagged it as a deploy-time data-destruction risk: with that flag set,
+# any inadvertent DROP COLUMN / DROP TABLE in prisma/schema.prisma would
+# silently destroy production data on the next deploy. Without the flag,
+# prisma refuses any destructive change and the deploy fails fast, forcing
+# the operator to either revert the schema or write an explicit data
+# migration first. Additive changes (new tables, new columns, new indexes)
+# still apply cleanly with no flag needed.
+#
+# Follow-up: when the migration history is reconciled (via `prisma migrate
+# resolve --applied <each>` against prod), this should switch to
+# `prisma migrate deploy` for full migration-based deploys.
 [deploy]
-  release_command = "npx prisma db push --accept-data-loss"
+  release_command = "npx prisma db push"
 
 [env]
   NODE_ENV = "production"
