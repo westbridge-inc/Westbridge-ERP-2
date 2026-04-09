@@ -5,30 +5,30 @@ import request from "supertest";
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock("../../lib/data/prisma.js", () => ({
-  prisma: {
+// Phase 3: handleLogin / handleValidate / handleResetPassword now use
+// `prismaAdmin` (cross-tenant pre-context lookups). Use vi.hoisted to
+// share a single mock between both module targets so existing
+// assertions on prisma.X.method() keep working transparently.
+const { sharedPrismaMock } = vi.hoisted(() => ({
+  sharedPrismaMock: {
     $executeRaw: vi.fn().mockResolvedValue(0),
-    account: {
-      findUnique: vi.fn(),
-    },
+    account: { findUnique: vi.fn() },
     user: {
       findUnique: vi.fn(),
       count: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
-    session: {
-      deleteMany: vi.fn(),
-    },
-    // C1 fix: handleLogin now consults totpSecret.verified to decide whether
-    // to short-circuit into the TOTP challenge step. Default to "no 2FA"
-    // so the existing single-factor login tests still exercise the legacy path.
-    totpSecret: {
-      findUnique: vi.fn().mockResolvedValue(null),
-    },
+    session: { deleteMany: vi.fn() },
+    // C1 fix: handleLogin consults totpSecret.verified to decide whether
+    // to short-circuit into the TOTP challenge step.
+    totpSecret: { findUnique: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
-  },
+  } as Record<string, unknown>,
 }));
+
+vi.mock("../../lib/data/prisma.js", () => ({ prisma: sharedPrismaMock }));
+vi.mock("../../lib/data/prisma-admin.js", () => ({ prismaAdmin: sharedPrismaMock }));
 
 vi.mock("../../lib/redis.js", () => ({
   getRedis: vi.fn().mockReturnValue(null),

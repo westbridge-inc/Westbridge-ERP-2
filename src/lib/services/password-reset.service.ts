@@ -3,7 +3,7 @@
  */
 
 import { randomBytes, createHash } from "crypto";
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { sendEmail } from "../email/index.js";
 import { passwordResetEmail } from "../email/templates.js";
 import { ok, err, type Result } from "../utils/result.js";
@@ -17,7 +17,7 @@ function hashToken(raw: string): string {
 
 export async function requestPasswordReset(email: string, baseUrl: string): Promise<Result<{ sent: boolean }, string>> {
   // Always return ok to prevent user enumeration — we only actually send if found
-  const user = await prisma.user.findFirst({
+  const user = await prismaAdmin.user.findFirst({
     where: { email, status: "active" },
     include: { account: true },
   });
@@ -25,7 +25,7 @@ export async function requestPasswordReset(email: string, baseUrl: string): Prom
   if (!user) return ok({ sent: true }); // silent — don't reveal whether email exists
 
   // Invalidate any existing tokens for this user
-  await prisma.passwordResetToken.updateMany({
+  await prismaAdmin.passwordResetToken.updateMany({
     where: { userId: user.id, usedAt: null },
     data: { usedAt: new Date() },
   });
@@ -35,7 +35,7 @@ export async function requestPasswordReset(email: string, baseUrl: string): Prom
   const expiresAt = new Date(Date.now() + RESET_EXPIRY_MINUTES * 60 * 1000);
 
   try {
-    await prisma.passwordResetToken.create({
+    await prismaAdmin.passwordResetToken.create({
       data: { userId: user.id, tokenHash, expiresAt },
     });
 
@@ -60,7 +60,7 @@ export interface ValidateResetTokenResult {
 
 export async function validateResetToken(raw: string): Promise<Result<ValidateResetTokenResult, string>> {
   const tokenHash = hashToken(raw);
-  const token = await prisma.passwordResetToken.findUnique({
+  const token = await prismaAdmin.passwordResetToken.findUnique({
     where: { tokenHash },
     include: { user: true },
   });
@@ -112,9 +112,9 @@ export async function applyPasswordReset(
 
   // Mark token used, write the new hash, reset lockout state, and revoke
   // all sessions so any stolen tokens become invalid after password change.
-  await prisma.$transaction([
-    prisma.passwordResetToken.update({ where: { id: tokenId }, data: { usedAt: new Date() } }),
-    prisma.user.update({
+  await prismaAdmin.$transaction([
+    prismaAdmin.passwordResetToken.update({ where: { id: tokenId }, data: { usedAt: new Date() } }),
+    prismaAdmin.user.update({
       where: { id: userId },
       data: {
         passwordHash: newPasswordHash,
@@ -123,7 +123,7 @@ export async function applyPasswordReset(
         passwordChangedAt: new Date(),
       },
     }),
-    prisma.session.deleteMany({ where: { userId } }),
+    prismaAdmin.session.deleteMany({ where: { userId } }),
   ]);
 
   return ok({ success: true });

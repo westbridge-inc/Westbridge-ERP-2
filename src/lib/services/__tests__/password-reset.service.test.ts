@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: {
+vi.mock("../../data/prisma-admin.js", () => ({
+  prismaAdmin: {
     user: {
       findFirst: vi.fn(),
       update: vi.fn(),
@@ -45,7 +45,7 @@ beforeEach(() => {
 });
 
 import { requestPasswordReset, applyPasswordReset } from "../password-reset.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 
 describe("password-reset.service", () => {
   beforeEach(() => {
@@ -54,14 +54,14 @@ describe("password-reset.service", () => {
 
   describe("requestPasswordReset", () => {
     it("returns ok even when user not found (prevents enumeration)", async () => {
-      (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (prismaAdmin.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const result = await requestPasswordReset("nonexistent@test.com", "http://localhost:3000");
       expect(result.ok).toBe(true);
     });
 
     it("sends reset email when user found", async () => {
-      (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      (prismaAdmin.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
         id: "usr_1",
         email: "user@test.com",
         name: "Test User",
@@ -76,7 +76,7 @@ describe("password-reset.service", () => {
   describe("applyPasswordReset", () => {
     it("returns error for invalid token", async () => {
       // passwordResetToken.findUnique returns null for unknown token hash
-      (prisma.passwordResetToken as any).findUnique = vi.fn().mockResolvedValue(null);
+      (prismaAdmin.passwordResetToken as any).findUnique = vi.fn().mockResolvedValue(null);
 
       const result = await applyPasswordReset({ raw: "some-invalid-token", newPassword: "NewPassword123!" });
       expect(result.ok).toBe(false);
@@ -85,7 +85,7 @@ describe("password-reset.service", () => {
 
     // Regression test for audit finding C2 (2026-04-09): applyPasswordReset
     // used to update the password in ERPNext but never wrote
-    // prisma.user.passwordHash. The login flow checks the local hash first
+    // prismaAdmin.user.passwordHash. The login flow checks the local hash first
     // and short-circuits, so the OLD password kept working AND the NEW
     // password could not authenticate. The fix adds a passwordHash write
     // inside the post-ERPNext transaction; this test asserts that.
@@ -98,31 +98,33 @@ describe("password-reset.service", () => {
         expiresAt: new Date(Date.now() + 60_000),
         user: { id: "usr_1", email: "user@test.com" },
       };
-      (prisma.passwordResetToken as any).findUnique = vi.fn().mockResolvedValue(fakeToken);
+      (prismaAdmin.passwordResetToken as any).findUnique = vi.fn().mockResolvedValue(fakeToken);
 
-      // Capture the operations passed into prisma.$transaction so we can
+      // Capture the operations passed into prismaAdmin.$transaction so we can
       // assert that user.update was called with passwordHash set.
       const transactionCalls: Array<{ table: string; data?: Record<string, unknown> }> = [];
-      (prisma as any).$transaction = vi.fn().mockImplementation(async (ops: unknown[]) => {
-        // The mock prisma.user.update / passwordResetToken.update / session.deleteMany
+      (prismaAdmin as any).$transaction = vi.fn().mockImplementation(async (ops: unknown[]) => {
+        // The mock prismaAdmin.user.update / passwordResetToken.update / session.deleteMany
         // each return a thenable promise; record what they were called with.
         return ops;
       });
       // Re-mock the inner ops so they record their args.
-      (prisma.user as any).update = vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
+      (prismaAdmin.user as any).update = vi.fn().mockImplementation((args: { data: Record<string, unknown> }) => {
         transactionCalls.push({ table: "user", data: args.data });
         return Promise.resolve(args);
       });
-      (prisma.passwordResetToken as any).update = vi
+      (prismaAdmin.passwordResetToken as any).update = vi
         .fn()
         .mockImplementation((args: { data: Record<string, unknown> }) => {
           transactionCalls.push({ table: "passwordResetToken", data: args.data });
           return Promise.resolve(args);
         });
-      (prisma.session as any).deleteMany = vi.fn().mockImplementation((args: { where: Record<string, unknown> }) => {
-        transactionCalls.push({ table: "session", data: args.where });
-        return Promise.resolve({ count: 1 });
-      });
+      (prismaAdmin.session as any).deleteMany = vi
+        .fn()
+        .mockImplementation((args: { where: Record<string, unknown> }) => {
+          transactionCalls.push({ table: "session", data: args.where });
+          return Promise.resolve({ count: 1 });
+        });
 
       const result = await applyPasswordReset({ raw: "valid-raw-token", newPassword: "NewPassword123!" });
 

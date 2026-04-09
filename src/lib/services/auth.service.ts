@@ -8,7 +8,7 @@ import { erpLogin } from "../data/auth.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
 import bcrypt from "bcrypt";
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { validatePassword } from "../password-policy.js";
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ export async function login(email: string, password: string): Promise<Result<str
   // for user authentication — ERPNext is the data engine, not the auth provider.
   // Users created via signup live in our DB with a bcrypt hash; ERPNext only
   // sees them via API key auth (shared service account).
-  const user = await prisma.user
+  const user = await prismaAdmin.user
     .findFirst({ where: { email: trimmedEmail }, select: { passwordHash: true } })
     .catch(() => null);
 
@@ -113,7 +113,7 @@ export async function changePassword(
   }
 
   // --- Verify current password ---
-  const user = await prisma.user.findUnique({
+  const user = await prismaAdmin.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, passwordHash: true },
   });
@@ -155,12 +155,12 @@ export async function changePassword(
   // --- Update hash and revoke all other sessions (keep current only) ---
   const tokenHash = createHash("sha256").update(sessionToken).digest("hex");
   const newHash = await hashPassword(newPassword);
-  await prisma.$transaction([
-    prisma.user.update({
+  await prismaAdmin.$transaction([
+    prismaAdmin.user.update({
       where: { id: user.id },
       data: { passwordHash: newHash },
     }),
-    prisma.session.deleteMany({
+    prismaAdmin.session.deleteMany({
       where: { userId: user.id, token: { not: tokenHash } },
     }),
   ]);

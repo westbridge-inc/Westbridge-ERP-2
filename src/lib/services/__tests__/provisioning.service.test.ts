@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: {
+vi.mock("../../data/prisma-admin.js", () => ({
+  prismaAdmin: {
     account: {
       findUnique: vi.fn(),
       update: vi.fn(),
@@ -14,7 +14,7 @@ vi.mock("../../logger.js", () => ({
 }));
 
 import { provisionErpnextAccount } from "../provisioning.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 
 describe("provisioning.service", () => {
   beforeEach(() => {
@@ -23,20 +23,20 @@ describe("provisioning.service", () => {
   });
 
   it("returns error when account not found", async () => {
-    (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const result = await provisionErpnextAccount("acc_missing");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("not found");
   });
 
   it("provisions account successfully", async () => {
-    (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       email: "admin@testco.com",
       companyName: "Test Company",
       currency: "USD",
       country: "US",
     });
-    (prisma.account.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prismaAdmin.account.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     // Mock all fetch calls to succeed
     global.fetch = vi
@@ -54,13 +54,13 @@ describe("provisioning.service", () => {
   });
 
   it("handles company already exists", async () => {
-    (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       email: "admin@testco.com",
       companyName: "Existing Co",
       currency: "GYD",
       country: "GY",
     });
-    (prisma.account.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prismaAdmin.account.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     global.fetch = vi
       .fn()
@@ -73,7 +73,7 @@ describe("provisioning.service", () => {
   });
 
   it("handles fetch errors", async () => {
-    (prisma.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prismaAdmin.account.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       email: "admin@testco.com",
       companyName: "Test Co",
       currency: "USD",

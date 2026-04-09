@@ -19,7 +19,7 @@ import {
 } from "../lib/services/sso.service.js";
 import { createSession } from "../lib/services/session.service.js";
 import { encrypt, decrypt, ENCRYPTION_CONTEXT } from "../lib/encryption.js";
-import { prisma } from "../lib/data/prisma.js";
+import { prismaAdmin } from "../lib/data/prisma-admin.js";
 import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 
 const router = Router();
@@ -39,7 +39,7 @@ const ssoConfigSchema = z.object({
 // ─── Helper: load SSO config from PostgreSQL (Blocker #11 — migrated from Redis) ──
 
 async function loadSsoConfig(accountId: string): Promise<SsoConfig | null> {
-  const row = await prisma.ssoConfig.findUnique({ where: { accountId } });
+  const row = await prismaAdmin.ssoConfig.findUnique({ where: { accountId } });
   if (!row) return null;
   try {
     return {
@@ -62,7 +62,7 @@ async function saveSsoConfig(config: SsoConfig): Promise<void> {
   // AAD-bind clientSecret to accountId so an attacker who gains write access
   // to sso_configs cannot copy a client secret onto another account's row.
   const aad = ENCRYPTION_CONTEXT.ssoClientSecret(config.accountId);
-  await prisma.ssoConfig.upsert({
+  await prismaAdmin.ssoConfig.upsert({
     where: { accountId: config.accountId },
     update: {
       provider: config.provider,

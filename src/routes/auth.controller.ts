@@ -20,7 +20,7 @@ import { createSession, validateSession, revokeSession } from "../lib/services/s
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { loginBodySchema, changePasswordBodySchema } from "../types/schemas/auth.js";
-import { prisma } from "../lib/data/prisma.js";
+import { prismaAdmin } from "../lib/data/prisma-admin.js";
 import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
 import { toWebRequest } from "../middleware/auth.js";
@@ -156,7 +156,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     }
 
     // --- Account lookup ---
-    const account = await prisma.account.findUnique({ where: { email } }).catch(() => null);
+    const account = await prismaAdmin.account.findUnique({ where: { email } }).catch(() => null);
     if (!account) {
       // Constant-time response: do a dummy bcrypt comparison so the response
       // time matches the case where the account exists with a wrong password.
@@ -171,12 +171,12 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     }
 
     // --- User lookup / auto-create first owner ---
-    let user = await prisma.user.findUnique({
+    let user = await prismaAdmin.user.findUnique({
       where: { accountId_email: { accountId: account.id, email } },
     });
 
     if (!user) {
-      const existingCount = await prisma.user.count({
+      const existingCount = await prismaAdmin.user.count({
         where: { accountId: account.id },
       });
       if (existingCount > 0) {
@@ -195,7 +195,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
           .json(apiError("AUTH_FAILED", "Invalid email or password.", undefined, meta()));
       }
       // First user for this account -- create as owner
-      user = await prisma.user.create({
+      user = await prismaAdmin.user.create({
         data: {
           accountId: account.id,
           email,
@@ -242,7 +242,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
       });
       const nextAttempts = (user.failedLoginAttempts ?? 0) + 1;
       const lockedUntil = nextAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
-      await prisma.user.update({
+      await prismaAdmin.user.update({
         where: { id: user.id },
         data: {
           failedLoginAttempts: nextAttempts,
@@ -285,7 +285,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     }
 
     // --- Reset failed login counter ---
-    await prisma.user.update({
+    await prismaAdmin.user.update({
       where: { id: user.id },
       data: { failedLoginAttempts: 0, lockedUntil: null },
     });
@@ -297,7 +297,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     // single-use challenge that the client must redeem at /auth/login/totp
     // with a valid 6-digit code or 8-hex backup code. The user is treated
     // as fully unauthenticated until that second factor is verified.
-    const totp = await prisma.totpSecret
+    const totp = await prismaAdmin.totpSecret
       .findUnique({ where: { userId: user.id }, select: { verified: true } })
       .catch(() => null);
     if (totp?.verified) {
@@ -523,7 +523,9 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
     // the password step within the last 5 minutes" — we still need to check
     // that 2FA is still enabled in case the user disabled it on another
     // device after the challenge was issued.
-    const user = await prisma.user.findUnique({ where: { id: userId }, include: { account: true } }).catch(() => null);
+    const user = await prismaAdmin.user
+      .findUnique({ where: { id: userId }, include: { account: true } })
+      .catch(() => null);
     if (!user) {
       return res
         .status(401)
@@ -531,7 +533,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
         .json(apiError("AUTH_FAILED", "Invalid email or password.", undefined, meta()));
     }
 
-    const totp = await prisma.totpSecret.findUnique({ where: { userId } }).catch(() => null);
+    const totp = await prismaAdmin.totpSecret.findUnique({ where: { userId } }).catch(() => null);
     if (!totp || !totp.verified) {
       // 2FA was disabled between login and totp completion — refuse this
       // challenge and tell the user to retry from the password screen.
@@ -579,7 +581,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
         codeValid = true;
         usedBackupCode = true;
         // One-shot: persist the array with the matched code removed.
-        await prisma.totpSecret.update({
+        await prismaAdmin.totpSecret.update({
           where: { userId },
           data: { backupCodes: remaining },
         });
@@ -737,7 +739,7 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
   }
 
   // Fetch name + email so the sidebar footer can show the real user
-  const user = await prisma.user
+  const user = await prismaAdmin.user
     .findUnique({
       where: { id: result.data.userId },
       select: { name: true, email: true },
@@ -746,7 +748,7 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
 
   // Fetch company + trial info for the account so the sidebar footer
   // can show company name + plan (not user name + role).
-  const account = await prisma.account
+  const account = await prismaAdmin.account
     .findUnique({
       where: { id: result.data.accountId },
       select: { companyName: true, plan: true, trialEndsAt: true, trialAiLimit: true },

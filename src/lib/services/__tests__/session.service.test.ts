@@ -9,8 +9,8 @@ import { createHash } from "crypto";
 // Mocks — must be declared BEFORE any imports that use the mocked modules.
 // ---------------------------------------------------------------------------
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: {
+vi.mock("../../data/prisma-admin.js", () => ({
+  prismaAdmin: {
     session: {
       findUnique: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([]),
@@ -22,7 +22,8 @@ vi.mock("../../data/prisma.js", () => ({
     user: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
-    $transaction: vi.fn(),
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    $transaction: vi.fn(), // tests set their own implementation per case
   },
 }));
 
@@ -87,7 +88,7 @@ import {
   revokeAllUserSessions,
   deleteExpiredSessions,
 } from "../session.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 import { getRedis } from "../../redis.js";
 import { reportSecurityEvent } from "../../security-monitor.js";
 import { logAudit } from "../audit.service.js";
@@ -146,12 +147,12 @@ describe("Session Service", () => {
   describe("createSession()", () => {
     it("creates a session token that is base64url encoded and at least 32 bytes", async () => {
       // Setup: transaction passthrough
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "192.168.1.100", userAgent: "TestBrowser/1.0" });
       const result = await createSession("usr_1", req);
@@ -168,12 +169,12 @@ describe("Session Service", () => {
     });
 
     it("stores only the SHA-256 hash in DB, never the raw token", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       const result = await createSession("usr_1", req);
@@ -184,7 +185,7 @@ describe("Session Service", () => {
       const expectedHash = hashToken(rawToken);
 
       // Verify the token stored in DB is the hash, not the raw token
-      const createCall = (prisma.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const createCall = (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(createCall.data.token).toBe(expectedHash);
       expect(createCall.data.token).not.toBe(rawToken);
     });
@@ -198,22 +199,22 @@ describe("Session Service", () => {
         lastActiveAt: new Date(Date.now() - (5 - i) * 60000), // oldest first
       }));
 
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(existingSessions);
-      (prisma.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(existingSessions);
+      (prismaAdmin.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       const result = await createSession("usr_1", req);
 
       expect(result.ok).toBe(true);
       // The oldest session (sess_0) should have been deleted
-      expect(prisma.session.delete).toHaveBeenCalledWith({ where: { id: "sess_0" } });
+      expect(prismaAdmin.session.delete).toHaveBeenCalledWith({ where: { id: "sess_0" } });
       // A new session should have been created
-      expect(prisma.session.create).toHaveBeenCalled();
+      expect(prismaAdmin.session.create).toHaveBeenCalled();
     });
 
     it("does NOT delete sessions when below the max limit", async () => {
@@ -225,27 +226,27 @@ describe("Session Service", () => {
         lastActiveAt: new Date(Date.now() - i * 60000),
       }));
 
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(existingSessions);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(existingSessions);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       const result = await createSession("usr_1", req);
 
       expect(result.ok).toBe(true);
-      expect(prisma.session.delete).not.toHaveBeenCalled();
+      expect(prismaAdmin.session.delete).not.toHaveBeenCalled();
     });
 
     it("returns a Result with the raw token and expiresAt date", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       const result = await createSession("usr_1", req);
@@ -261,7 +262,7 @@ describe("Session Service", () => {
     });
 
     it("handles DB errors gracefully and returns err Result", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB connection failed"));
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB connection failed"));
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       const result = await createSession("usr_1", req);
@@ -273,12 +274,12 @@ describe("Session Service", () => {
 
     it("registers session in Redis user index when Redis is available", async () => {
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       const result = await createSession("usr_1", req);
@@ -291,43 +292,43 @@ describe("Session Service", () => {
     });
 
     it("sets the session expiresAt to 7 days from creation", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       await createSession("usr_1", req);
 
-      const createCall = (prisma.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const createCall = (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
       const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
       expect(createCall.data.expiresAt.getTime()).toBe(Date.now() + sevenDaysMs);
     });
 
     it("encrypts erpnextSid before storing in DB", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       await createSession("usr_1", req, "erp-session-123");
 
-      const createCall = (prisma.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const createCall = (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(createCall.data.erpnextSid).toBe("encrypted:erp-session-123");
     });
 
     it("emits an audit log on successful session creation", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       await createSession("usr_1", req);
@@ -374,8 +375,8 @@ describe("Session Service", () => {
 
     it("returns ok=true with session data for a valid token", async () => {
       const session = makeDbSession();
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("valid-raw-token");
 
@@ -389,11 +390,11 @@ describe("Session Service", () => {
     it("hashes the token before looking up in DB", async () => {
       const rawToken = "my-raw-token-123";
       const expectedHash = hashToken(rawToken);
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       await validateSession(rawToken);
 
-      expect(prisma.session.findUnique).toHaveBeenCalledWith(
+      expect(prismaAdmin.session.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { token: expectedHash },
         }),
@@ -404,8 +405,8 @@ describe("Session Service", () => {
       const session = makeDbSession({
         expiresAt: new Date(now.getTime() - 1000), // expired 1 second ago
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("expired-token");
 
@@ -420,8 +421,8 @@ describe("Session Service", () => {
         lastActiveAt: thirtyOneMinutesAgo,
         createdAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), // 2 hours ago
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("idle-token");
 
@@ -435,8 +436,8 @@ describe("Session Service", () => {
       const session = makeDbSession({
         lastActiveAt: twentyMinutesAgo,
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("active-token");
 
@@ -449,12 +450,12 @@ describe("Session Service", () => {
       const session = makeDbSession({
         lastActiveAt: twoMinutesAgo,
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       await validateSession("valid-token");
 
-      expect(prisma.session.update).toHaveBeenCalledWith({
+      expect(prismaAdmin.session.update).toHaveBeenCalledWith({
         where: { id: "sess_1" },
         data: { lastActiveAt: now },
       });
@@ -466,15 +467,15 @@ describe("Session Service", () => {
       const session = makeDbSession({
         lastActiveAt: thirtySecondsAgo,
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
 
       await validateSession("valid-token");
 
-      expect(prisma.session.update).not.toHaveBeenCalled();
+      expect(prismaAdmin.session.update).not.toHaveBeenCalled();
     });
 
     it("returns ok=false for invalid/non-existent tokens", async () => {
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const result = await validateSession("non-existent-token");
 
@@ -504,7 +505,7 @@ describe("Session Service", () => {
       const session = makeDbSession({
         fingerprint,
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
 
       // Request with a different user-agent => different fingerprint
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "DifferentBrowser/2.0" });
@@ -530,8 +531,8 @@ describe("Session Service", () => {
         fingerprint,
         lastActiveAt: new Date(now.getTime() - 2 * 60 * 1000),
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const req = mockRequest({ ip: "10.0.0.50", userAgent: ua });
       const result = await validateSession("valid-token", req);
@@ -547,8 +548,8 @@ describe("Session Service", () => {
       const session = makeDbSession({
         lastActiveAt: new Date(now.getTime() - 2 * 60 * 1000),
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("cacheable-token");
 
@@ -587,7 +588,7 @@ describe("Session Service", () => {
       expect(result.data.accountId).toBe("acc_1");
       expect(result.data.role).toBe("owner");
       // Should NOT have queried the DB
-      expect(prisma.session.findUnique).not.toHaveBeenCalled();
+      expect(prismaAdmin.session.findUnique).not.toHaveBeenCalled();
     });
 
     it("validates expiry even on cached session (does not bypass)", async () => {
@@ -663,8 +664,8 @@ describe("Session Service", () => {
         erpnextSid: "encrypted:erp-session-xyz",
         lastActiveAt: new Date(now.getTime() - 2 * 60 * 1000),
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("token-with-erp-sid");
 
@@ -676,8 +677,8 @@ describe("Session Service", () => {
     it("defaults to 'member' role for unknown roles", async () => {
       const session = makeDbSession();
       session.user.role = "superadmin"; // Not in the allowed list
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("unknown-role-token");
 
@@ -687,7 +688,7 @@ describe("Session Service", () => {
     });
 
     it("handles DB errors gracefully", async () => {
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB timeout"));
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB timeout"));
 
       const result = await validateSession("error-token");
 
@@ -700,13 +701,13 @@ describe("Session Service", () => {
       const session = makeDbSession({
         expiresAt: new Date(now.getTime() - 5000),
       });
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "Test/1.0" });
       await validateSession("expired-cleanup-token", req);
 
-      expect(prisma.session.delete).toHaveBeenCalledWith({
+      expect(prismaAdmin.session.delete).toHaveBeenCalledWith({
         where: { id: "sess_1" },
       });
     });
@@ -717,7 +718,7 @@ describe("Session Service", () => {
   // =========================================================================
   describe("revokeSession()", () => {
     it("deletes session from DB by token hash", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
       const rawToken = "token-to-revoke";
       const expectedHash = hashToken(rawToken);
@@ -726,14 +727,14 @@ describe("Session Service", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("Expected ok");
       expect(result.data.revoked).toBe(true);
-      expect(prisma.session.deleteMany).toHaveBeenCalledWith({
+      expect(prismaAdmin.session.deleteMany).toHaveBeenCalledWith({
         where: { token: expectedHash },
       });
     });
 
     it("clears Redis cache on revocation", async () => {
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
       const rawToken = "token-to-revoke-with-cache";
       const expectedHash = hashToken(rawToken);
@@ -743,7 +744,7 @@ describe("Session Service", () => {
     });
 
     it("returns ok=true with revoked=true on success", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
       const result = await revokeSession("existing-token");
 
@@ -753,7 +754,7 @@ describe("Session Service", () => {
     });
 
     it("returns ok=true with revoked=false if session doesn't exist", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
 
       const result = await revokeSession("non-existent-token");
 
@@ -768,11 +769,11 @@ describe("Session Service", () => {
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("Expected ok");
       expect(result.data.revoked).toBe(false);
-      expect(prisma.session.deleteMany).not.toHaveBeenCalled();
+      expect(prismaAdmin.session.deleteMany).not.toHaveBeenCalled();
     });
 
     it("returns ok=true with revoked=false on DB error (graceful)", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB failure"));
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB failure"));
 
       const result = await revokeSession("error-token");
 
@@ -782,7 +783,7 @@ describe("Session Service", () => {
     });
 
     it("emits audit log when audit context is provided and session existed", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       await revokeSession("revoke-with-audit", {
@@ -804,7 +805,7 @@ describe("Session Service", () => {
     });
 
     it("does NOT emit audit log when session did not exist (count=0)", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
 
       await revokeSession("no-such-token", {
         userId: "usr_1",
@@ -833,8 +834,8 @@ describe("Session Service", () => {
         createdAt: new Date(Date.now() - 3600000),
         user: { id: "usr_1", accountId: "acc_1", role: "owner", account: { id: "acc_1" } },
       };
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("no-redis-token");
 
@@ -842,7 +843,7 @@ describe("Session Service", () => {
       if (!result.ok) throw new Error("Expected ok");
       expect(result.data.userId).toBe("usr_1");
       // DB was queried directly
-      expect(prisma.session.findUnique).toHaveBeenCalled();
+      expect(prismaAdmin.session.findUnique).toHaveBeenCalled();
     });
 
     it("Redis cache read error falls back to DB", async () => {
@@ -860,28 +861,28 @@ describe("Session Service", () => {
         createdAt: new Date(Date.now() - 3600000),
         user: { id: "usr_1", accountId: "acc_1", role: "owner", account: { id: "acc_1" } },
       };
-      (prisma.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
-      (prisma.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
+      (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
       const result = await validateSession("redis-error-token");
 
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("Expected ok");
       expect(result.data.userId).toBe("usr_1");
-      expect(prisma.session.findUnique).toHaveBeenCalled();
+      expect(prismaAdmin.session.findUnique).toHaveBeenCalled();
     });
 
     it("concurrent session limit uses transaction for race condition protection", async () => {
       let transactionCalled = false;
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => {
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => {
           transactionCalled = true;
-          return fn(prisma);
+          return fn(prismaAdmin);
         },
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "10.0.0.1", userAgent: "TestBrowser/1.0" });
       await createSession("usr_1", req);
@@ -906,7 +907,7 @@ describe("Session Service", () => {
 
     it("revokeSession gracefully handles Redis being unavailable", async () => {
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(null);
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
       const result = await revokeSession("token-no-redis");
 
@@ -916,12 +917,12 @@ describe("Session Service", () => {
     });
 
     it("createSession includes fingerprint from request in stored session", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const ua = "TestBrowser/1.0";
       const ip = "192.168.1.100";
@@ -931,22 +932,22 @@ describe("Session Service", () => {
       const req = mockRequest({ ip, userAgent: ua });
       await createSession("usr_1", req);
 
-      const createCall = (prisma.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const createCall = (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(createCall.data.fingerprint).toBe(expectedFingerprint);
     });
 
     it("createSession stores ipAddress and userAgent from request", async () => {
-      (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
-        async (fn: (tx: typeof prisma) => Promise<void>) => fn(prisma),
+      (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+        async (fn: (tx: typeof prismaAdmin) => Promise<void>) => fn(prismaAdmin),
       );
-      (prisma.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-      (prisma.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
-      (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
+      (prismaAdmin.session.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mockResolvedValue({});
+      (prismaAdmin.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(DEFAULT_USER);
 
       const req = mockRequest({ ip: "203.0.113.42", userAgent: "MyApp/3.0" });
       await createSession("usr_1", req);
 
-      const createCall = (prisma.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const createCall = (prismaAdmin.session.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(createCall.data.ipAddress).toBe("203.0.113.42");
       expect(createCall.data.userAgent).toBe("MyApp/3.0");
     });
@@ -993,18 +994,18 @@ describe("Session Service", () => {
   // =========================================================================
   describe("revokeAllUserSessions()", () => {
     it("deletes all sessions for a user from DB", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 3 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 3 });
 
       const result = await revokeAllUserSessions("usr_1");
 
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error("Expected ok");
       expect(result.data.count).toBe(3);
-      expect(prisma.session.deleteMany).toHaveBeenCalledWith({ where: { userId: "usr_1" } });
+      expect(prismaAdmin.session.deleteMany).toHaveBeenCalledWith({ where: { userId: "usr_1" } });
     });
 
     it("returns ok with count 0 when user has no sessions", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
 
       const result = await revokeAllUserSessions("usr_no_sessions");
 
@@ -1015,7 +1016,7 @@ describe("Session Service", () => {
 
     it("flushes all Redis cache entries for the user when Redis is available", async () => {
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
       mockRedis.smembers.mockResolvedValue(["session:v1:hash1", "session:v1:hash2"]);
 
       await revokeAllUserSessions("usr_1");
@@ -1028,7 +1029,7 @@ describe("Session Service", () => {
 
     it("deletes Redis index key when no cache keys exist", async () => {
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
       mockRedis.smembers.mockResolvedValue([]);
 
       await revokeAllUserSessions("usr_1");
@@ -1038,7 +1039,7 @@ describe("Session Service", () => {
 
     it("handles Redis unavailability gracefully", async () => {
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(null);
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 2 });
 
       const result = await revokeAllUserSessions("usr_1");
 
@@ -1049,7 +1050,7 @@ describe("Session Service", () => {
 
     it("handles Redis smembers error gracefully", async () => {
       (getRedis as ReturnType<typeof vi.fn>).mockReturnValue(mockRedis);
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
       mockRedis.smembers.mockRejectedValue(new Error("Redis connection refused"));
 
       const result = await revokeAllUserSessions("usr_1");
@@ -1061,7 +1062,7 @@ describe("Session Service", () => {
     });
 
     it("returns error on DB failure", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB connection lost"));
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB connection lost"));
 
       const result = await revokeAllUserSessions("usr_1");
 
@@ -1076,24 +1077,24 @@ describe("Session Service", () => {
   // =========================================================================
   describe("deleteExpiredSessions()", () => {
     it("deletes sessions where expiresAt is in the past", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 5 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 5 });
 
       await deleteExpiredSessions();
 
-      expect(prisma.session.deleteMany).toHaveBeenCalledWith({
+      expect(prismaAdmin.session.deleteMany).toHaveBeenCalledWith({
         where: { expiresAt: { lt: expect.any(Date) } },
       });
     });
 
     it("does not throw on DB error (logs instead)", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB error"));
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("DB error"));
 
       // Should not throw
       await expect(deleteExpiredSessions()).resolves.not.toThrow();
     });
 
     it("handles zero expired sessions gracefully", async () => {
-      (prisma.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+      (prismaAdmin.session.deleteMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
 
       await expect(deleteExpiredSessions()).resolves.not.toThrow();
     });

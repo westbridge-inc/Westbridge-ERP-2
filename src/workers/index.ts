@@ -9,7 +9,17 @@ import dns from "dns/promises";
 import { isIP } from "net";
 import { sendEmail } from "../lib/email/index.js";
 import { prisma } from "../lib/data/prisma.js";
+import { prismaAdmin } from "../lib/data/prisma-admin.js";
 import { withTenantScope } from "../lib/data/tenant-scope.js";
+
+// Phase 3:
+//   - Cross-tenant cleanup tasks (session purge, audit log retention,
+//     webhook endpoint state) use prismaAdmin so they're not gated by
+//     RLS — the cleanup worker is intentionally global per spec §5.
+//   - The reports worker uses withTenantScope(accountId, ...) for the
+//     per-account report generation, which sets the tenant pin and
+//     keeps the regular `prisma` import (the type extraction below
+//     also references it).
 import { logger } from "../lib/logger.js";
 import { DATA_RETENTION } from "../lib/data-retention.js";
 import { erpGet } from "../lib/data/erpnext.client.js";
@@ -132,13 +142,14 @@ function createCleanupWorker(): Worker {
       logger.info("Processing cleanup job", { jobId: job.id, task });
 
       if (task === "sessions") {
-        const result = await prisma.session.deleteMany({
+        // Cross-tenant cleanup — uses prismaAdmin so RLS doesn't gate it.
+        const result = await prismaAdmin.session.deleteMany({
           where: { expiresAt: { lt: new Date() } },
         });
         logger.info("Deleted expired sessions", { jobId: job.id, count: result.count });
       } else if (task === "audit_logs") {
         const cutoff = new Date(Date.now() - DATA_RETENTION.AUDIT_LOGS_DAYS * 24 * 60 * 60 * 1000);
-        const result = await prisma.auditLog.deleteMany({
+        const result = await prismaAdmin.auditLog.deleteMany({
           where: { timestamp: { lt: cutoff } },
         });
         logger.info("Deleted old audit logs", {
@@ -230,7 +241,11 @@ function createWebhooksWorker(): Worker {
         maxAttempts,
       });
 
-      const endpoint = await prisma.webhookEndpoint.findUnique({
+      // Webhook endpoint lookup is by primary key with no tenant context
+      // (the worker is invoked from a queued job). Use prismaAdmin to
+      // bypass RLS — the endpoint already has its own accountId field
+      // that callers verify against the job payload.
+      const endpoint = await prismaAdmin.webhookEndpoint.findUnique({
         where: { id: endpointId },
       });
 
@@ -276,7 +291,7 @@ function createWebhooksWorker(): Worker {
         }
 
         // Reset consecutive failures on success
-        await prisma.webhookEndpoint.update({
+        await prismaAdmin.webhookEndpoint.update({
           where: { id: endpointId },
           data: { consecutiveFailures: 0 },
         });
@@ -289,7 +304,7 @@ function createWebhooksWorker(): Worker {
         const newFailures = endpoint.consecutiveFailures + 1;
         const shouldDisable = newFailures >= SECURITY.WEBHOOK_CIRCUIT_BREAKER_THRESHOLD;
 
-        await prisma.webhookEndpoint.update({
+        await prismaAdmin.webhookEndpoint.update({
           where: { id: endpointId },
           data: {
             consecutiveFailures: newFailures,

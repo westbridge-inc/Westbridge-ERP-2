@@ -7,7 +7,17 @@
  */
 
 import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { verifyWebhookSignature, refundPaddleTransaction, type PlanSlug } from "../data/paddle.client.js";
+
+// Phase 3: this service has a mix of cross-tenant and per-tenant flows.
+//   - createAccount + markAccountPaid run BEFORE any tenant context
+//     exists (signup, Paddle webhook handler that just verified a
+//     signature). They MUST use prismaAdmin so the cross-tenant
+//     INSERTs/UPDATEs are not gated by RLS.
+//   - refundInvoice is called from POST /api/billing/refund, which is
+//     authenticated and per-tenant. It uses prisma so its reads/writes
+//     are RLS-pinned to the requesting tenant.
 import { ok, err, type Result } from "../utils/result.js";
 import { sendEmail } from "../email/index.js";
 import { accountActivatedEmail } from "../email/templates.js";
@@ -52,7 +62,7 @@ export async function createAccount(input: CreateAccountInput): Promise<Result<C
   try {
     const passwordHash = await hashPassword(password);
 
-    const { account, user } = await prisma.$transaction(async (tx) => {
+    const { account, user } = await prismaAdmin.$transaction(async (tx) => {
       // Check for existing account — findFirst bypasses soft-delete filter
       const existing =
         (await tx.account.findFirst({
@@ -172,7 +182,7 @@ export async function markAccountPaid(
   paddleSubscriptionId?: string,
 ): Promise<Result<HandlePaymentResult, string>> {
   try {
-    const result = await prisma.account.updateMany({
+    const result = await prismaAdmin.account.updateMany({
       where: { id: accountId },
       data: {
         status: "active",
@@ -188,7 +198,7 @@ export async function markAccountPaid(
 
       void import("./subscription.service.js")
         .then(async ({ createSubscription }) => {
-          const acc = await prisma.account.findUnique({ where: { id: accountId }, select: { plan: true } });
+          const acc = await prismaAdmin.account.findUnique({ where: { id: accountId }, select: { plan: true } });
           if (acc) await createSubscription(accountId, acc.plan);
         })
         .catch(async (e: unknown) => {
@@ -200,7 +210,7 @@ export async function markAccountPaid(
         });
 
       // Send activation email (fire-and-forget — don't fail if email fails)
-      const account = await prisma.account.findUnique({ where: { id: accountId } }).catch(() => null);
+      const account = await prismaAdmin.account.findUnique({ where: { id: accountId } }).catch(() => null);
       if (account) {
         const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/login`;
         void sendEmail({

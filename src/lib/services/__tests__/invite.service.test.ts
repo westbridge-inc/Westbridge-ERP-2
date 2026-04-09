@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../data/prisma.js", () => ({
-  prisma: {
-    user: { findUnique: vi.fn() },
+// invite.service is dual-import (Phase 3): createInvite uses `prisma`
+// because POST /invite is authenticated, while validateInviteToken
+// and acceptInvite use `prismaAdmin` because GET /invite and POST
+// /invite/accept are unauthenticated token redemption flows. The test
+// mocks both modules and points them at the SAME mock object via
+// vi.hoisted, so assertions on either client name see the same spies.
+const { sharedMock } = vi.hoisted(() => ({
+  sharedMock: {
+    user: { findUnique: vi.fn(), update: vi.fn() },
     inviteToken: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -11,8 +17,11 @@ vi.mock("../../data/prisma.js", () => ({
       update: vi.fn(),
     },
     $transaction: vi.fn(),
-  },
+  } as Record<string, unknown>,
 }));
+
+vi.mock("../../data/prisma.js", () => ({ prisma: sharedMock }));
+vi.mock("../../data/prisma-admin.js", () => ({ prismaAdmin: sharedMock }));
 vi.mock("../../email/index.js", () => ({
   sendEmail: vi.fn(),
 }));
@@ -21,7 +30,7 @@ vi.mock("../../email/templates.js", () => ({
 }));
 
 import { createInvite, validateInviteToken } from "../invite.service.js";
-import { prisma } from "../../data/prisma.js";
+import { prismaAdmin } from "../../data/prisma-admin.js";
 import { sendEmail } from "../../email/index.js";
 
 describe("invite.service", () => {
@@ -29,7 +38,7 @@ describe("invite.service", () => {
 
   describe("createInvite", () => {
     it("returns error if user already has active account", async () => {
-      vi.mocked(prisma.user.findUnique).mockResolvedValue({ status: "active" } as never);
+      vi.mocked(prismaAdmin.user.findUnique).mockResolvedValue({ status: "active" } as never);
       const r = await createInvite({
         accountId: "acc1",
         email: "test@test.com",
@@ -42,8 +51,8 @@ describe("invite.service", () => {
     });
 
     it("creates invite and sends email on success", async () => {
-      vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
-      vi.mocked(prisma.$transaction).mockResolvedValue({ id: "inv1" } as never);
+      vi.mocked(prismaAdmin.user.findUnique).mockResolvedValue(null);
+      vi.mocked(prismaAdmin.$transaction).mockResolvedValue({ id: "inv1" } as never);
       vi.mocked(sendEmail).mockResolvedValue({ ok: true, data: { id: "sent" } });
       const r = await createInvite({
         accountId: "acc1",
@@ -57,10 +66,10 @@ describe("invite.service", () => {
     });
 
     it("rolls back invite if email fails", async () => {
-      vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
-      vi.mocked(prisma.$transaction).mockResolvedValue({ id: "inv1" } as never);
+      vi.mocked(prismaAdmin.user.findUnique).mockResolvedValue(null);
+      vi.mocked(prismaAdmin.$transaction).mockResolvedValue({ id: "inv1" } as never);
       vi.mocked(sendEmail).mockResolvedValue({ ok: false, error: "SMTP down" });
-      vi.mocked(prisma.inviteToken.delete).mockResolvedValue({} as never);
+      vi.mocked(prismaAdmin.inviteToken.delete).mockResolvedValue({} as never);
       const r = await createInvite({
         accountId: "acc1",
         email: "new@test.com",
@@ -70,19 +79,19 @@ describe("invite.service", () => {
         baseUrl: "https://app.com",
       });
       expect(r.ok).toBe(false);
-      expect(prisma.inviteToken.delete).toHaveBeenCalled();
+      expect(prismaAdmin.inviteToken.delete).toHaveBeenCalled();
     });
   });
 
   describe("validateInviteToken", () => {
     it("returns error for unknown token", async () => {
-      vi.mocked(prisma.inviteToken.findUnique).mockResolvedValue(null);
+      vi.mocked(prismaAdmin.inviteToken.findUnique).mockResolvedValue(null);
       const r = await validateInviteToken("badtoken");
       expect(r.ok).toBe(false);
     });
 
     it("returns error for used token", async () => {
-      vi.mocked(prisma.inviteToken.findUnique).mockResolvedValue({
+      vi.mocked(prismaAdmin.inviteToken.findUnique).mockResolvedValue({
         usedAt: new Date(),
         expiresAt: new Date(Date.now() + 999999),
       } as never);
@@ -91,7 +100,7 @@ describe("invite.service", () => {
     });
 
     it("returns error for expired token", async () => {
-      vi.mocked(prisma.inviteToken.findUnique).mockResolvedValue({
+      vi.mocked(prismaAdmin.inviteToken.findUnique).mockResolvedValue({
         usedAt: null,
         expiresAt: new Date(Date.now() - 1000),
       } as never);
@@ -100,7 +109,7 @@ describe("invite.service", () => {
     });
 
     it("returns ok for valid token", async () => {
-      vi.mocked(prisma.inviteToken.findUnique).mockResolvedValue({
+      vi.mocked(prismaAdmin.inviteToken.findUnique).mockResolvedValue({
         id: "inv1",
         accountId: "acc1",
         email: "test@test.com",

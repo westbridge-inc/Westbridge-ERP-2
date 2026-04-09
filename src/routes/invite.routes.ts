@@ -8,6 +8,16 @@ import { checkTieredRateLimit, getClientIdentifier, rateLimitHeaders } from "../
 import * as Sentry from "@sentry/node";
 import { z } from "zod";
 import { prisma } from "../lib/data/prisma.js";
+import { prismaAdmin } from "../lib/data/prisma-admin.js";
+
+// Phase 3:
+//   - POST /invite, GET /team/invites, POST /team/invites/:id/resend
+//     are authenticated (requireAuth has set the tenant context). They
+//     use `prisma`, which RLS-pins reads/writes to the requesting tenant.
+//   - GET /invite and POST /invite/accept are UNAUTHENTICATED token
+//     redemption flows. They use `prismaAdmin` because the invitee
+//     hasn't established a tenant context yet — the tenant is identified
+//     by the invite token itself.
 import { validatePassword } from "../lib/password-policy.js";
 import { hashPassword } from "../lib/services/auth.service.js";
 import { sendEmail } from "../lib/email/index.js";
@@ -172,7 +182,9 @@ router.get("/invite", async (req: Request, res: Response) => {
       return res.status(400).json(apiError("INVALID_TOKEN", result.error, undefined, meta()));
     }
 
-    const account = await prisma.account.findUnique({ where: { id: result.data.accountId } });
+    // GET /invite is UNAUTHENTICATED — no tenant context. Use prismaAdmin
+    // to look up the invite's owning account by id.
+    const account = await prismaAdmin.account.findUnique({ where: { id: result.data.accountId } });
     res.set(responseHeaders());
     return res.json(
       apiSuccess({ email: result.data.email, role: result.data.role, companyName: account?.companyName ?? "" }, meta()),
@@ -263,9 +275,12 @@ router.post("/invite/accept", requireCsrf, async (req: Request, res: Response) =
       return res.status(400).json(apiError("INVITE_FAILED", result.error, undefined, meta()));
     }
 
-    // Persist the bcrypt password hash locally so the user can authenticate
+    // Persist the bcrypt password hash locally so the user can authenticate.
+    // POST /invite/accept is UNAUTHENTICATED — the invitee proves identity
+    // via the single-use token. Use prismaAdmin so the user.update isn't
+    // gated by RLS (no tenant context yet).
     const passwordHash = await hashPassword(password);
-    await prisma.user.update({
+    await prismaAdmin.user.update({
       where: { id: result.data.userId },
       data: { passwordHash },
     });

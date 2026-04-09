@@ -9,7 +9,7 @@
  *   - Manages grace periods for past-due accounts
  */
 
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { cancelPaddleSubscription } from "../data/paddle.client.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
@@ -36,7 +36,7 @@ export async function createSubscription(
     const periodEnd = new Date(now);
     periodEnd.setMonth(periodEnd.getMonth() + 1);
 
-    const subscription = await prisma.subscription.create({
+    const subscription = await prismaAdmin.subscription.create({
       data: {
         accountId,
         planId,
@@ -48,7 +48,7 @@ export async function createSubscription(
 
     // Create the first invoice record
     const amount = PLAN_AMOUNTS[planId] ?? 0;
-    await prisma.billingInvoice.create({
+    await prismaAdmin.billingInvoice.create({
       data: {
         accountId,
         amount,
@@ -77,7 +77,7 @@ export async function handleRenewal(
   transactionId: string,
   paddleSubscriptionId?: string,
 ): Promise<void> {
-  const sub = await prisma.subscription.findFirst({
+  const sub = await prismaAdmin.subscription.findFirst({
     where: { accountId, status: "active" },
   });
 
@@ -99,7 +99,7 @@ export async function checkGracePeriodExpiry(): Promise<{ updated: number }> {
   const gracePeriodCutoff = new Date(now.getTime() - GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
 
   // Mark subscriptions as past_due if their period ended beyond the grace window
-  const result = await prisma.subscription.updateMany({
+  const result = await prismaAdmin.subscription.updateMany({
     where: {
       status: "active",
       currentPeriodEnd: { lte: gracePeriodCutoff },
@@ -108,12 +108,12 @@ export async function checkGracePeriodExpiry(): Promise<{ updated: number }> {
   });
 
   // Update account status for past_due subscriptions
-  const pastDueSubs = await prisma.subscription.findMany({
+  const pastDueSubs = await prismaAdmin.subscription.findMany({
     where: { status: "past_due" },
     select: { accountId: true },
   });
   if (pastDueSubs.length > 0) {
-    await prisma.account.updateMany({
+    await prismaAdmin.account.updateMany({
       where: { id: { in: pastDueSubs.map((s) => s.accountId) } },
       data: { status: "past_due" },
     });
@@ -137,8 +137,8 @@ export async function extendSubscription(
   const periodEnd = new Date(now);
   periodEnd.setMonth(periodEnd.getMonth() + 1);
 
-  await prisma.$transaction([
-    prisma.subscription.update({
+  await prismaAdmin.$transaction([
+    prismaAdmin.subscription.update({
       where: { id: subscriptionId },
       data: {
         status: "active",
@@ -146,7 +146,7 @@ export async function extendSubscription(
         currentPeriodEnd: periodEnd,
       },
     }),
-    prisma.account.update({
+    prismaAdmin.account.update({
       where: { id: accountId },
       data: { status: "active" },
     }),
@@ -154,7 +154,7 @@ export async function extendSubscription(
 
   // Update or create invoice as paid
   if (transactionId) {
-    await prisma.billingInvoice.updateMany({
+    await prismaAdmin.billingInvoice.updateMany({
       where: { accountId, transactionId },
       data: { status: "paid", paidAt: now, rrn },
     });
@@ -170,12 +170,12 @@ export async function changePlan(accountId: string, newPlanId: string): Promise<
   if (!PLAN_AMOUNTS[newPlanId]) return err("Invalid plan");
 
   try {
-    await prisma.$transaction([
-      prisma.account.update({
+    await prismaAdmin.$transaction([
+      prismaAdmin.account.update({
         where: { id: accountId },
         data: { plan: newPlanId },
       }),
-      prisma.subscription.updateMany({
+      prismaAdmin.subscription.updateMany({
         where: { accountId, status: "active" },
         data: { planId: newPlanId },
       }),
@@ -201,12 +201,12 @@ export async function cancelSubscription(
       await cancelPaddleSubscription(paddleSubscriptionId);
     }
 
-    await prisma.$transaction([
-      prisma.subscription.updateMany({
+    await prismaAdmin.$transaction([
+      prismaAdmin.subscription.updateMany({
         where: { accountId, status: "active" },
         data: { status: "canceled" },
       }),
-      prisma.account.update({
+      prismaAdmin.account.update({
         where: { id: accountId },
         data: { status: "canceled" },
       }),
@@ -226,7 +226,7 @@ export async function cancelSubscription(
  */
 export async function checkTrialExpiry(): Promise<{ updated: number }> {
   const now = new Date();
-  const expiredTrials = await prisma.account.findMany({
+  const expiredTrials = await prismaAdmin.account.findMany({
     where: { trialEndsAt: { lte: now }, status: "active" },
     include: { subscriptions: { where: { status: "active", paymentSubscriptionId: { not: null } }, take: 1 } },
   });
@@ -235,9 +235,9 @@ export async function checkTrialExpiry(): Promise<{ updated: number }> {
   if (toBlock.length === 0) return { updated: 0 };
 
   const ids = toBlock.map((a) => a.id);
-  await prisma.$transaction([
-    prisma.account.updateMany({ where: { id: { in: ids } }, data: { status: "past_due" } }),
-    prisma.subscription.updateMany({
+  await prismaAdmin.$transaction([
+    prismaAdmin.account.updateMany({ where: { id: { in: ids } }, data: { status: "past_due" } }),
+    prismaAdmin.subscription.updateMany({
       where: { accountId: { in: ids }, status: "trialing" },
       data: { status: "past_due" },
     }),
@@ -263,7 +263,7 @@ export async function sendTrialWarningEmails(): Promise<{ sent3Day: number; sent
     const end = new Date(target);
     end.setHours(end.getHours() + 12);
 
-    const accounts = await prisma.account.findMany({
+    const accounts = await prismaAdmin.account.findMany({
       where: { status: "active", trialEndsAt: { gte: start, lte: end } },
       select: { id: true, email: true, companyName: true, trialEndsAt: true },
     });
@@ -294,7 +294,7 @@ export async function cleanupExpiredTrialData(): Promise<{ deleted: number }> {
   const sixtyDaysAgo = new Date();
   sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
-  const toDelete = await prisma.account.findMany({
+  const toDelete = await prismaAdmin.account.findMany({
     where: {
       status: { in: ["past_due", "suspended"] },
       trialEndsAt: { lte: sixtyDaysAgo },
@@ -304,7 +304,7 @@ export async function cleanupExpiredTrialData(): Promise<{ deleted: number }> {
   });
 
   for (const account of toDelete) {
-    await prisma.account.update({
+    await prismaAdmin.account.update({
       where: { id: account.id },
       data: { status: "deleted" },
     });

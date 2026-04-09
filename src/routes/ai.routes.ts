@@ -16,7 +16,13 @@ import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { getRedis } from "../lib/redis.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
-import { toWebRequest, requireAuth } from "../middleware/auth.js";
+import { toWebRequest, requireAuth, runWithTenantContext } from "../middleware/auth.js";
+
+// Phase 3: this file's `prisma` calls all run AFTER manual session
+// validation. We wrap the post-validation handler body in
+// `runWithTenantContext(session.accountId, ...)` so the AsyncLocalStorage
+// context is set and the Prisma extension RLS-pins each query — same
+// behaviour as routes that use `requireAuth` middleware.
 import { apiSuccess, apiError } from "../types/api.js";
 import { getPlan, type PlanId } from "../lib/modules.js";
 import type Anthropic from "@anthropic-ai/sdk";
@@ -50,11 +56,13 @@ async function saveHistory(id: string, messages: Anthropic.MessageParam[]): Prom
 router.post("/ai/chat", async (req: Request, res: Response) => {
   // Degrade gracefully when the API key is not configured
   if (!anthropic) {
-    return res.status(200).json(apiSuccess({
-      reply: "AI is not configured on this plan yet.",
-      conversationId: null,
-      usage: { queries: 0, remaining: null },
-    }));
+    return res.status(200).json(
+      apiSuccess({
+        reply: "AI is not configured on this plan yet.",
+        conversationId: null,
+        usage: { queries: 0, remaining: null },
+      }),
+    );
   }
 
   const token = req.cookies?.[COOKIE.SESSION_NAME];
@@ -75,161 +83,177 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   }
   const session = sessionResult.data;
 
-  const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/ai/chat");
-  if (!rateLimit.allowed) {
-    return res
-      .status(429)
-      .set(rateLimitHeaders(rateLimit) as Record<string, string>)
-      .json(apiError("RATE_LIMITED", "Too many AI requests. Try again shortly."));
-  }
+  // Pin the tenant context for the rest of this handler so every
+  // `prisma.X.method()` call below is RLS-pinned to session.accountId.
+  // (This handler bypasses requireAuth — it does its own session
+  // validation — so we have to call runWithTenantContext explicitly.)
+  // Anthropic is non-null inside the closure (the early return above
+  // proved it) but TypeScript loses the narrowing across the closure
+  // boundary, so we capture a local non-null reference.
+  const ai = anthropic;
+  return runWithTenantContext(session.accountId, async () => {
+    const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/ai/chat");
+    if (!rateLimit.allowed) {
+      return res
+        .status(429)
+        .set(rateLimitHeaders(rateLimit) as Record<string, string>)
+        .json(apiError("RATE_LIMITED", "Too many AI requests. Try again shortly."));
+    }
 
-  // Load account for plan + company info
-  const account = await prisma.account.findUnique({
-    where: { id: session.accountId },
-    select: { plan: true, companyName: true, erpnextCompany: true },
-  });
-  if (!account) {
-    return res.status(404).json(apiError("NOT_FOUND", "Account not found"));
-  }
+    // Load account for plan + company info
+    const account = await prisma.account.findUnique({
+      where: { id: session.accountId },
+      select: { plan: true, companyName: true, erpnextCompany: true },
+    });
+    if (!account) {
+      return res.status(404).json(apiError("NOT_FOUND", "Account not found"));
+    }
 
-  // Normalise plan to known PlanId
-  const rawPlan = account.plan.toLowerCase();
-  const planId: PlanId = rawPlan === "enterprise" ? "enterprise" : rawPlan === "business" ? "business" : "starter";
+    // Normalise plan to known PlanId
+    const rawPlan = account.plan.toLowerCase();
+    const planId: PlanId = rawPlan === "enterprise" ? "enterprise" : rawPlan === "business" ? "business" : "starter";
 
-  // Plan AI quota check
-  const limitCheck = await checkAiLimit(session.accountId, planId);
-  if (!limitCheck.allowed) {
-    return res.status(402).json(apiError("AI_LIMIT_REACHED", limitCheck.reason ?? "AI usage limit reached"));
-  }
+    // Plan AI quota check
+    const limitCheck = await checkAiLimit(session.accountId, planId);
+    if (!limitCheck.allowed) {
+      return res.status(402).json(apiError("AI_LIMIT_REACHED", limitCheck.reason ?? "AI usage limit reached"));
+    }
 
-  const body = req.body;
-  const parsed = chatSchema.safeParse(body);
-  if (!parsed.success) {
-    return res.status(400).json(apiError("INVALID_REQUEST", "message is required"));
-  }
+    const body = req.body;
+    const parsed = chatSchema.safeParse(body);
+    if (!parsed.success) {
+      return res.status(400).json(apiError("INVALID_REQUEST", "message is required"));
+    }
 
-  const { message, module: rawModule, conversationId = crypto.randomUUID() } = parsed.data;
-  const history = await getHistory(conversationId);
+    const { message, module: rawModule, conversationId = crypto.randomUUID() } = parsed.data;
+    const history = await getHistory(conversationId);
 
-  // Load user name for system prompt
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { name: true },
-  });
+    // Load user name for system prompt
+    const user = await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { name: true },
+    });
 
-  const messages: Anthropic.MessageParam[] = [...history, { role: "user", content: message }];
+    const messages: Anthropic.MessageParam[] = [...history, { role: "user", content: message }];
 
-  // Validate module against known allowlist at runtime — TypeScript casts do not exist
-  // at runtime, so an attacker could send an arbitrary string without this check.
-  const VALID_AI_MODULES: readonly AiModule[] = [
-    "finance",
-    "crm",
-    "inventory",
-    "hr",
-    "manufacturing",
-    "projects",
-    "biztools",
-    "general",
-  ];
-  const moduleContext: AiModule = (VALID_AI_MODULES as readonly string[]).includes(rawModule)
-    ? (rawModule as AiModule)
-    : "general";
+    // Validate module against known allowlist at runtime — TypeScript casts do not exist
+    // at runtime, so an attacker could send an arbitrary string without this check.
+    const VALID_AI_MODULES: readonly AiModule[] = [
+      "finance",
+      "crm",
+      "inventory",
+      "hr",
+      "manufacturing",
+      "projects",
+      "biztools",
+      "general",
+    ];
+    const moduleContext: AiModule = (VALID_AI_MODULES as readonly string[]).includes(rawModule)
+      ? (rawModule as AiModule)
+      : "general";
 
-  const system = buildSystemPrompt({
-    companyName: account.companyName,
-    planId,
-    userName: user?.name ?? "User",
-    userRole: session.role,
-    currentDate: new Date().toISOString().slice(0, 10),
-    moduleContext,
-  });
+    const system = buildSystemPrompt({
+      companyName: account.companyName,
+      planId,
+      userName: user?.name ?? "User",
+      userRole: session.role,
+      currentDate: new Date().toISOString().slice(0, 10),
+      moduleContext,
+    });
 
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
-  let finalResponse: Anthropic.Message | null = null;
-  const currentMessages = [...messages];
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let finalResponse: Anthropic.Message | null = null;
+    const currentMessages = [...messages];
 
-  // Agentic loop — max 5 rounds of tool use, 60-second overall timeout
-  try {
-    const aiTimeout = AbortSignal.timeout(60_000);
+    // Agentic loop — max 5 rounds of tool use, 60-second overall timeout
+    try {
+      const aiTimeout = AbortSignal.timeout(60_000);
 
-    for (let round = 0; round < 5; round++) {
-      if (aiTimeout.aborted) break;
+      for (let round = 0; round < 5; round++) {
+        if (aiTimeout.aborted) break;
 
-      const response = await anthropic.messages.create({
-        model: AI_MODELS.chat,
-        max_tokens: 4096,
-        system,
-        tools: ERP_TOOLS,
-        messages: currentMessages,
-      });
+        const response = await ai.messages.create({
+          model: AI_MODELS.chat,
+          max_tokens: 4096,
+          system,
+          tools: ERP_TOOLS,
+          messages: currentMessages,
+        });
 
-      totalInputTokens += response.usage.input_tokens;
-      totalOutputTokens += response.usage.output_tokens;
-      finalResponse = response;
+        totalInputTokens += response.usage.input_tokens;
+        totalOutputTokens += response.usage.output_tokens;
+        finalResponse = response;
 
-      if (response.stop_reason === "end_turn") break;
+        if (response.stop_reason === "end_turn") break;
 
-      if (response.stop_reason === "tool_use") {
-        const toolBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-        currentMessages.push({ role: "assistant", content: response.content });
+        if (response.stop_reason === "tool_use") {
+          const toolBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+          currentMessages.push({ role: "assistant", content: response.content });
 
-        const toolResults = await Promise.all(
-          toolBlocks.map(async (tb) => {
-            try {
-              return {
-                type: "tool_result" as const,
-                tool_use_id: tb.id,
-                content: await executeTool(
-                  tb.name,
-                  tb.input,
-                  session.erpnextSid ?? "",
-                  session.accountId,
-                  account.erpnextCompany ?? null,
-                ),
-              };
-            } catch {
-              return {
-                type: "tool_result" as const,
-                tool_use_id: tb.id,
-                content: "Error: Unable to fetch data right now. Please try again.",
-                is_error: true,
-              };
-            }
-          }),
-        );
-        currentMessages.push({ role: "user", content: toolResults });
+          const toolResults = await Promise.all(
+            toolBlocks.map(async (tb) => {
+              try {
+                return {
+                  type: "tool_result" as const,
+                  tool_use_id: tb.id,
+                  content: await executeTool(
+                    tb.name,
+                    tb.input,
+                    session.erpnextSid ?? "",
+                    session.accountId,
+                    account.erpnextCompany ?? null,
+                  ),
+                };
+              } catch {
+                return {
+                  type: "tool_result" as const,
+                  tool_use_id: tb.id,
+                  content: "Error: Unable to fetch data right now. Please try again.",
+                  is_error: true,
+                };
+              }
+            }),
+          );
+          currentMessages.push({ role: "user", content: toolResults });
+        }
       }
+    } catch (e) {
+      const { logger } = await import("../lib/logger.js");
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      logger.error("AI chat error", { error: errorMsg, conversationId });
+
+      if (errorMsg.includes("rate_limit") || errorMsg.includes("429")) {
+        return res
+          .status(429)
+          .json(apiError("AI_RATE_LIMIT", "AI is busy right now. Please wait a moment and try again."));
+      }
+      if (errorMsg.includes("authentication") || errorMsg.includes("401")) {
+        return res.status(503).json(apiError("AI_UNAVAILABLE", "AI assistant is temporarily unavailable."));
+      }
+      return res
+        .status(500)
+        .json(apiError("AI_ERROR", "Something went wrong with the AI assistant. Please try again."));
     }
-  } catch (e) {
-    const { logger } = await import("../lib/logger.js");
-    const errorMsg = e instanceof Error ? e.message : String(e);
-    logger.error("AI chat error", { error: errorMsg, conversationId });
 
-    if (errorMsg.includes("rate_limit") || errorMsg.includes("429")) {
-      return res.status(429).json(apiError("AI_RATE_LIMIT", "AI is busy right now. Please wait a moment and try again."));
-    }
-    if (errorMsg.includes("authentication") || errorMsg.includes("401")) {
-      return res.status(503).json(apiError("AI_UNAVAILABLE", "AI assistant is temporarily unavailable."));
-    }
-    return res.status(500).json(apiError("AI_ERROR", "Something went wrong with the AI assistant. Please try again."));
-  }
+    await recordAiUsage(session.accountId, totalInputTokens, totalOutputTokens);
 
-  await recordAiUsage(session.accountId, totalInputTokens, totalOutputTokens);
+    const textBlock = finalResponse?.content.find((b): b is Anthropic.TextBlock => b.type === "text");
+    const reply = textBlock?.text ?? "I couldn't generate a response. Please try again.";
 
-  const textBlock = finalResponse?.content.find((b): b is Anthropic.TextBlock => b.type === "text");
-  const reply = textBlock?.text ?? "I couldn't generate a response. Please try again.";
+    await saveHistory(conversationId, [...messages, { role: "assistant", content: reply }]);
 
-  await saveHistory(conversationId, [...messages, { role: "assistant", content: reply }]);
-
-  return res.json(apiSuccess({
-    reply,
-    conversationId,
-    usage: {
-      queries: limitCheck.usage.queries + 1,
-      remaining: limitCheck.remaining.queries !== null ? limitCheck.remaining.queries - 1 : null,
-    },
-  }));
+    return res.json(
+      apiSuccess({
+        reply,
+        conversationId,
+        usage: {
+          queries: limitCheck.usage.queries + 1,
+          remaining: limitCheck.remaining.queries !== null ? limitCheck.remaining.queries - 1 : null,
+        },
+      }),
+    );
+  }); // close runWithTenantContext callback
 });
 
 // ---------------------------------------------------------------------------
@@ -253,23 +277,25 @@ router.get("/ai/usage", requireAuth, async (req: Request, res: Response) => {
   const plan = getPlan(planId);
   const { aiQueriesPerMonth, aiTokensPerMonth } = plan.limits;
 
-  return res.json(apiSuccess({
-    plan: plan.name,
-    period: new Date().toISOString().slice(0, 7),
-    ai: {
-      queries: {
-        used: usage.queries,
-        limit: aiQueriesPerMonth === -1 ? null : aiQueriesPerMonth,
-        unlimited: aiQueriesPerMonth === -1,
-        overageRate: plan.overageRates.perExtraAiQuery,
+  return res.json(
+    apiSuccess({
+      plan: plan.name,
+      period: new Date().toISOString().slice(0, 7),
+      ai: {
+        queries: {
+          used: usage.queries,
+          limit: aiQueriesPerMonth === -1 ? null : aiQueriesPerMonth,
+          unlimited: aiQueriesPerMonth === -1,
+          overageRate: plan.overageRates.perExtraAiQuery,
+        },
+        tokens: {
+          used: usage.tokens,
+          limit: aiTokensPerMonth === -1 ? null : aiTokensPerMonth,
+          unlimited: aiTokensPerMonth === -1,
+        },
       },
-      tokens: {
-        used: usage.tokens,
-        limit: aiTokensPerMonth === -1 ? null : aiTokensPerMonth,
-        unlimited: aiTokensPerMonth === -1,
-      },
-    },
-  }));
+    }),
+  );
 });
 
 export default router;

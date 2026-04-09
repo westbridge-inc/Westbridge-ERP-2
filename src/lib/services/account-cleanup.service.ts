@@ -18,11 +18,11 @@
  *   2. hardDeleteAccount(accountId)
  *        Called from the daily cleanup worker (B1). Anonymises the
  *        account's audit log rows in place — scrubbing PII columns and
- *        nulling user_id — then calls prisma.account.delete(), which
+ *        nulling user_id — then calls prismaAdmin.account.delete(), which
  *        cascades through every child table (users, subscriptions, api
  *        keys, webhooks, billing invoices, sso config, all cortex tables,
  *        notification preferences, totp secrets) via the FK relations
- *        defined in schema.prisma. The audit log rows survive with
+ *        defined in schema.prismaAdmin. The audit log rows survive with
  *        account_id NULL via the migration's ON DELETE SET NULL FK so
  *        SOC 2 / GRA security history retention is preserved alongside
  *        the GDPR Art. 17 erasure of customer data.
@@ -31,7 +31,7 @@
  * accounts whose grace period has elapsed.
  */
 
-import { prisma } from "../data/prisma.js";
+import { prismaAdmin } from "../data/prisma-admin.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { DATA_RETENTION } from "../data-retention.js";
 import { logger } from "../logger.js";
@@ -59,14 +59,14 @@ export async function softDeleteAccount(
   ctx: SoftDeleteContext,
 ): Promise<Result<{ usersAffected: number }, string>> {
   try {
-    const usersToDelete = await prisma.user.findMany({
+    const usersToDelete = await prismaAdmin.user.findMany({
       where: { accountId },
       select: { id: true },
     });
     const userIds = usersToDelete.map((u) => u.id);
     const now = new Date();
 
-    await prisma.$transaction(async (tx) => {
+    await prismaAdmin.$transaction(async (tx) => {
       // Anonymize PII on every user in the account. Email is scrubbed to a
       // unique placeholder so the @@unique([accountId, email]) constraint
       // is preserved and a future signup can reuse the original address.
@@ -131,7 +131,7 @@ export async function softDeleteAccount(
  */
 export async function findAccountsDueForHardDelete(now: Date = new Date()): Promise<string[]> {
   const cutoff = new Date(now.getTime() - DATA_RETENTION.SOFT_DELETED_DAYS * 24 * 60 * 60 * 1000);
-  const rows = await prisma.account.findMany({
+  const rows = await prismaAdmin.account.findMany({
     where: {
       deletedAt: { lt: cutoff },
       status: "deleted",
@@ -155,14 +155,14 @@ export async function findAccountsDueForHardDelete(now: Date = new Date()): Prom
  *         we'd rather erase the database and leave a stray ERPNext
  *         company than fail to honor the GDPR right.
  *
- * Step 3: prisma.account.delete() — cascades through every child table.
+ * Step 3: prismaAdmin.account.delete() — cascades through every child table.
  */
 export async function hardDeleteAccount(accountId: string): Promise<Result<HardDeleteResult, string>> {
   try {
     // Step 1: anonymize audit logs in place. accountId stays bound for
     // now; the SET NULL FK constraint will null it when the parent row
     // is deleted in Step 3.
-    const anonymized = await prisma.auditLog.updateMany({
+    const anonymized = await prismaAdmin.auditLog.updateMany({
       where: { accountId },
       data: {
         userId: null,
@@ -175,7 +175,7 @@ export async function hardDeleteAccount(accountId: string): Promise<Result<HardD
     // Step 2: best-effort ERPNext deprovision. Don't fail the purge on
     // an external API hiccup — leaving the SQL row alive is worse than
     // leaving a stray ERPNext company.
-    const account = await prisma.account.findUnique({
+    const account = await prismaAdmin.account.findUnique({
       where: { id: accountId },
       select: { erpnextCompany: true },
     });
@@ -195,7 +195,7 @@ export async function hardDeleteAccount(accountId: string): Promise<Result<HardD
     // schema is ON DELETE CASCADE so a single statement clears the
     // entire tenant. The auditLog FK is ON DELETE SET NULL so the
     // anonymized rows from Step 1 stay behind.
-    await prisma.account.delete({ where: { id: accountId } });
+    await prismaAdmin.account.delete({ where: { id: accountId } });
 
     // Log the purge to a system-scoped audit row so we have a permanent
     // record that the GDPR right-to-erasure was honored. We use the
