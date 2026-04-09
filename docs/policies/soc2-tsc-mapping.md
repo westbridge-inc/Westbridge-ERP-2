@@ -62,16 +62,16 @@ The criteria below cover the **Common Criteria (CC1–CC9)** plus the **Availabi
 
 ### CC6 — Logical and Physical Access Controls
 
-| Criterion | Implementation                                                                                                                                                                                                | Evidence                                                                                                                           |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| CC6.1     | Authentication: bcrypt password hashing (cost ≥10), TOTP MFA, SSO (SAML 2.0 + OIDC), session management with secure cookies, account lockout after 5 failed attempts.                                         | `src/lib/services/auth.service.ts`, `src/lib/services/session.service.ts`, `src/routes/totp.routes.ts`, `src/routes/sso.routes.ts` |
-| CC6.2     | RBAC with four roles (owner, admin, member, viewer) and string-based permission identifiers checked by `requirePermission()` middleware.                                                                      | `src/lib/rbac.ts`                                                                                                                  |
-| CC6.3     | Access provisioning and deprovisioning procedures documented; access reviews quarterly.                                                                                                                       | `docs/policies/access-control-policy.md` §5, §6                                                                                    |
-| CC6.4     | Physical access — N/A; Westbridge is fully remote and all infrastructure is hosted by sub-processors with their own physical security controls.                                                               | (sub-processor SOC 2 reports)                                                                                                      |
-| CC6.5     | Logical separation between customer tenants enforced by PostgreSQL Row-Level Security policies + AsyncLocalStorage tenant pinning + explicit `where: { accountId }` in service code.                          | `prisma/migrations/20260318_add_row_level_security/migration.sql`, `src/lib/data/prisma.ts`, `src/lib/data/tenant-als.ts`          |
-| CC6.6     | Network security: HTTPS (TLS 1.2+) on all public endpoints, HSTS 2-year, Helmet CSP, CORS scoped to the frontend origin, SSRF protection in webhook delivery.                                                 | `src/app.ts`, `src/workers/index.ts:assertNotPrivateUrl`                                                                           |
-| CC6.7     | Encryption: AES-256-GCM with AAD binding for sensitive columns at rest. TLS 1.2+ in transit. See Encryption Policy.                                                                                           | `src/lib/encryption.ts`, `docs/policies/encryption-policy.md`                                                                      |
-| CC6.8     | Unauthorized software prevention: code review required for all changes, dependency vulnerability scanning in CI, license compliance check, manual review for new dependencies that touch crypto/payments/PII. | `.github/workflows/security.yml`, `docs/policies/change-management-policy.md`                                                      |
+| Criterion | Implementation                                                                                                                                                                                                                                                | Evidence                                                                                                                           |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| CC6.1     | Authentication: bcrypt password hashing (cost 14), TOTP MFA (opt-in; org-wide enforcement is a tracked gap targeted 2026-Q3), SSO (SAML 2.0 + OIDC), 7-day session expiry with 30-min idle + fingerprint validation, account lockout after 5 failed attempts. | `src/lib/services/auth.service.ts`, `src/lib/services/session.service.ts`, `src/routes/totp.routes.ts`, `src/routes/sso.routes.ts` |
+| CC6.2     | RBAC with four roles (owner, admin, member, viewer) and string-based permission identifiers checked by `requirePermission()` middleware.                                                                                                                      | `src/lib/rbac.ts`                                                                                                                  |
+| CC6.3     | Access provisioning and deprovisioning procedures documented; access reviews quarterly.                                                                                                                                                                       | `docs/policies/access-control-policy.md` §5, §6                                                                                    |
+| CC6.4     | Physical access — N/A; Westbridge is fully remote and all infrastructure is hosted by sub-processors with their own physical security controls.                                                                                                               | (sub-processor SOC 2 reports)                                                                                                      |
+| CC6.5     | Logical separation between customer tenants enforced by PostgreSQL Row-Level Security policies + AsyncLocalStorage tenant pinning + explicit `where: { accountId }` in service code.                                                                          | `prisma/migrations/20260318_add_row_level_security/migration.sql`, `src/lib/data/prisma.ts`, `src/lib/data/tenant-als.ts`          |
+| CC6.6     | Network security: HTTPS (TLS 1.2+) on all public endpoints, HSTS 2-year, Helmet CSP, CORS scoped to the frontend origin, SSRF protection in webhook delivery.                                                                                                 | `src/app.ts`, `src/workers/index.ts:assertNotPrivateUrl`                                                                           |
+| CC6.7     | Encryption: AES-256-GCM with AAD binding for sensitive columns at rest. TLS 1.2+ in transit. See Encryption Policy.                                                                                                                                           | `src/lib/encryption.ts`, `docs/policies/encryption-policy.md`                                                                      |
+| CC6.8     | Unauthorized software prevention: code review required for all changes, dependency vulnerability scanning in CI, license compliance check, manual review for new dependencies that touch crypto/payments/PII.                                                 | `.github/workflows/security.yml`, `docs/policies/change-management-policy.md`                                                      |
 
 ### CC7 — System Operations
 
@@ -113,17 +113,19 @@ The criteria below cover the **Common Criteria (CC1–CC9)** plus the **Availabi
 
 ## 5. Known Gaps (will be remediated before SOC 2 Type 1 attestation)
 
-| Gap                                                                       | Owner            | Target                        |
-| ------------------------------------------------------------------------- | ---------------- | ----------------------------- |
-| No formal SOC 2 Type 1 attestation yet                                    | CISO             | 2026-Q3 (with Vanta or Drata) |
-| No third-party penetration test in the last 12 months                     | CISO             | 2026-Q2                       |
-| Disaster recovery drill not yet performed                                 | Engineering Lead | 2026-Q2                       |
-| Cyber liability insurance not yet bound                                   | CISO             | 2026-Q2                       |
-| Hardware key (WebAuthn) for founder GitHub + Fly access                   | CISO             | 2026-Q3                       |
-| Customer-enforced MFA for owner roles (currently optional)                | Engineering Lead | 2026-Q3                       |
-| Cookie consent banner not yet rendered                                    | Engineering Lead | 2026-Q2 (today sprint)        |
-| Periodic audit log hash chain verification job (currently on-demand only) | Engineering Lead | 2026-Q3                       |
-| Cross-cloud DR failover (currently single-cloud Fly.io)                   | CISO             | 2026-Q4                       |
+| Gap                                                                               | Owner            | Target                                  |
+| --------------------------------------------------------------------------------- | ---------------- | --------------------------------------- |
+| No formal SOC 2 Type 1 attestation yet                                            | CISO             | 2026-Q3 (with Vanta or Drata)           |
+| No third-party penetration test in the last 12 months                             | CISO             | 2026-Q2                                 |
+| Disaster recovery drill not yet performed                                         | Engineering Lead | 2026-Q2                                 |
+| Cyber liability insurance not yet bound                                           | CISO             | 2026-Q2                                 |
+| Hardware key (WebAuthn) for founder GitHub + Fly access                           | CISO             | 2026-Q3                                 |
+| Org-wide MFA enforcement for owner/admin roles (currently opt-in)                 | Engineering Lead | 2026-Q3                                 |
+| CSP `style-src` tightening (currently allows `'unsafe-inline'` for compatibility) | Engineering Lead | 2026-Q3 (depends on inline-style audit) |
+| API key rotation policy + automatic expiry                                        | Engineering Lead | 2026-Q3                                 |
+| Cookie consent banner not yet rendered                                            | Engineering Lead | 2026-Q2 (today sprint)                  |
+| Periodic audit log hash chain verification job (currently on-demand only)         | Engineering Lead | 2026-Q3                                 |
+| Cross-cloud DR failover (currently single-cloud Fly.io)                           | CISO             | 2026-Q4                                 |
 
 ## 6. How to Verify
 

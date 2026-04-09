@@ -16,15 +16,15 @@ This policy specifies how Westbridge encrypts data at rest and in transit, manag
 
 ## 2. Standards
 
-| Asset                                        | Algorithm                   | Key length | Notes                                             |
-| -------------------------------------------- | --------------------------- | ---------- | ------------------------------------------------- |
-| Data at rest in Postgres (sensitive columns) | AES-256-GCM                 | 256 bits   | Application-layer encryption with AAD binding     |
-| Storage volume encryption (Fly volumes)      | AES-256                     | 256 bits   | Fly.io platform default                           |
-| Backup objects (Tigris bucket)               | AES-256                     | 256 bits   | Provider-managed (S3-compatible SSE)              |
-| TLS in transit                               | TLS 1.2 minimum, prefer 1.3 | 256 bits   | Helmet HSTS 2yr, Fly's automatic Let's Encrypt    |
-| Password hashing                             | bcrypt                      | cost ≥10   | Stored in `users.password_hash`                   |
-| Session token storage                        | SHA-256                     | 256 bits   | Token issued client-side, only the hash is stored |
-| HMAC signatures (CSRF, webhook, audit chain) | HMAC-SHA-256                | 256 bits   | Application-layer                                 |
+| Asset                                        | Algorithm                   | Key length | Notes                                                                                                                              |
+| -------------------------------------------- | --------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Data at rest in Postgres (sensitive columns) | AES-256-GCM                 | 256 bits   | Application-layer encryption with AAD binding                                                                                      |
+| Storage volume encryption (Fly volumes)      | AES-256                     | 256 bits   | Fly.io platform default                                                                                                            |
+| Backup objects (Tigris bucket)               | AES-256                     | 256 bits   | Provider-managed (S3-compatible SSE)                                                                                               |
+| TLS in transit                               | TLS 1.2 minimum, prefer 1.3 | 256 bits   | Helmet HSTS 2yr, Fly's automatic Let's Encrypt                                                                                     |
+| Password hashing                             | bcrypt                      | cost 14    | Stored in `users.password_hash`. ~250 ms per hash on modern hardware. Legacy SHA-256 hashes are explicitly rejected on login.      |
+| Session token storage                        | SHA-256                     | 256 bits   | Token issued is 32 random bytes; only the SHA-256 hash is stored. Encrypted ERPNext SID stored alongside (AES-256-GCM, AAD bound). |
+| HMAC signatures (CSRF, webhook, audit chain) | HMAC-SHA-256                | 256 bits   | Application-layer                                                                                                                  |
 
 ## 3. Application-Layer Encryption (sensitive columns)
 
