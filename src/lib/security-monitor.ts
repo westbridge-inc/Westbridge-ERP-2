@@ -1,12 +1,24 @@
 import { logger } from "./logger.js";
 import * as Sentry from "@sentry/node";
 
+export type SecurityEventType =
+  | "brute_force"
+  | "session_hijack"
+  | "csrf_attack"
+  | "unauthorized_access"
+  // tenant_mismatch: a worker job's accountId did not match the persisted
+  // row's accountId. Indicates queue poisoning, replay, or a race against
+  // a recycled identifier. Always pages on-call.
+  | "tenant_mismatch";
+
 export interface SecurityEvent {
-  type: "brute_force" | "session_hijack" | "csrf_attack" | "unauthorized_access";
+  type: SecurityEventType;
   userId?: string;
   accountId?: string;
-  ipAddress: string;
+  ipAddress?: string;
   details: string;
+  /** Optional structured payload (request id, mismatched ids, etc.). */
+  metadata?: Record<string, unknown>;
 }
 
 export function reportSecurityEvent(event: SecurityEvent): void {
@@ -16,6 +28,7 @@ export function reportSecurityEvent(event: SecurityEvent): void {
     accountId: event.accountId,
     ipAddress: event.ipAddress,
     details: event.details,
+    metadata: event.metadata,
     timestamp: new Date().toISOString(),
   });
 
@@ -27,6 +40,7 @@ export function reportSecurityEvent(event: SecurityEvent): void {
       accountId: event.accountId,
       ipAddress: event.ipAddress,
       details: event.details,
+      metadata: event.metadata,
     },
   });
 }

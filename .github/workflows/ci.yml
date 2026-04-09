@@ -117,7 +117,21 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
+      # The Prisma schema declares directUrl = env("MIGRATION_DATABASE_URL")
+      # for the production runtime/migration role split. CI runs as a single
+      # superuser so point both URLs at the same connection string.
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
       REDIS_URL: redis://localhost:6379
+      # Tenant isolation hardening: provision the westbridge_app role and
+      # use it for the RLS-enforced regression suite. The other integration
+      # tests continue to use TEST_DATABASE_URL (the schema-owner URL).
+      TEST_RLS_DATABASE_URL: postgresql://westbridge_app:ci-rls-password-not-for-production@localhost:5432/westbridge_test?schema=public
+      # The tenant-isolation suite needs a SEPARATE schema-owner connection
+      # to seed fixtures across BOTH tenants without RLS getting in the way
+      # (the westbridge_app role would refuse cross-tenant INSERTs because
+      # the per-row check would only allow rows belonging to the currently
+      # bound app.current_account_id).
+      TEST_MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -126,8 +140,41 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
+      - name: Apply RLS migrations (db push skips them)
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: westbridge_test
+        # `prisma db push` syncs the schema but does NOT execute migration
+        # files. The RLS policies live in raw SQL migrations so we have to
+        # apply them manually here. Order matters: the original migration
+        # creates the role + 10 base-table policies, the cortex migration
+        # adds 9 more.
+        run: |
+          psql -v ON_ERROR_STOP=1 -f prisma/migrations/20260318_add_row_level_security/migration.sql
+          psql -v ON_ERROR_STOP=1 -f prisma/migrations/20260409060845_cortex_and_user_scoped_rls/migration.sql
+      - name: Provision westbridge_app role for RLS tests
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: westbridge_test
+          WESTBRIDGE_APP_PASSWORD: ci-rls-password-not-for-production
+        run: ./scripts/provision-rls-role.sh
       - name: Run database integration tests
-        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/ --reporter=verbose
+        # Run the existing integration suites (database + api-contract).
+        # The tenant-isolation suite is excluded here and runs in its own
+        # step below so it doesn't race with the cleanDatabase() calls in
+        # database.integration.test.ts.
+        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/database.integration.test.ts src/__tests__/integration/api-contract.integration.test.ts --reporter=verbose
+      - name: Run tenant isolation integration tests (RLS-enforced)
+        # Runs in isolation against the westbridge_app role so RLS policies
+        # filter rows. Sequential run + isolated step prevents the other
+        # integration tests from racing on the shared test database.
+        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/tenant-isolation.integration.test.ts --reporter=verbose
       - name: Run rate limiter integration tests
         run: npx vitest run --config vitest.integration.config.ts src/lib/api/__tests__/rate-limit-tiers.test.ts --reporter=verbose
 
@@ -164,6 +211,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge
       REDIS_URL: redis://localhost:6379
       NODE_ENV: development
       PORT: "4000"

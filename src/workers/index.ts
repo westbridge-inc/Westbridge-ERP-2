@@ -9,6 +9,7 @@ import dns from "dns/promises";
 import { isIP } from "net";
 import { sendEmail } from "../lib/email/index.js";
 import { prisma } from "../lib/data/prisma.js";
+import { withTenantScope } from "../lib/data/tenant-scope.js";
 import { logger } from "../lib/logger.js";
 import { DATA_RETENTION } from "../lib/data-retention.js";
 import { erpGet } from "../lib/data/erpnext.client.js";
@@ -375,12 +376,25 @@ function createErpSyncWorker(): Worker {
  * Supported report types and their data sources.
  * Each handler fetches data, aggregates, and returns the report payload.
  * The worker stores the result in the audit log for retrieval.
+ *
+ * Tenant isolation: every handler runs inside a `withTenantScope` block in
+ * the worker dispatcher below so that under the post-Phase-3 `westbridge_app`
+ * role the RLS `app.current_account_id` setting is bound for every read.
+ * Handlers MUST use the `tx` client passed in (which is bound to the same
+ * transaction as the set_config) — using the unscoped `prisma` import
+ * would route queries through a different connection where the setting
+ * is unset, and RLS would default-deny every row.
+ *
+ * Handlers also still pass `accountId` in their `where` clauses (Layer 1,
+ * primary defence); RLS is the secondary safety net.
  */
+type ReportTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 const REPORT_HANDLERS: Record<
   string,
-  (accountId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>
+  (tx: ReportTx, accountId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>
 > = {
-  async revenue_summary(accountId, params) {
+  async revenue_summary(tx, accountId, params) {
     const period = (params.period as string) ?? new Date().toISOString().slice(0, 7);
     const startDate = new Date(`${period}-01`);
     const endDate = new Date(startDate);
@@ -388,7 +402,7 @@ const REPORT_HANDLERS: Record<
 
     logger.info("Generating revenue summary", { accountId, period });
 
-    const invoiceActivity = await prisma.auditLog.count({
+    const invoiceActivity = await tx.auditLog.count({
       where: {
         accountId,
         action: "erp.doc.create",
@@ -405,12 +419,12 @@ const REPORT_HANDLERS: Record<
     };
   },
 
-  async audit_export(accountId, params) {
+  async audit_export(tx, accountId, params) {
     const days = (params.days as number) ?? 30;
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     logger.info("Generating audit export", { accountId, days });
 
-    const logs = await prisma.auditLog.findMany({
+    const logs = await tx.auditLog.findMany({
       where: { accountId, timestamp: { gte: cutoff } },
       orderBy: { timestamp: "desc" },
       take: 10_000,
@@ -436,15 +450,15 @@ const REPORT_HANDLERS: Record<
     };
   },
 
-  async user_activity(accountId, _params) {
+  async user_activity(tx, accountId, _params) {
     logger.info("Generating user activity report", { accountId });
 
-    const users = await prisma.user.findMany({
+    const users = await tx.user.findMany({
       where: { accountId },
       select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
     });
 
-    const activeSessions = await prisma.session.count({
+    const activeSessions = await tx.session.count({
       where: {
         user: { accountId },
         expiresAt: { gt: new Date() },
@@ -485,22 +499,30 @@ function createReportsWorker(): Worker {
       }
 
       try {
-        const result = await handler(accountId, params);
-
-        // Store the completed report in the audit log for retrieval by the user
-        await prisma.auditLog.create({
-          data: {
-            accountId,
-            userId: requestedBy,
-            action: "report.generated",
-            resource: reportType,
-            resourceId: job.id ?? crypto.randomUUID(),
-            ipAddress: "worker",
-            userAgent: "bullmq-reports-worker",
-            metadata: JSON.parse(JSON.stringify(result)),
-            severity: "info",
-            outcome: "success",
-          },
+        // Pin the tenant context for the entire report run so that under
+        // the `westbridge_app` runtime role, RLS allows the handler's reads
+        // and the audit_logs INSERT below. Hand the transaction client `tx`
+        // to the handler so its queries run on the same connection where
+        // set_config was called — using the outer `prisma` import would
+        // bypass the transaction context entirely and RLS would default-deny.
+        const result = await withTenantScope(accountId, async (tx) => {
+          const handlerResult = await handler(tx, accountId, params);
+          // Store the completed report in the audit log for retrieval by the user
+          await tx.auditLog.create({
+            data: {
+              accountId,
+              userId: requestedBy,
+              action: "report.generated",
+              resource: reportType,
+              resourceId: job.id ?? crypto.randomUUID(),
+              ipAddress: "worker",
+              userAgent: "bullmq-reports-worker",
+              metadata: JSON.parse(JSON.stringify(handlerResult)),
+              severity: "info",
+              outcome: "success",
+            },
+          });
+          return handlerResult;
         });
 
         // Notify connected clients that their report is ready
