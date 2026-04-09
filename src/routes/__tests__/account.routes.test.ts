@@ -79,6 +79,15 @@ vi.mock("../../lib/services/audit.service.js", () => ({
   safeLogAudit: vi.fn(),
 }));
 
+// Mock the cleanup service so the route test exercises only the route
+// (the service has its own dedicated unit tests covering the soft-delete
+// logic and the eventual hard-delete cascade).
+vi.mock("../../lib/services/account-cleanup.service.js", () => ({
+  softDeleteAccount: vi.fn().mockResolvedValue({ ok: true, data: { usersAffected: 1 } }),
+  hardDeleteAccount: vi.fn().mockResolvedValue({ ok: true, data: { accountId: "acc_1" } }),
+  findAccountsDueForHardDelete: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("../../lib/api/rate-limit-tiers.js", () => ({
   checkTieredRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
   checkEmailRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
@@ -188,6 +197,7 @@ import { createApp } from "../../app.js";
 import { validateSession } from "../../lib/services/session.service.js";
 import { validateCsrf } from "../../lib/csrf.js";
 import { prisma } from "../../lib/data/prisma.js";
+import { softDeleteAccount } from "../../lib/services/account-cleanup.service.js";
 
 const app = createApp();
 
@@ -322,6 +332,39 @@ describe("Account Routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty("message", "Account deleted");
+    });
+
+    // B2: the route must hand off to softDeleteAccount, which is the
+    // single source of truth for setting `deletedAt` (so the daily
+    // cleanup worker can find the row 30 days later) and revoking all
+    // credentials. Regression: previously the route inlined a partial
+    // delete that left api_keys, webhooks, sso_config etc behind.
+    it("delegates to softDeleteAccount with the session account id (B2)", async () => {
+      mockSession("owner");
+      (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([{ id: "usr_1" }, { id: "usr_2" }]);
+
+      await request(app)
+        .delete("/api/account/delete")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(softDeleteAccount).toHaveBeenCalledTimes(1);
+      expect(softDeleteAccount).toHaveBeenCalledWith("acc_1", expect.objectContaining({ initiatorUserId: "usr_1" }));
+    });
+
+    it("returns 500 when softDeleteAccount fails (B2)", async () => {
+      mockSession("owner");
+      (softDeleteAccount as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: false,
+        error: "db error",
+      });
+
+      const res = await request(app)
+        .delete("/api/account/delete")
+        .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+        .set("x-csrf-token", "test-csrf-token");
+
+      expect(res.status).toBe(500);
     });
 
     it("returns 403 for member role", async () => {

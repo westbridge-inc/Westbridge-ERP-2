@@ -1,5 +1,9 @@
 export const DATA_RETENTION = {
   AUDIT_LOGS_DAYS: 365, // 1 year minimum for SOC 2
   SESSIONS_EXPIRED_DAYS: 30, // Clean up expired sessions after 30 days
-  SOFT_DELETED_DAYS: 90, // Permanently delete soft-deleted records after 90 days
+  // Hard-delete soft-deleted accounts after 30 days. Aligned with the
+  // published Privacy Policy promise: "After the 30-day period, Customer
+  // Data is permanently deleted from our production systems and purged
+  // from backups within 90 days." (Big-4 audit B1)
+  SOFT_DELETED_DAYS: 30,
 } as const;

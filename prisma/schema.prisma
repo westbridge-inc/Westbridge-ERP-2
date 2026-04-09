@@ -11,39 +11,39 @@ datasource db {
 }
 
 model Account {
-  id               String    @id @default(cuid())
-  email            String    @unique
-  companyName      String    @map("company_name")
-  erpnextCompany   String?   @map("erpnext_company") // ERPNext Company name for row-level scoping
-  plan             String    // Starter | Growth | Business
-  status           String    @default("pending") // pending | active | past_due | canceled
-  currency         String    @default("GYD")     // Default currency (Caribbean-first)
-  country          String    @default("GY")      // ISO 3166-1 alpha-2
-  timezone         String    @default("America/Guyana")
-  paymentTransactionId  String?   @map("payment_transaction_id")  // PowerTranz transaction identifier
-  paymentRRN            String?   @map("payment_rrn")             // PowerTranz Retrieval Reference Number
-  modulesSelected  String[]  @map("modules_selected") // module ids
-  trialEndsAt      DateTime? @map("trial_ends_at")
-  trialAiLimit     Int       @default(10) @map("trial_ai_limit")
-  version          Int       @default(1)          // Optimistic concurrency control
-  deletedAt        DateTime? @map("deleted_at")   // Soft delete
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(cuid())
+  email                String    @unique
+  companyName          String    @map("company_name")
+  erpnextCompany       String?   @map("erpnext_company") // ERPNext Company name for row-level scoping
+  plan                 String // Starter | Growth | Business
+  status               String    @default("pending") // pending | active | past_due | canceled
+  currency             String    @default("GYD") // Default currency (Caribbean-first)
+  country              String    @default("GY") // ISO 3166-1 alpha-2
+  timezone             String    @default("America/Guyana")
+  paymentTransactionId String?   @map("payment_transaction_id") // PowerTranz transaction identifier
+  paymentRRN           String?   @map("payment_rrn") // PowerTranz Retrieval Reference Number
+  modulesSelected      String[]  @map("modules_selected") // module ids
+  trialEndsAt          DateTime? @map("trial_ends_at")
+  trialAiLimit         Int       @default(10) @map("trial_ai_limit")
+  version              Int       @default(1) // Optimistic concurrency control
+  deletedAt            DateTime? @map("deleted_at") // Soft delete
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  users              User[]
-  subscriptions      Subscription[]
-  auditLogs          AuditLog[]
-  apiKeys            ApiKey[]
-  inviteTokens       InviteToken[]
-  webhookEndpoints   WebhookEndpoint[]
-  ssoConfig          SsoConfig?
-  billingInvoices    BillingInvoice[]
-  cortexEvents       CortexEvent[]
+  users               User[]
+  subscriptions       Subscription[]
+  auditLogs           AuditLog[]
+  apiKeys             ApiKey[]
+  inviteTokens        InviteToken[]
+  webhookEndpoints    WebhookEndpoint[]
+  ssoConfig           SsoConfig?
+  billingInvoices     BillingInvoice[]
+  cortexEvents        CortexEvent[]
   cortexConversations CortexConversation[]
-  cortexExecutions   CortexExecutionLog[]
-  cortexApprovals    CortexApprovalRequest[]
-  cortexMemory       CortexMemory[]
-  cortexFeedback     CortexFeedback[]
+  cortexExecutions    CortexExecutionLog[]
+  cortexApprovals     CortexApprovalRequest[]
+  cortexMemory        CortexMemory[]
+  cortexFeedback      CortexFeedback[]
 
   @@index([createdAt])
   @@index([deletedAt])
@@ -51,25 +51,27 @@ model Account {
 }
 
 model User {
-  id                   String    @id @default(cuid())
-  accountId            String    @map("account_id")
-  email                String    /// @pii - Personal Identifiable Information
-  name                 String?   /// @pii - Personal Identifiable Information
-  role                 String    // "owner" | "admin" | "manager" | "member" | "viewer"
-  passwordHash         String?   @map("password_hash")
-  status               String    @default("active") // active | suspended | invited
-  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
-  lockedUntil          DateTime? @map("locked_until")
-  lastFailedLogin      DateTime? @map("last_failed_login")
-  passwordChangedAt    DateTime? @map("password_changed_at")
-  version              Int       @default(1)          // Optimistic concurrency control
-  deletedAt            DateTime? @map("deleted_at")   // Soft delete
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(cuid())
+  accountId           String    @map("account_id")
+  email               String /// @pii - Personal Identifiable Information
+  name                String? /// @pii - Personal Identifiable Information
+  role                String // "owner" | "admin" | "manager" | "member" | "viewer"
+  passwordHash        String?   @map("password_hash")
+  status              String    @default("active") // active | suspended | invited
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until")
+  lastFailedLogin     DateTime? @map("last_failed_login")
+  passwordChangedAt   DateTime? @map("password_changed_at")
+  version             Int       @default(1) // Optimistic concurrency control
+  deletedAt           DateTime? @map("deleted_at") // Soft delete
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  account             Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  sessions            Session[]
-  passwordResetTokens PasswordResetToken[]
+  account                Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  sessions               Session[]
+  passwordResetTokens    PasswordResetToken[]
+  notificationPreference NotificationPreference?
+  totpSecret             TotpSecret?
 
   @@unique([accountId, email])
   @@index([accountId])
@@ -80,36 +82,36 @@ model User {
 }
 
 model Session {
-  id          String   @id @default(cuid())
-  userId      String   @map("user_id")
-  token       String   @unique // SHA-256 hash of the raw token
-  erpnextSid  String?  @map("erpnext_sid") // ERPNext session for API proxy
-  ipAddress   String?  @map("ip_address") /// @pii - Personal Identifiable Information
-  userAgent   String?  @map("user_agent") /// @pii - Personal Identifiable Information
-  fingerprint String?  // hash of User-Agent for session binding
-  expiresAt   DateTime @map("expires_at")
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  token        String   @unique // SHA-256 hash of the raw token
+  erpnextSid   String?  @map("erpnext_sid") // ERPNext session for API proxy
+  ipAddress    String?  @map("ip_address") /// @pii - Personal Identifiable Information
+  userAgent    String?  @map("user_agent") /// @pii - Personal Identifiable Information
+  fingerprint  String? // hash of User-Agent for session binding
+  expiresAt    DateTime @map("expires_at")
   lastActiveAt DateTime @default(now()) @map("last_active_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([expiresAt])
   @@index([userId])
-  @@index([userId, expiresAt])  // Composite: session cleanup + concurrent session queries
+  @@index([userId, expiresAt]) // Composite: session cleanup + concurrent session queries
   @@map("sessions")
 }
 
 model Subscription {
-  id                    String    @id @default(cuid())
-  accountId             String    @map("account_id")
-  planId                String    @map("plan_id") // Starter | Growth | Business etc.
-  status                String    // active | canceled | past_due | trialing
-  currentPeriodStart    DateTime  @map("current_period_start")
-  currentPeriodEnd      DateTime  @map("current_period_end")
-  paymentSubscriptionId String?   @map("payment_subscription_id") // PowerTranz subscription reference
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
+  id                    String   @id @default(cuid())
+  accountId             String   @map("account_id")
+  planId                String   @map("plan_id") // Starter | Growth | Business etc.
+  status                String // active | canceled | past_due | trialing
+  currentPeriodStart    DateTime @map("current_period_start")
+  currentPeriodEnd      DateTime @map("current_period_end")
+  paymentSubscriptionId String?  @map("payment_subscription_id") // PowerTranz subscription reference
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -121,7 +123,12 @@ model Subscription {
 model AuditLog {
   id         String   @id @default(cuid())
   timestamp  DateTime @default(now())
-  accountId  String   @map("account_id")
+  // accountId is nullable so audit-log rows can outlive the account they
+  // were created for. The hard-delete worker (B1/B2) anonymizes the row
+  // (PII fields scrubbed, user/account references nulled) before deleting
+  // the parent account, so the SOC 2 / GRA retention promise is honored
+  // in parallel with the GDPR Art. 17 right to erasure of customer data.
+  accountId  String?  @map("account_id")
   userId     String?  @map("user_id")
   action     String
   resource   String?
@@ -132,7 +139,7 @@ model AuditLog {
   severity   String   @default("info") // info, warn, critical
   outcome    String   @default("success") // success, failure, error
 
-  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@index([accountId, timestamp])
   @@index([userId, timestamp])
@@ -142,11 +149,11 @@ model AuditLog {
 }
 
 model ApiKey {
-  id        String    @id @default(cuid())
-  accountId String    @map("account_id")
-  keyHash   String    @map("key_hash") // hash of the raw key
-  prefix    String    // first few chars for display (e.g. wb_xxxx)
-  label     String?
+  id         String    @id @default(cuid())
+  accountId  String    @map("account_id")
+  keyHash    String    @map("key_hash") // hash of the raw key
+  prefix     String // first few chars for display (e.g. wb_xxxx)
+  label      String?
   lastUsedAt DateTime? @map("last_used_at")
   expiresAt  DateTime? @map("expires_at")
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -161,7 +168,7 @@ model ApiKey {
 model InviteToken {
   id        String    @id @default(cuid())
   accountId String    @map("account_id")
-  email     String    /// @pii - Personal Identifiable Information
+  email     String /// @pii - Personal Identifiable Information
   role      String    @default("member") // owner | admin | manager | member | viewer
   tokenHash String    @unique @map("token_hash") // SHA-256 of raw token
   expiresAt DateTime  @map("expires_at")
@@ -193,13 +200,13 @@ model PasswordResetToken {
 // ─── Lead Capture (Blocker #12) ─────────────────────────────────────────────
 model Lead {
   id        String   @id @default(cuid())
-  type      String   // "demo" | "newsletter"
-  email     String   /// @pii
-  name      String?  /// @pii
+  type      String // "demo" | "newsletter"
+  email     String /// @pii
+  name      String? /// @pii
   company   String?
-  phone     String?  /// @pii
+  phone     String? /// @pii
   country   String?
-  source    String?  // referrer, campaign, etc.
+  source    String? // referrer, campaign, etc.
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([type, createdAt])
@@ -228,49 +235,60 @@ model SsoConfig {
 
 // ─── Notification Preferences (Blocker #8) ──────────────────────────────────
 model NotificationPreference {
-  id        String  @id @default(cuid())
-  userId    String  @unique @map("user_id")
-  emailInvoices    Boolean @default(true) @map("email_invoices")
-  emailReports     Boolean @default(true) @map("email_reports")
-  emailSecurityAlerts Boolean @default(true) @map("email_security_alerts")
-  emailProductUpdates Boolean @default(false) @map("email_product_updates")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                  String   @id @default(cuid())
+  userId              String   @unique @map("user_id")
+  emailInvoices       Boolean  @default(true) @map("email_invoices")
+  emailReports        Boolean  @default(true) @map("email_reports")
+  emailSecurityAlerts Boolean  @default(true) @map("email_security_alerts")
+  emailProductUpdates Boolean  @default(false) @map("email_product_updates")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  // FK + cascade so account hard-delete (B1/B2) automatically purges these
+  // rows via User → Account cascade. Without this, B1's purge would orphan
+  // notification_preferences rows referencing a deleted user.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("notification_preferences")
 }
 
 // ─── TOTP 2FA (Blocker #10) ─────────────────────────────────────────────────
 model TotpSecret {
-  id        String   @id @default(cuid())
-  userId    String   @unique @map("user_id")
-  secret    String   // encrypted TOTP secret
-  verified  Boolean  @default(false)
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  secret      String // encrypted TOTP secret
+  verified    Boolean  @default(false)
   backupCodes String[] @map("backup_codes") // hashed backup codes
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // FK + cascade so account hard-delete (B1/B2) automatically purges these
+  // rows via User → Account cascade. Without this, B1's purge would orphan
+  // totp_secrets rows referencing a deleted user (and leak the encrypted
+  // secret indefinitely, even though it's keyed by a now-dead user id).
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("totp_secrets")
 }
 
 // ─── Billing Invoices (Blocker #4) ──────────────────────────────────────────
 model BillingInvoice {
-  id            String   @id @default(cuid())
-  accountId     String   @map("account_id")
-  amount        Decimal  @db.Decimal(10, 2)
-  currency      String   @default("USD")
-  status        String   @default("paid") // paid | pending | failed | refunded
-  planId        String   @map("plan_id")
-  periodStart   DateTime @map("period_start")
-  periodEnd     DateTime @map("period_end")
-  transactionId String?  @map("transaction_id") // PowerTranz reference
-  rrn           String?  // Retrieval Reference Number
+  id            String    @id @default(cuid())
+  accountId     String    @map("account_id")
+  amount        Decimal   @db.Decimal(10, 2)
+  currency      String    @default("USD")
+  status        String    @default("paid") // paid | pending | failed | refunded
+  planId        String    @map("plan_id")
+  periodStart   DateTime  @map("period_start")
+  periodEnd     DateTime  @map("period_end")
+  transactionId String?   @map("transaction_id") // PowerTranz reference
+  rrn           String? // Retrieval Reference Number
   paidAt        DateTime? @map("paid_at")
-  createdAt     DateTime @default(now()) @map("created_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([accountId, createdAt])
-  @@index([accountId, status])  // Billing queries filtered by payment status
+  @@index([accountId, status]) // Billing queries filtered by payment status
   @@map("billing_invoices")
 }
 
@@ -278,8 +296,8 @@ model WebhookEndpoint {
   id                  String    @id @default(cuid())
   accountId           String    @map("account_id")
   url                 String
-  events              String[]  // event types this endpoint subscribes to
-  secret              String    // HMAC signing secret; stored encrypted at rest (see lib/encryption)
+  events              String[] // event types this endpoint subscribes to
+  secret              String // HMAC signing secret; stored encrypted at rest (see lib/encryption)
   enabled             Boolean   @default(true)
   consecutiveFailures Int       @default(0) @map("consecutive_failures")
   disabledAt          DateTime? @map("disabled_at") // set when circuit breaker trips; survives restarts
@@ -307,17 +325,17 @@ model WebhookEndpoint {
 model CortexEvent {
   id          String    @id @default(cuid())
   accountId   String    @map("account_id")
-  eventType   String    @map("event_type")  // e.g. "invoice.created"
-  source      String                          // "user.action" | "api.webhook" | "email.inbound" | "agent.action" | "system.cron"
+  eventType   String    @map("event_type") // e.g. "invoice.created"
+  source      String // "user.action" | "api.webhook" | "email.inbound" | "agent.action" | "system.cron"
   data        Json
   userId      String?   @map("user_id")
   agentId     String?   @map("agent_id")
   traceId     String    @map("trace_id")
   processed   Boolean   @default(false)
   processedAt DateTime? @map("processed_at")
-  processedBy String?   @map("processed_by")  // agent id that handled it
+  processedBy String?   @map("processed_by") // agent id that handled it
   result      Json?
-  createdAt   DateTime  @default(now())       @map("created_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -332,19 +350,19 @@ model CortexEvent {
 /// legacy /api/ai/chat — these survive restarts, support cross-device resume,
 /// and feed the AI activity log.
 model CortexConversation {
-  id           String   @id @default(cuid())
-  accountId    String   @map("account_id")
-  userId       String   @map("user_id")
-  title        String?
+  id          String   @id @default(cuid())
+  accountId   String   @map("account_id")
+  userId      String   @map("user_id")
+  title       String?
   /// Stored as Json so we can serialize Anthropic.MessageParam[] with tool
   /// blocks intact across restarts. Capped to the last N turns by application
   /// logic to keep rows reasonable.
-  messages     Json     @default("[]")
-  lastAgentId  String?  @map("last_agent_id")
-  lastTraceId  String?  @map("last_trace_id")
-  archived     Boolean  @default(false)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt      @map("updated_at")
+  messages    Json     @default("[]")
+  lastAgentId String?  @map("last_agent_id")
+  lastTraceId String?  @map("last_trace_id")
+  archived    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -358,23 +376,23 @@ model CortexConversation {
 /// what the AI did. Indexed by trace ID so a chat reply can be linked to the
 /// underlying execution.
 model CortexExecutionLog {
-  id              String   @id @default(cuid())
-  accountId       String   @map("account_id")
-  agentId         String   @map("agent_id")
-  traceId         String   @map("trace_id")
-  triggerEventId  String?  @map("trigger_event_id")
-  status          String                      // "success" | "failed" | "needs_approval" | "timeout"
-  model           String                      // e.g. "claude-opus-4-6"
-  inputTokens     Int      @map("input_tokens")
-  outputTokens    Int      @map("output_tokens")
-  costUsd         Float    @map("cost_usd")
-  latencyMs       Int      @map("latency_ms")
-  iterations      Int                         // agentic loop rounds
-  toolCallCount   Int      @map("tool_call_count")
-  toolCallErrors  Int      @map("tool_call_errors")
-  output          String?  @db.Text           // textual reply (truncated)
-  errorMessage    String?  @map("error_message") @db.Text
-  createdAt       DateTime @default(now())    @map("created_at")
+  id             String   @id @default(cuid())
+  accountId      String   @map("account_id")
+  agentId        String   @map("agent_id")
+  traceId        String   @map("trace_id")
+  triggerEventId String?  @map("trigger_event_id")
+  status         String // "success" | "failed" | "needs_approval" | "timeout"
+  model          String // e.g. "claude-opus-4-6"
+  inputTokens    Int      @map("input_tokens")
+  outputTokens   Int      @map("output_tokens")
+  costUsd        Float    @map("cost_usd")
+  latencyMs      Int      @map("latency_ms")
+  iterations     Int // agentic loop rounds
+  toolCallCount  Int      @map("tool_call_count")
+  toolCallErrors Int      @map("tool_call_errors")
+  output         String?  @db.Text // textual reply (truncated)
+  errorMessage   String?  @map("error_message") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -391,13 +409,13 @@ model CortexApprovalRequest {
   accountId        String    @map("account_id")
   title            String
   description      String    @db.Text
-  approvalType     String    @map("approval_type")    // e.g. "payment.execute" | "vendor.create" | "invoice.large"
-  priority         String    @default("normal")        // "low" | "normal" | "high" | "critical"
-  status           String    @default("pending")       // "pending" | "approved" | "rejected" | "expired"
+  approvalType     String    @map("approval_type") // e.g. "payment.execute" | "vendor.create" | "invoice.large"
+  priority         String    @default("normal") // "low" | "normal" | "high" | "critical"
+  status           String    @default("pending") // "pending" | "approved" | "rejected" | "expired"
   agentId          String    @map("agent_id")
   traceId          String    @map("trace_id")
   aiRecommendation String?   @map("ai_recommendation") @db.Text
-  aiReasoning      String?   @map("ai_reasoning")      @db.Text
+  aiReasoning      String?   @map("ai_reasoning") @db.Text
   aiConfidence     Float?    @map("ai_confidence")
   /// Serialized tool call to execute on approval — { name, input } shape.
   pendingAction    Json?     @map("pending_action")
@@ -411,8 +429,8 @@ model CortexApprovalRequest {
   expiresAt        DateTime? @map("expires_at")
   relatedDocType   String?   @map("related_doc_type")
   relatedDocId     String?   @map("related_doc_id")
-  createdAt        DateTime  @default(now())          @map("created_at")
-  updatedAt        DateTime  @updatedAt               @map("updated_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -428,15 +446,15 @@ model CortexApprovalRequest {
 model CortexMemory {
   id                 String    @id @default(cuid())
   accountId          String    @map("account_id")
-  memoryType         String    @map("memory_type")  // "business_rule" | "pattern" | "preference" | "correction" | "threshold"
+  memoryType         String    @map("memory_type") // "business_rule" | "pattern" | "preference" | "correction" | "threshold"
   key                String
   value              Json
   confidence         Float     @default(0.5)
   learnedFromEvents  String[]  @map("learned_from_events")
-  learnedAt          DateTime  @default(now())     @map("learned_at")
+  learnedAt          DateTime  @default(now()) @map("learned_at")
   lastReinforcedAt   DateTime? @map("last_reinforced_at")
-  reinforcementCount Int       @default(1)         @map("reinforcement_count")
-  isActive           Boolean   @default(true)      @map("is_active")
+  reinforcementCount Int       @default(1) @map("reinforcement_count")
+  isActive           Boolean   @default(true) @map("is_active")
   expiresAt          DateTime? @map("expires_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -473,7 +491,7 @@ model CortexFeedback {
   /// learning worker to skip already-processed rows.
   appliedToMemory Boolean  @default(false) @map("applied_to_memory")
   memoryId        String?  @map("memory_id")
-  createdAt       DateTime @default(now())         @map("created_at")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 

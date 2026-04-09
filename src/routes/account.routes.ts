@@ -11,6 +11,7 @@ import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-ti
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
+import { softDeleteAccount } from "../lib/services/account-cleanup.service.js";
 import { toWebRequest, requireAuth, requireCsrf } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
@@ -243,36 +244,31 @@ router.delete("/account/delete", requireCsrf, requireAuth, async (req: Request, 
 
     const ctx = auditContext(toWebRequest(req));
 
-    // Collect user IDs before the transaction so we can invalidate Redis sessions after.
-    const usersToDelete = await prisma.user.findMany({
+    // Collect user IDs first so we can flush Redis session caches after the
+    // soft-delete (DB sessions are deleted inside softDeleteAccount, but the
+    // cache TTL is up to a few minutes — clear it now so revoked sessions
+    // cannot authenticate during the TTL window).
+    const usersInAccount = await prisma.user.findMany({
       where: { accountId: session.accountId },
       select: { id: true },
     });
-    const userIds = usersToDelete.map((u) => u.id);
+    const userIds = usersInAccount.map((u) => u.id);
 
-    await prisma.$transaction(async (tx) => {
-      for (const u of usersToDelete) {
-        await tx.user.update({
-          where: { id: u.id },
-          data: {
-            name: "Deleted User",
-            email: `deleted-${u.id}@deleted.invalid`,
-            status: "deleted",
-          },
-        });
-      }
-
-      await tx.session.deleteMany({ where: { userId: { in: userIds } } });
-      await tx.inviteToken.deleteMany({ where: { accountId: session.accountId } });
-      await tx.account.update({
-        where: { id: session.accountId },
-        data: { status: "deleted" },
-      });
+    // Stamp deletedAt + revoke credentials + anonymize PII. The actual
+    // hard-delete (cascade through all child rows) happens 30 days later
+    // via the daily cleanup worker that calls hardDeleteAccount.
+    const result = await softDeleteAccount(session.accountId, {
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      initiatorUserId: session.userId,
     });
+    if (!result.ok) {
+      return res
+        .status(500)
+        .set("X-Response-Time", `${Date.now() - start}ms`)
+        .json(apiError("INTERNAL", "Account deletion failed", undefined, meta()));
+    }
 
-    // Invalidate all Redis session caches for every user in the deleted account.
-    // DB sessions were already deleted in the transaction above; this flushes
-    // the Redis cache so revoked sessions cannot authenticate during the cache TTL.
     await Promise.all(userIds.map((uid) => revokeAllUserSessions(uid).catch(() => {})));
 
     await logAudit({

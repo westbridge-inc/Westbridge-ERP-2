@@ -13,8 +13,11 @@ describe("Data retention constants", () => {
     expect(DATA_RETENTION.SESSIONS_EXPIRED_DAYS).toBe(30);
   });
 
-  it("soft-deleted records are purged after 90 days", () => {
-    expect(DATA_RETENTION.SOFT_DELETED_DAYS).toBe(90);
+  it("soft-deleted accounts are purged after 30 days (matches Privacy Policy)", () => {
+    // The published Privacy Policy promises hard delete from production
+    // systems within 30 days post-cancellation. Drift here is a contract
+    // breach (Big-4 audit B1).
+    expect(DATA_RETENTION.SOFT_DELETED_DAYS).toBe(30);
   });
 
   it("all retention periods are positive numbers", () => {
