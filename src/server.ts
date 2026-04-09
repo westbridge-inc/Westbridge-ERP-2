@@ -10,12 +10,93 @@ import { prisma } from "./lib/data/prisma.js";
 import { closeRedis } from "./lib/redis.js";
 
 // ─── Sentry — initialize BEFORE anything else can throw ──────────────────────
+//
+// beforeSend redacts:
+//   1. Absolute filesystem paths in stack frames + breadcrumbs (M9 audit
+//      finding — leaks the build environment's directory layout, which
+//      tells an attacker about the deploy topology and may expose user
+//      home directories on dev machines).
+//   2. Common secret-like values from request data (cookies, auth headers).
+//
+// The redaction is intentionally conservative: we strip the leading
+// directory components but keep `app/...` or `dist/...` so the file path
+// remains diagnosable. Anything outside those build roots gets reduced to
+// just the basename so the trace is still readable but the host layout is
+// not disclosed.
+function redactPath(path: string): string {
+  // Keep common build roots intact for diagnosability.
+  const buildRoots = ["/app/", "/dist/", "/src/", "/node_modules/"];
+  for (const root of buildRoots) {
+    const idx = path.indexOf(root);
+    if (idx !== -1) return path.slice(idx + 1); // strip leading slash
+  }
+  // Otherwise: strip everything up to the basename so we don't leak directory layout.
+  const lastSlash = path.lastIndexOf("/");
+  return lastSlash === -1 ? path : `<redacted>/${path.slice(lastSlash + 1)}`;
+}
+
+const SENSITIVE_HEADER_NAMES = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "x-csrf-token",
+  "x-api-key",
+  "x-auth-token",
+  "proxy-authorization",
+]);
+
+function redactHeaders(headers: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!headers) return headers;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    out[k] = SENSITIVE_HEADER_NAMES.has(k.toLowerCase()) ? "[REDACTED]" : v;
+  }
+  return out;
+}
+
 if (env.SENTRY_DSN) {
   Sentry.init({
     dsn: env.SENTRY_DSN,
     environment: env.NODE_ENV,
     tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 1.0,
     // Capture 100 % of errors, sample 10 % of transactions in prod
+    beforeSend(event) {
+      try {
+        // Redact absolute filesystem paths in stack frames.
+        if (event.exception?.values) {
+          for (const ex of event.exception.values) {
+            if (ex.stacktrace?.frames) {
+              for (const frame of ex.stacktrace.frames) {
+                if (frame.filename) frame.filename = redactPath(frame.filename);
+                if (frame.abs_path) frame.abs_path = redactPath(frame.abs_path);
+              }
+            }
+          }
+        }
+        // Redact filenames in threads (rare in Node).
+        if (event.threads?.values) {
+          for (const t of event.threads.values) {
+            if (t.stacktrace?.frames) {
+              for (const frame of t.stacktrace.frames) {
+                if (frame.filename) frame.filename = redactPath(frame.filename);
+                if (frame.abs_path) frame.abs_path = redactPath(frame.abs_path);
+              }
+            }
+          }
+        }
+        // Redact request headers.
+        if (event.request?.headers) {
+          event.request.headers = redactHeaders(event.request.headers as Record<string, unknown>) as never;
+        }
+        // Drop request cookies entirely — Sentry has no business seeing session cookies.
+        if (event.request?.cookies) {
+          delete event.request.cookies;
+        }
+      } catch {
+        // Never let beforeSend itself break Sentry — return the original event on error.
+      }
+      return event;
+    },
   });
   logger.info("Sentry initialised", { environment: env.NODE_ENV });
 } else {

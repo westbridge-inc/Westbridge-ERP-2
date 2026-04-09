@@ -65,7 +65,7 @@ jobs:
         run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/ --reporter=verbose
 
   deploy-staging:
-    name: Deploy to Staging
+    name: Deploy to Staging (Fly.io)
     runs-on: ubuntu-latest
     needs: [test]
     if: >-
@@ -73,40 +73,32 @@ jobs:
       (github.event_name == 'push')
     environment: staging
     env:
-      RAILWAY_TOKEN: ${{ secrets.STAGING_RAILWAY_TOKEN }}
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npx prisma generate
-      - name: Build
-        run: npm run build
-      - name: Install Railway CLI
-        if: env.RAILWAY_TOKEN != ''
-        run: npm install -g @railway/cli
-      - name: Deploy to staging
-        if: env.RAILWAY_TOKEN != ''
-        run: railway up --detach
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy to Fly.io staging
+        id: fly_staging_deploy
+        run: flyctl deploy --config fly.staging.toml --app westbridge-api-staging --strategy rolling --wait-timeout 600
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Verify staging health
         id: staging_health
-        if: env.RAILWAY_TOKEN != ''
         run: |
-          STAGING_URL="${{ vars.STAGING_URL || 'https://westbridge-api-staging.up.railway.app' }}"
-          for i in $(seq 1 10); do
-            STATUS=$(curl -sf "${STAGING_URL}/api/health/live" -o /dev/null -w "%{http_code}" || echo "000")
-            if [ "$STATUS" = "200" ]; then echo "Healthy after ${i} attempts"; exit 0; fi
-            sleep 5
+          STAGING_URL="${{ vars.STAGING_URL || 'https://westbridge-api-staging.fly.dev' }}"
+          echo "Checking staging health at $STAGING_URL/api/health/ready..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -sf "${STAGING_URL}/api/health/ready" -o /dev/null -w "%{http_code}" --max-time 30 || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Staging healthy after ${i} attempts"
+              exit 0
+            fi
+            sleep 10
           done
-          echo "::error::Health check failed after 10 attempts"
+          echo "::error::Staging health check failed after 12 attempts — production deploy blocked"
           exit 1
-      - name: Rollback staging (Railway)
-        if: failure() && steps.staging_health.outcome == 'failure' && env.RAILWAY_TOKEN != ''
-        run: |
-          echo "::warning::Rolling back staging deployment due to failed health check"
-          railway rollback
 
   deploy-production:
     name: Deploy to Production

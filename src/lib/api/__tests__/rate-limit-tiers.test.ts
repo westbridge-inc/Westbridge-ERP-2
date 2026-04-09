@@ -6,7 +6,7 @@
  * Integration tests (Redis required): checkTieredRateLimit, checkEmailRateLimit, checkErpAccountRateLimit
  */
 
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, beforeEach, afterEach, vi } from "vitest";
 import {
   getClientIdentifier,
   rateLimitHeaders,
@@ -322,5 +322,104 @@ describe.skipIf(!REDIS_AVAILABLE)("checkErpAccountRateLimit (Redis integration)"
     const { getRedis } = await import("../../redis.js");
     const redis = getRedis();
     if (redis) await redis.del(`rl2:erp:${accountId}`);
+  });
+});
+
+// ─── M7: explicit fail-mode under Redis-down ───────────────────────────────
+//
+// These tests don't need a real Redis. They use vi.doMock("../../redis.js")
+// to simulate Redis being unavailable (returning null) and verify that the
+// per-endpoint fail-mode policy is applied: auth-shaped endpoints fail
+// CLOSED, application endpoints fail OPEN with the in-process ceiling.
+
+describe("Rate limit fail-mode policy (M7)", () => {
+  // Each test in this block must run with the Redis mock returning null,
+  // and must clean up the doMock so other tests don't pick up the change.
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doMock("../../redis.js", () => ({
+      getRedis: () => null,
+      getRedisConfig: () => ({ host: "localhost", port: 6379 }),
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock("../../redis.js");
+  });
+
+  it("FAILS CLOSED for /api/auth/login when Redis is unavailable", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    const r = await checkTieredRateLimit("203.0.113.99", "anonymous", "/api/auth/login");
+    expect(r.allowed).toBe(false);
+    expect(r.retryAfter).toBeGreaterThan(0);
+  });
+
+  it("FAILS CLOSED for /api/signup when Redis is unavailable", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    const r = await checkTieredRateLimit("203.0.113.99", "anonymous", "/api/signup");
+    expect(r.allowed).toBe(false);
+  });
+
+  it("FAILS CLOSED for /api/auth/2fa/verify when Redis is unavailable", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    const r = await checkTieredRateLimit("203.0.113.99", "authenticated", "/api/auth/2fa/verify");
+    expect(r.allowed).toBe(false);
+  });
+
+  it("checkEmailRateLimit always FAILS CLOSED (auth-shaped by definition)", async () => {
+    const { checkEmailRateLimit } = await import("../rate-limit-tiers.js");
+    const r = await checkEmailRateLimit("brute@attacker.test");
+    expect(r.allowed).toBe(false);
+  });
+
+  it("FAILS OPEN for /api/erp/list (read endpoint, availability wins)", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    const r = await checkTieredRateLimit("203.0.113.50", "authenticated", "/api/erp/list");
+    expect(r.allowed).toBe(true);
+  });
+
+  it("FAILS OPEN for /api/ai/chat", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    const r = await checkTieredRateLimit("203.0.113.51", "authenticated", "/api/ai/chat");
+    expect(r.allowed).toBe(true);
+  });
+
+  it("FAILS OPEN for any endpoint not listed in ENDPOINT_FAIL_MODE", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    const r = await checkTieredRateLimit("203.0.113.52", "authenticated", "/api/some/new/endpoint");
+    expect(r.allowed).toBe(true);
+  });
+
+  it("FAIL-OPEN ceiling kicks in after FAIL_OPEN_CEILING_PER_KEY requests from one identifier", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    // The ceiling is 600 / minute / key. Burst 605 requests from the same
+    // identifier; the first 600 should succeed and the rest should be denied.
+    const id = "ceiling-burst-test";
+    let allowed = 0;
+    let denied = 0;
+    for (let i = 0; i < 605; i++) {
+       
+      const r = await checkTieredRateLimit(id, "authenticated", "/api/erp/list");
+      if (r.allowed) allowed++;
+      else denied++;
+    }
+    expect(allowed).toBe(600);
+    expect(denied).toBe(5);
+  });
+
+  it("FAIL-OPEN ceiling is per-identifier, not global", async () => {
+    const { checkTieredRateLimit } = await import("../rate-limit-tiers.js");
+    // Two different identifiers should each get their own 600-request ceiling.
+    const a = "burst-test-A";
+    const b = "burst-test-B";
+    for (let i = 0; i < 600; i++) {
+       
+      await checkTieredRateLimit(a, "authenticated", "/api/erp/list");
+    }
+    // a should be exhausted, b should still have headroom
+    const aResult = await checkTieredRateLimit(a, "authenticated", "/api/erp/list");
+    const bResult = await checkTieredRateLimit(b, "authenticated", "/api/erp/list");
+    expect(aResult.allowed).toBe(false);
+    expect(bResult.allowed).toBe(true);
   });
 });

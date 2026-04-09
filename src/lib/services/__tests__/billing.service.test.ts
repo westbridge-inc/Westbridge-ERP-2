@@ -45,6 +45,15 @@ vi.mock("../subscription.service.js", () => ({
   createSubscription: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
+// M5: billing.service now enqueues provisioning + subscription jobs through
+// BullMQ instead of fire-and-forget dynamic imports. Mock the queue helpers
+// so tests can assert that enqueue was called with the right payload
+// without needing a real Redis connection.
+vi.mock("../../jobs/queue.js", () => ({
+  enqueueProvisioning: vi.fn().mockResolvedValue(undefined),
+  enqueueSubscriptionCreate: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../../realtime.js", () => ({
   publish: vi.fn(),
 }));
@@ -104,7 +113,11 @@ describe("billing.service", () => {
     // Regression: new trial accounts must auto-provision an ERPNext company +
     // subscription immediately on signup. Without this, trial users share an
     // unscoped ERPNext instance (cross-tenant data leak) until they pay.
-    it("triggers ERPNext provisioning and subscription creation on successful signup", async () => {
+    //
+    // M5 update: provisioning is now enqueued via BullMQ instead of called
+    // inline, so the assertion targets enqueueProvisioning + enqueueSubscriptionCreate
+    // rather than the underlying service functions.
+    it("enqueues ERPNext provisioning and subscription creation on successful signup", async () => {
       (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn) => {
         const tx = {
           account: {
@@ -139,13 +152,9 @@ describe("billing.service", () => {
 
       expect(result.ok).toBe(true);
 
-      // Wait a tick so the fire-and-forget imports resolve
-      await new Promise((r) => setTimeout(r, 10));
-
-      const { provisionWithRetry } = await import("../provisioning.service.js");
-      const { createSubscription } = await import("../subscription.service.js");
-      expect(provisionWithRetry).toHaveBeenCalledWith("acc_new");
-      expect(createSubscription).toHaveBeenCalledWith("acc_new", "Starter");
+      const { enqueueProvisioning, enqueueSubscriptionCreate } = await import("../../jobs/queue.js");
+      expect(enqueueProvisioning).toHaveBeenCalledWith("acc_new");
+      expect(enqueueSubscriptionCreate).toHaveBeenCalledWith("acc_new", "Starter");
     });
   });
 

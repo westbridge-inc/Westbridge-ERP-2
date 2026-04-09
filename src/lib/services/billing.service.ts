@@ -9,6 +9,7 @@
 import { prisma } from "../data/prisma.js";
 import { prismaAdmin } from "../data/prisma-admin.js";
 import { verifyWebhookSignature, refundPaddleTransaction, type PlanSlug } from "../data/paddle.client.js";
+import { enqueueProvisioning, enqueueSubscriptionCreate } from "../jobs/queue.js";
 
 // Phase 3: this service has a mix of cross-tenant and per-tenant flows.
 //   - createAccount + markAccountPaid run BEFORE any tenant context
@@ -119,28 +120,31 @@ export async function createAccount(input: CreateAccountInput): Promise<Result<C
       return err("Account created but unable to start session. Please log in.");
     }
 
-    // Auto-provision ERPNext company + create subscription immediately on signup
-    // (fire-and-forget with retries). Without this, trial users would share an
-    // unscoped ERPNext instance — a tenant isolation leak. Runs in background so
-    // signup stays fast; dashboard endpoints return empty data until provisioning
-    // completes (see handleDashboard / handleList).
-    void import("./provisioning.service.js")
-      .then(({ provisionWithRetry }) => provisionWithRetry(account.id))
-      .catch((e: unknown) => {
-        logger.error("Provisioning kickoff failed", {
-          accountId: account.id,
-          error: e instanceof Error ? e.message : String(e),
-        });
+    // Auto-provision ERPNext company + create subscription immediately on
+    // signup. Without this, trial users would share an unscoped ERPNext
+    // instance — a tenant isolation leak. Both jobs are queued via BullMQ
+    // (M5 fix) so they survive a process restart and benefit from queue-
+    // managed exponential backoff. Signup stays fast because we only
+    // ENQUEUE here; the worker drains the jobs in the background.
+    // Dashboard endpoints return empty data until provisioning completes
+    // (see handleDashboard / handleList).
+    try {
+      await enqueueProvisioning(account.id);
+    } catch (e: unknown) {
+      logger.error("enqueueProvisioning failed", {
+        accountId: account.id,
+        error: e instanceof Error ? e.message : String(e),
       });
+    }
 
-    void import("./subscription.service.js")
-      .then(({ createSubscription }) => createSubscription(account.id, planSlug))
-      .catch((e: unknown) => {
-        logger.error("Subscription creation failed", {
-          accountId: account.id,
-          error: e instanceof Error ? e.message : String(e),
-        });
+    try {
+      await enqueueSubscriptionCreate(account.id, planSlug);
+    } catch (e: unknown) {
+      logger.error("enqueueSubscriptionCreate failed", {
+        accountId: account.id,
+        error: e instanceof Error ? e.message : String(e),
       });
+    }
 
     return ok({
       accountId: account.id,
@@ -193,21 +197,30 @@ export async function markAccountPaid(
     });
     const updated = (result.count ?? 0) > 0;
     if (updated) {
-      // Auto-provision ERPNext company + create subscription (fire-and-forget with retries)
-      void import("./provisioning.service.js").then(({ provisionWithRetry }) => provisionWithRetry(accountId));
+      // M5: queue ERPNext provisioning + subscription creation through BullMQ
+      // so the work survives a process restart and gets queue-managed retries.
+      try {
+        await enqueueProvisioning(accountId);
+      } catch (e: unknown) {
+        logger.error("enqueueProvisioning failed in markAccountPaid", {
+          accountId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
 
-      void import("./subscription.service.js")
-        .then(async ({ createSubscription }) => {
-          const acc = await prismaAdmin.account.findUnique({ where: { id: accountId }, select: { plan: true } });
-          if (acc) await createSubscription(accountId, acc.plan);
-        })
-        .catch(async (e: unknown) => {
-          const { logger } = await import("../logger.js");
-          logger.error("Subscription creation failed", {
+      const acc = await prismaAdmin.account
+        .findUnique({ where: { id: accountId }, select: { plan: true } })
+        .catch(() => null);
+      if (acc) {
+        try {
+          await enqueueSubscriptionCreate(accountId, acc.plan);
+        } catch (e: unknown) {
+          logger.error("enqueueSubscriptionCreate failed in markAccountPaid", {
             accountId,
             error: e instanceof Error ? e.message : String(e),
           });
-        });
+        }
+      }
 
       // Send activation email (fire-and-forget — don't fail if email fails)
       const account = await prismaAdmin.account.findUnique({ where: { id: accountId } }).catch(() => null);
