@@ -165,7 +165,16 @@ jobs:
           WESTBRIDGE_APP_PASSWORD: ci-rls-password-not-for-production
         run: ./scripts/provision-rls-role.sh
       - name: Run database integration tests
-        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/ --reporter=verbose
+        # Run the existing integration suites (database + api-contract).
+        # The tenant-isolation suite is excluded here and runs in its own
+        # step below so it doesn't race with the cleanDatabase() calls in
+        # database.integration.test.ts.
+        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/database.integration.test.ts src/__tests__/integration/api-contract.integration.test.ts --reporter=verbose
+      - name: Run tenant isolation integration tests (RLS-enforced)
+        # Runs in isolation against the westbridge_app role so RLS policies
+        # filter rows. Sequential run + isolated step prevents the other
+        # integration tests from racing on the shared test database.
+        run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/tenant-isolation.integration.test.ts --reporter=verbose
       - name: Run rate limiter integration tests
         run: npx vitest run --config vitest.integration.config.ts src/lib/api/__tests__/rate-limit-tiers.test.ts --reporter=verbose
 
