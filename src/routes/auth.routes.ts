@@ -6,6 +6,7 @@
  *
  * Endpoints:
  *   - POST /api/auth/login
+ *   - POST /api/auth/login/totp   (C1 fix — second-factor completion)
  *   - POST /api/auth/logout
  *   - GET  /api/auth/validate
  *   - POST /api/auth/forgot-password
@@ -20,6 +21,7 @@ import * as authController from "./auth.controller.js";
 const router = Router();
 
 router.post("/login", requireCsrf, (req, res) => authController.handleLogin(req, res));
+router.post("/login/totp", requireCsrf, (req, res) => authController.handleLoginTotp(req, res));
 router.post("/logout", requireCsrf, (req, res) => authController.handleLogout(req, res));
 router.get("/validate", (req, res) => authController.handleValidate(req, res));
 router.post("/forgot-password", requireCsrf, (req, res) => authController.handleForgotPassword(req, res));

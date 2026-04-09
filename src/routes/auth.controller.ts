@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { createHash, randomBytes } from "crypto";
 import * as Sentry from "@sentry/node";
 
 import {
@@ -25,8 +26,38 @@ import { reportSecurityEvent } from "../lib/security-monitor.js";
 import { toWebRequest } from "../middleware/auth.js";
 import { requestPasswordReset, applyPasswordReset } from "../lib/services/password-reset.service.js";
 import { validatePassword } from "../lib/password-policy.js";
+import { getRedis } from "../lib/redis.js";
+import { encrypt, decrypt, ENCRYPTION_CONTEXT } from "../lib/encryption.js";
+import { fromBase32, verifyTotp } from "../lib/totp.js";
 
 import type { Request, Response } from "express";
+
+// ---------------------------------------------------------------------------
+// 2FA login challenge (C1 fix)
+// ---------------------------------------------------------------------------
+//
+// When a user with verified TOTP successfully passes the password step,
+// we issue a short-lived single-use Redis-stored "login challenge" instead
+// of immediately creating a session. The client must then POST the challenge
+// token + a TOTP/backup code to /api/auth/login/totp to actually log in.
+//
+// This is the missing second-factor gate that closes the C1 audit finding:
+// before this fix, `handleLogin` set the session cookie immediately on
+// password verification, ignoring totp_secrets.verified entirely.
+//
+// The challenge value carries the userId and an encrypted erpnextSid (so we
+// can hand it to createSession on completion without re-authenticating
+// against ERPNext). Encryption is AAD-bound to the userId via the same
+// ENCRYPTION_CONTEXT.sessionErpnextSid context used for at-rest sessions, so
+// a Redis-only attacker cannot move SIDs between users.
+
+const TOTP_CHALLENGE_PREFIX = "auth:totp_challenge:v1:";
+const TOTP_CHALLENGE_TTL_SEC = 5 * 60; // 5 minutes — matches typical 2FA UX windows
+
+interface TotpChallengeValue {
+  userId: string;
+  encryptedErpnextSid: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -259,8 +290,81 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
       data: { failedLoginAttempts: 0, lockedUntil: null },
     });
 
-    // --- Create session ---
     const erpnextSid = loginResult.data;
+
+    // --- 2FA gate (C1 fix) ---
+    // If the user has verified TOTP, do NOT create a session yet. Issue a
+    // single-use challenge that the client must redeem at /auth/login/totp
+    // with a valid 6-digit code or 8-hex backup code. The user is treated
+    // as fully unauthenticated until that second factor is verified.
+    const totp = await prisma.totpSecret
+      .findUnique({ where: { userId: user.id }, select: { verified: true } })
+      .catch(() => null);
+    if (totp?.verified) {
+      const redis = getRedis();
+      if (!redis) {
+        // Cannot issue a 2FA challenge without Redis. Fail closed: refuse
+        // login rather than degrade silently to single-factor.
+        void logAudit({
+          accountId: account.id,
+          userId: user.id,
+          action: "auth.login.totp_challenge_unavailable",
+          ipAddress: ctx.ipAddress,
+          userAgent: ctx.userAgent,
+          severity: "critical",
+          outcome: "failure",
+        });
+        return res
+          .status(503)
+          .set(responseTime())
+          .json(
+            apiError(
+              "TOTP_UNAVAILABLE",
+              "Two-factor authentication is currently unavailable. Please try again shortly.",
+              undefined,
+              meta(),
+            ),
+          );
+      }
+
+      const challengeToken = randomBytes(32).toString("base64url");
+      const challengeValue: TotpChallengeValue = {
+        userId: user.id,
+        encryptedErpnextSid: erpnextSid ? encrypt(erpnextSid, ENCRYPTION_CONTEXT.sessionErpnextSid(user.id)) : null,
+      };
+      await redis.set(
+        `${TOTP_CHALLENGE_PREFIX}${challengeToken}`,
+        JSON.stringify(challengeValue),
+        "EX",
+        TOTP_CHALLENGE_TTL_SEC,
+      );
+
+      void logAudit({
+        accountId: account.id,
+        userId: user.id,
+        action: "auth.login.totp_challenge_issued",
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "info",
+        outcome: "success",
+      });
+
+      return res
+        .status(200)
+        .set(responseTime())
+        .json(
+          apiSuccess(
+            {
+              step: "totp_required" as const,
+              challengeToken,
+              expiresInSeconds: TOTP_CHALLENGE_TTL_SEC,
+            },
+            meta(),
+          ),
+        );
+    }
+
+    // --- Create session ---
     const sessionResult = await createSession(user.id, toWebRequest(req), erpnextSid);
     if (!sessionResult.ok) {
       return res
@@ -311,6 +415,246 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         method: req.method,
         url: req.originalUrl,
       },
+    });
+    return res
+      .status(500)
+      .set(responseTime())
+      .json(apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta()));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /login/totp — second-factor completion (C1 fix)
+// ---------------------------------------------------------------------------
+//
+// Consumes a challenge issued by handleLogin when the user has verified TOTP.
+// Accepts either a 6-digit TOTP code or an 8-hex backup code. Single-use:
+// the challenge is deleted from Redis on ANY outcome to prevent brute force
+// from a single password authentication.
+
+const totpLoginBodySchema = z.object({
+  challengeToken: z.string().min(1).max(200),
+  // 6 digits (TOTP) or 8 hex chars (backup code) — accept either, normalize
+  // case for backup codes downstream.
+  code: z
+    .string()
+    .min(1)
+    .max(64)
+    .transform((s) => s.trim()),
+});
+
+export async function handleLoginTotp(req: Request, res: Response): Promise<Response> {
+  const { requestId, meta, responseTime } = buildContext(req);
+  const ctx = auditContext(toWebRequest(req));
+
+  try {
+    // Per-IP anonymous rate limit — same tier as /auth/login so brute-force
+    // attempts via the second factor are gated by the same per-IP budget.
+    const id = getClientIdentifier(toWebRequest(req));
+    const rateLimit = await checkTieredRateLimit(id, "anonymous", "/api/auth/login/totp");
+    if (!rateLimit.allowed) {
+      return res
+        .status(429)
+        .set({ ...responseTime(), ...rateLimitHeaders(rateLimit) })
+        .json(apiError("RATE_LIMIT", "Too many attempts. Try again in a minute.", undefined, meta()));
+    }
+
+    const parsed = totpLoginBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .set(responseTime())
+        .json(apiError("VALIDATION_ERROR", "challengeToken and code are required", undefined, meta()));
+    }
+
+    const redis = getRedis();
+    if (!redis) {
+      return res
+        .status(503)
+        .set(responseTime())
+        .json(
+          apiError(
+            "TOTP_UNAVAILABLE",
+            "Two-factor authentication is currently unavailable. Please try again shortly.",
+            undefined,
+            meta(),
+          ),
+        );
+    }
+
+    const challengeKey = `${TOTP_CHALLENGE_PREFIX}${parsed.data.challengeToken}`;
+    const stored = await redis.get(challengeKey);
+    if (!stored) {
+      return res
+        .status(401)
+        .set(responseTime())
+        .json(
+          apiError(
+            "INVALID_CHALLENGE",
+            "Your sign-in session expired. Please enter your password again.",
+            undefined,
+            meta(),
+          ),
+        );
+    }
+
+    // Single-use: delete the challenge IMMEDIATELY so a wrong code burns the
+    // attempt. This caps brute-force at exactly one TOTP guess per password
+    // authentication, which combined with the per-email + per-IP rate limits
+    // on /auth/login makes online brute-force of the 1M-code TOTP space
+    // computationally infeasible.
+    await redis.del(challengeKey);
+
+    let challenge: TotpChallengeValue;
+    try {
+      challenge = JSON.parse(stored) as TotpChallengeValue;
+    } catch {
+      return res
+        .status(401)
+        .set(responseTime())
+        .json(
+          apiError(
+            "INVALID_CHALLENGE",
+            "Your sign-in session expired. Please enter your password again.",
+            undefined,
+            meta(),
+          ),
+        );
+    }
+
+    const { userId, encryptedErpnextSid } = challenge;
+
+    // Re-fetch user + totp row. The challenge only proves "this user passed
+    // the password step within the last 5 minutes" — we still need to check
+    // that 2FA is still enabled in case the user disabled it on another
+    // device after the challenge was issued.
+    const user = await prisma.user.findUnique({ where: { id: userId }, include: { account: true } }).catch(() => null);
+    if (!user) {
+      return res
+        .status(401)
+        .set(responseTime())
+        .json(apiError("AUTH_FAILED", "Invalid email or password.", undefined, meta()));
+    }
+
+    const totp = await prisma.totpSecret.findUnique({ where: { userId } }).catch(() => null);
+    if (!totp || !totp.verified) {
+      // 2FA was disabled between login and totp completion — refuse this
+      // challenge and tell the user to retry from the password screen.
+      void logAudit({
+        accountId: user.accountId,
+        userId,
+        action: "auth.login.totp_challenge_disabled",
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "warn",
+        outcome: "failure",
+      });
+      return res
+        .status(401)
+        .set(responseTime())
+        .json(
+          apiError(
+            "INVALID_CHALLENGE",
+            "Your sign-in session expired. Please enter your password again.",
+            undefined,
+            meta(),
+          ),
+        );
+    }
+
+    // ── Verify the supplied code (TOTP first, then backup code) ──
+    let codeValid = false;
+    let usedBackupCode = false;
+
+    const code = parsed.data.code;
+    if (/^\d{6}$/.test(code)) {
+      try {
+        const secretBase32 = decrypt(totp.secret, ENCRYPTION_CONTEXT.totpSecret(userId));
+        const secretBytes = fromBase32(secretBase32);
+        codeValid = verifyTotp(secretBytes, code);
+      } catch {
+        // Decrypt failure — treat as invalid code, do not leak details.
+        codeValid = false;
+      }
+    } else if (/^[0-9a-fA-F]{8}$/.test(code)) {
+      // Backup code: hash and look for a match in the stored array.
+      const candidateHash = createHash("sha256").update(code.toLowerCase()).digest("hex");
+      const remaining = totp.backupCodes.filter((stored) => stored !== candidateHash);
+      if (remaining.length < totp.backupCodes.length) {
+        codeValid = true;
+        usedBackupCode = true;
+        // One-shot: persist the array with the matched code removed.
+        await prisma.totpSecret.update({
+          where: { userId },
+          data: { backupCodes: remaining },
+        });
+      }
+    }
+
+    if (!codeValid) {
+      void logAudit({
+        accountId: user.accountId,
+        userId,
+        action: "auth.login.totp_failed",
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "warn",
+        outcome: "failure",
+      });
+      return res
+        .status(401)
+        .set(responseTime())
+        .json(apiError("INVALID_CODE", "Invalid two-factor code. Please try again.", undefined, meta()));
+    }
+
+    // ── Decrypt the SID we stashed in the challenge and create the session ──
+    let erpnextSid: string | null = null;
+    if (encryptedErpnextSid) {
+      try {
+        erpnextSid = decrypt(encryptedErpnextSid, ENCRYPTION_CONTEXT.sessionErpnextSid(userId));
+      } catch {
+        // Decrypt failure — drop the SID rather than fail the login. The
+        // ERP client falls back to API-key auth when the SID is missing.
+        erpnextSid = null;
+      }
+    }
+
+    const sessionResult = await createSession(userId, toWebRequest(req), erpnextSid);
+    if (!sessionResult.ok) {
+      return res
+        .status(500)
+        .set(responseTime())
+        .json(apiError("SESSION_ERROR", "Unable to create your session. Please try again.", undefined, meta()));
+    }
+
+    const { token, expiresAt } = sessionResult.data;
+    const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+
+    void logAudit({
+      accountId: user.accountId,
+      userId,
+      action: usedBackupCode ? "auth.login.totp_backup_success" : "auth.login.totp_success",
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      severity: usedBackupCode ? "warn" : "info",
+      outcome: "success",
+    });
+
+    res.cookie(COOKIE.SESSION_NAME, token, {
+      httpOnly: true,
+      secure: COOKIE_SECURE,
+      sameSite: COOKIE_SAME_SITE,
+      maxAge: maxAge * 1000,
+      path: "/",
+    });
+
+    return res
+      .status(200)
+      .set(responseTime())
+      .json(apiSuccess({ success: true, usedBackupCode }, meta()));
+  } catch (error) {
+    Sentry.captureException(error, {
+      extra: { request_id: requestId, method: req.method, url: req.originalUrl },
     });
     return res
       .status(500)
