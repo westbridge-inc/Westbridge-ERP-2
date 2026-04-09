@@ -20,6 +20,12 @@ vi.mock("../../lib/data/prisma.js", () => ({
     session: {
       deleteMany: vi.fn(),
     },
+    // C1 fix: handleLogin now consults totpSecret.verified to decide whether
+    // to short-circuit into the TOTP challenge step. Default to "no 2FA"
+    // so the existing single-factor login tests still exercise the legacy path.
+    totpSecret: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
     $transaction: vi.fn(),
   },
 }));

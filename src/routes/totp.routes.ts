@@ -8,69 +8,15 @@
 
 import { Router, Request, Response } from "express";
 import { z } from "zod";
-import { randomBytes, createHash, createHmac } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { encrypt, decrypt, ENCRYPTION_CONTEXT } from "../lib/encryption.js";
 import { prisma } from "../lib/data/prisma.js";
+import { toBase32, fromBase32, verifyTotp } from "../lib/totp.js";
 
 const router = Router();
-
-// Base32 encoding for TOTP secrets (RFC 4648)
-const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-function toBase32(buffer: Buffer): string {
-  let bits = 0;
-  let value = 0;
-  let output = "";
-  for (const byte of buffer) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      output += BASE32_CHARS[(value >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
-  }
-  if (bits > 0) output += BASE32_CHARS[(value << (5 - bits)) & 31];
-  return output;
-}
-
-function fromBase32(str: string): Buffer {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = "";
-  for (const c of str.toUpperCase()) {
-    const idx = alphabet.indexOf(c);
-    if (idx === -1) continue;
-    bits += idx.toString(2).padStart(5, "0");
-  }
-  const bytes: number[] = [];
-  for (let i = 0; i + 8 <= bits.length; i += 8) {
-    bytes.push(parseInt(bits.substring(i, i + 8), 2));
-  }
-  return Buffer.from(bytes);
-}
-
-// Verify TOTP with ±1 time step window (RFC 6238 clock skew tolerance).
-//
-// NOTE: SHA-1 is REQUIRED here by RFC 6238 for compatibility with every major
-// authenticator app (Google Authenticator, Authy, 1Password, Microsoft
-// Authenticator). HMAC-SHA1 is NOT weakened by SHA-1's collision vulnerabilities
-// because TOTP does not rely on collision resistance — it relies on HMAC's
-// pseudorandom function properties. Changing to SHA-256 would break 2FA for
-// every user enrolled in the system.
-function verifyTotp(secret: Buffer, code: string): boolean {
-  for (const offset of [-1, 0, 1]) {
-    const time = Math.floor(Date.now() / 1000 / 30) + offset;
-    const timeBuffer = Buffer.alloc(8);
-    timeBuffer.writeBigInt64BE(BigInt(time));
-    // nosemgrep: javascript.node-stdlib.cryptography.crypto-weak-algorithm.crypto-weak-algorithm
-    const hmac = createHmac("sha1", secret).update(timeBuffer).digest();
-    const off = hmac[hmac.length - 1]! & 0xf;
-    const c = ((hmac[off]! & 0x7f) << 24) | (hmac[off + 1]! << 16) | (hmac[off + 2]! << 8) | hmac[off + 3]!;
-    if (String(c % 1000000).padStart(6, "0") === code) return true;
-  }
-  return false;
-}
 
 // ─── POST /auth/2fa/setup ───────────────────────────────────────────────────
 

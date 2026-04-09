@@ -44,6 +44,13 @@ vi.mock("../../lib/data/prisma.js", () => ({
       create: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
     },
+    // C1 fix: handleLogin now consults totpSecret.verified to decide
+    // whether to gate the login behind a TOTP challenge. The contract
+    // test exercises a single-factor login path, so default to "no TOTP
+    // row" and the legacy createSession branch still runs.
+    totpSecret: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
   },
 }));
 
