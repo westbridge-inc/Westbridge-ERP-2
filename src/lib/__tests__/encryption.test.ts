@@ -120,8 +120,13 @@ describe("Encryption — tamper detection", () => {
   it("rejects ciphertext with tampered auth tag", () => {
     const ciphertext = encrypt("secret data");
     const parts = ciphertext.split(":");
-    // Flip a byte in the auth tag
-    const tampered = parts[1]!.slice(0, -2) + "ff";
+    // Flip the last byte of the auth tag — choose a replacement that
+    // is GUARANTEED to differ from the original byte. Previously this
+    // hard-coded "ff" which produced a flake on the ~1/256 of runs
+    // where the original byte happened to already be 0xff.
+    const original = parts[1]!.slice(-2);
+    const replacement = original === "ff" ? "00" : "ff";
+    const tampered = parts[1]!.slice(0, -2) + replacement;
     const bad = `${parts[0]}:${tampered}:${parts[2]}`;
     expect(() => decrypt(bad)).toThrow();
   });
@@ -129,7 +134,12 @@ describe("Encryption — tamper detection", () => {
   it("rejects ciphertext with tampered encrypted data", () => {
     const ciphertext = encrypt("secret data");
     const parts = ciphertext.split(":");
-    const tampered = parts[2]!.slice(0, -2) + "ff";
+    // Same flake fix as above — the previous version replaced the
+    // last byte with "ff" unconditionally, which is a no-op when the
+    // ciphertext already ends in 0xff (~1/256 of runs).
+    const original = parts[2]!.slice(-2);
+    const replacement = original === "ff" ? "00" : "ff";
+    const tampered = parts[2]!.slice(0, -2) + replacement;
     const bad = `${parts[0]}:${parts[1]}:${tampered}`;
     expect(() => decrypt(bad)).toThrow();
   });
