@@ -8,10 +8,21 @@ Express 5 API server (TypeScript, ESM). Uses Prisma (Postgres), Redis (sessions 
 
 - **Result type**: Service functions return `Result<T, E>` via `ok()` / `err()` from `src/lib/utils/result.ts`. Never throw from services.
 - **API responses**: Always use `apiSuccess(data, meta)` / `apiError(message, code)` from `src/types/api.ts`. Never return raw JSON shapes.
-- **Auth middleware chain**: `validateSession()` extracts the session token from cookies. Always scope DB queries by `accountId` for multi-tenant isolation.
+- **Auth middleware chain**: `validateSession()` extracts the session token from cookies. `requireAuth` then publishes the active `accountId` into `tenantContextStorage` (AsyncLocalStorage) so every downstream Prisma query is automatically pinned to the tenant via PostgreSQL Row-Level Security.
 - **Service layer**: Business logic in `src/lib/services/`, data access in `src/lib/data/`. Route handlers only do validation, auth, and response formatting.
 - **Input validation**: Define Zod schemas in `src/types/schemas/`. Validate all input before passing to services.
 - **Workers**: BullMQ workers live in `src/workers/`. Design jobs to be idempotent and safely retried.
+
+### Prisma client split (Phase 3 RLS)
+
+The codebase exposes **two** Prisma clients with different security contracts. Picking the wrong one is a tenant-isolation bug.
+
+- **`prisma` (`src/lib/data/prisma.ts`)** — the runtime client used inside authenticated request handlers. Installs a `$extends` that wraps every operation in a one-shot `$transaction` calling `set_config('app.current_account_id', ...)` first, so RLS policies filter rows by tenant. Reads `tenantContextStorage` set by `requireAuth`.
+- **`prismaAdmin` (`src/lib/data/prisma-admin.ts`)** — the schema-owner client that bypasses RLS by ownership. Use ONLY for: pre-tenant-context auth flows (login lookup, session validate), signature-verified webhooks, cleanup workers operating across all tenants, and system-level audit logging.
+
+**Rule of thumb:** if your code runs _after_ `requireAuth` and operates on rows belonging to the requesting tenant, use `prisma`. Anything else uses `prismaAdmin` and earns a one-line comment explaining why it needs to span tenants.
+
+For BullMQ workers and background tasks that legitimately operate on a single tenant outside the request lifecycle, wrap the work in `withTenantScope(accountId, async (tx) => …)` from `src/lib/data/tenant-scope.ts` — it sets both the AsyncLocalStorage tenant context AND the recursion guard, then opens the `$transaction` that pins the Postgres session variable.
 
 ## Security Conventions
 
@@ -19,7 +30,7 @@ Express 5 API server (TypeScript, ESM). Uses Prisma (Postgres), Redis (sessions 
 - Validate all input with Zod before processing.
 - Rate-limit every public endpoint with `checkRateLimit()`.
 - CSRF validation on all mutation endpoints.
-- Always scope queries by `accountId` -- use `withTenant()` if in doubt.
+- Use `prisma` (RLS-pinned) inside authenticated handlers; use `prismaAdmin` (bypass-RLS) only for the listed cross-tenant flows. From a worker, wrap your tenant-scoped work in `withTenantScope(accountId, fn)`.
 
 ## Test Conventions
 

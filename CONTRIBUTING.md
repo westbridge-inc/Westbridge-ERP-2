@@ -57,6 +57,7 @@ Conventional commits (loosely enforced). Subject line format:
 **Scope:** Module or area touched (e.g., `auth`, `erp`, `workers`, `ci`, `prisma`)
 
 Examples:
+
 ```
 feat(reports): add revenue summary report worker
 fix(erp): return 404 instead of 502 for missing docs
@@ -93,10 +94,10 @@ return res.json({ ok: true, data });
 - Business logic lives here, **not** in route handlers
 - Return `Result<T, E>` — use `ok()` / `err()` from `src/lib/utils/result.ts`
 - Never throw from services — let the caller decide the HTTP status
-- Always scope queries by `accountId` for multi-tenant isolation
+- Pass `accountId` explicitly to service signatures, AND rely on the RLS-pinned `prisma` client (which auto-filters by tenant via `current_setting('app.current_account_id')`) — defense in depth
 
 ```typescript
-// Good
+// Good — explicit accountId in the where clause + RLS pin from requireAuth
 export async function getInvoice(accountId: string, name: string): Promise<Result<Invoice, string>> {
   const invoice = await prisma.salesInvoice.findFirst({ where: { accountId, name } });
   if (!invoice) return err("Invoice not found");
@@ -108,8 +109,9 @@ export async function getInvoice(accountId: string, name: string): Promise<Resul
 
 - Low-level data access only — no business logic
 - `erpnext.client.ts` handles all ERPNext HTTP calls (with session cookie relay)
-- `prisma.ts` is the shared Prisma singleton
-- Always pass `accountId` for tenant-scoped queries
+- `prisma.ts` is the **RLS-pinned** Prisma singleton — use this from authenticated request handlers and from inside `withTenantScope(...)` callbacks. Every operation reads `tenantContextStorage` and wraps itself in a one-shot `$transaction` that pins `app.current_account_id`, so PostgreSQL Row-Level Security policies enforce isolation.
+- `prisma-admin.ts` is the **schema-owner** client that bypasses RLS by ownership. Use ONLY for: pre-tenant-context auth flows (`validateSession`, `login`), signature-verified webhook handlers, cross-tenant cleanup workers, and system-level audit logging. Each admin call site should carry a one-line comment explaining why it needs to span tenants.
+- Always pass `accountId` to service signatures even though RLS would catch a missing filter — explicit > implicit, and the integration tests assert both layers.
 
 ### Workers (`src/workers/`)
 
