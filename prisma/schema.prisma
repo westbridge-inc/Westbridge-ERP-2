@@ -1,5 +1,24 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
+//
+// TENANT ISOLATION (defense in depth)
+// -----------------------------------
+// Westbridge runs every authenticated query as the database role
+// `westbridge_app`, which is subject to Row Level Security policies that
+// scope every tenant table by `current_setting('app.current_account_id')`.
+//
+// When you add a NEW tenant-scoped model:
+//   1. Give it an `accountId` foreign key (or a transitive one via `User`).
+//   2. Add an `ENABLE ROW LEVEL SECURITY` + `CREATE POLICY tenant_isolation_*`
+//      block in a new migration. See
+//      `prisma/migrations/20260318_add_row_level_security/migration.sql`
+//      and `20260409060845_cortex_and_user_scoped_rls/migration.sql`.
+//   3. Add the table to the integration test fixture in
+//      `src/__tests__/integration/tenant-isolation.integration.test.ts`
+//      so a regression is caught at PR time.
+//
+// `Lead` is intentionally global (marketing capture) and MUST NOT be moved
+// under RLS.
 
 generator client {
   provider = "prisma-client-js"
@@ -7,7 +26,14 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Runtime queries — runs as `westbridge_app`, RLS-enforced. The pool is
+  // sized via DATABASE_URL?connection_limit=N (Prisma reads it directly).
   url      = env("DATABASE_URL")
+  // Migrations — runs as the schema-owning role (postgres) so DDL works.
+  // `prisma migrate deploy` and `prisma db push` use this URL automatically;
+  // application runtime queries do not. If unset in development, Prisma
+  // falls back to DATABASE_URL.
+  directUrl = env("MIGRATION_DATABASE_URL")
 }
 
 model Account {
