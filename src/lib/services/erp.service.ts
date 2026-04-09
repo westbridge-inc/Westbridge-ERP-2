@@ -11,19 +11,29 @@
  * response parsing. This service owns the business rules.
  */
 
-import {
-  erpList,
-  erpGet,
-  erpCreate,
-  erpUpdate,
-  erpDelete,
-  type ListParams,
-} from "../data/erpnext.client.js";
+import { erpList, erpGet, erpCreate, erpUpdate, erpDelete, type ListParams } from "../data/erpnext.client.js";
 import { ALLOWED_DOCTYPES_SET } from "../erp-constants.js";
 import { logger } from "../logger.js";
 import type { Result } from "../utils/result.js";
+import { emitEvent } from "../../events/emitter.js";
 
 const log = logger.child({ service: "erp" });
+
+/**
+ * Map an ERPNext doctype to a stable Cortex event type. The router uses
+ * this to look up the right specialist agent. Format: lowercase + spaces
+ * replaced with underscores + ".created" suffix.
+ *
+ * Examples:
+ *   "Sales Invoice"  → "sales_invoice.created"
+ *   "Payment Entry"  → "payment_entry.created"
+ *   "Customer"       → "customer.created"
+ *   "Journal Entry"  → "journal_entry.created"
+ *   "Stock Entry"    → "stock_entry.created"
+ */
+function doctypeToEventType(doctype: string, action: "created" | "updated" | "deleted"): string {
+  return `${doctype.toLowerCase().replace(/\s+/g, "_")}.${action}`;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -88,7 +98,25 @@ export async function createDoc(
   if (!acctCheck.ok) return acctCheck;
 
   log.info({ doctype, accountId }, "erp.createDoc");
-  return erpCreate(doctype, sessionId, body, accountId);
+  const result = await erpCreate(doctype, sessionId, body, accountId);
+
+  // Fire-and-forget Cortex event after a successful create. The mutation has
+  // already committed to ERPNext at this point — emitEvent never throws and
+  // its failure does not affect the caller's return value. The router picks
+  // up the event from the queue and dispatches to a specialist agent.
+  if (result.ok) {
+    void emitEvent({
+      accountId: acctCheck.data,
+      type: doctypeToEventType(doctype, "created"),
+      source: "user.action",
+      data: {
+        doctype,
+        document: result.data,
+      },
+    });
+  }
+
+  return result;
 }
 
 export async function updateDoc(

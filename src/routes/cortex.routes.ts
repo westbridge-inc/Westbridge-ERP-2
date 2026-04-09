@@ -30,18 +30,23 @@ import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 import { randomUUID } from "crypto";
 import { anthropic } from "../lib/ai/claude.js";
-import { checkAiLimit, recordAiUsage } from "../lib/ai/limits.js";
 import { validateSession } from "../lib/services/session.service.js";
 import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
-import { toWebRequest, requireAuth } from "../middleware/auth.js";
+import { toWebRequest, requireAuth, requireCsrf } from "../middleware/auth.js";
 import { apiSuccess, apiError } from "../types/api.js";
 import { getPlan, type PlanId } from "../lib/modules.js";
 import { logger } from "../lib/logger.js";
 import { executeAgent } from "../cortex/engine.js";
+import { defaultUsageGate } from "../cortex/usage-gate.js";
 import { buildConversationAgent, buildConversationSystemPrompt } from "../cortex/agents/conversation.js";
+// Side-effect import: registers every Cortex agent (router, extract.invoice,
+// finance.{reconcile,journal,payment}, comms.notification) and wires their
+// event handlers into the events processor dispatch table. Without this
+// import the dispatch table is empty and the events worker does nothing.
+import "../cortex/agents/index.js";
 import type { CortexStoredMessage } from "../cortex/protocol.js";
 import { emitEvent } from "../events/emitter.js";
 
@@ -149,8 +154,12 @@ router.post("/cortex/chat", async (req: Request, res: Response) => {
   }
   const planId = normalizePlan(account.plan);
 
-  // ── Plan AI quota check (reuses the existing meter) ──
-  const limitCheck = await checkAiLimit(session.accountId, planId);
+  // Pre-check the AI quota BEFORE flushing SSE headers so we can return a
+  // proper 402 status code on the wire (the SSE stream is always 200 once
+  // headers flush). The engine ALSO runs this check via its usageGate as
+  // defence-in-depth for autonomous code paths that bypass this route — the
+  // double-check is a single Redis read so the cost is negligible.
+  const limitCheck = await defaultUsageGate.checkLimit(session.accountId);
   if (!limitCheck.allowed) {
     return res
       .status(402)
@@ -230,6 +239,9 @@ router.post("/cortex/chat", async (req: Request, res: Response) => {
         erpnextSid: session.erpnextSid ?? null,
         prisma,
       },
+      // The gate clamps autonomy to plan ceiling, refuses runs when the
+      // tenant is over quota, and records token usage per iteration.
+      usageGate: defaultUsageGate,
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -370,10 +382,8 @@ async function persistRunArtefacts(args: PersistArgs): Promise<void> {
       },
     });
 
-    // 3. Record token usage to the meter for billing + quota
-    if (args.result.inputTokens > 0 || args.result.outputTokens > 0) {
-      await recordAiUsage(args.accountId, args.result.inputTokens, args.result.outputTokens);
-    }
+    // 3. Token usage was already recorded by the engine via the usageGate
+    //    on every iteration — we no longer double-count from the route.
 
     // 4. Emit a Cortex event so the activity feed sees this run
     await emitEvent({
@@ -459,6 +469,305 @@ router.get("/cortex/activity", requireAuth, async (req: Request, res: Response) 
     },
   });
   return res.json(apiSuccess({ activity: logs }));
+});
+
+// ─── GET /cortex/exceptions ────────────────────────────────────────────────
+//
+// The exception queue: pending CortexApprovalRequest rows that need a human
+// to approve or reject before the AI can complete the action it proposed.
+// Filtered to the calling tenant; ordered by priority then age so urgent
+// items surface first.
+
+router.get("/cortex/exceptions", requireAuth, async (req: Request, res: Response) => {
+  const session = req.session!;
+  const limit = Math.min(parseInt(String(req.query.limit ?? "50"), 10) || 50, 200);
+  // Optional status filter — defaults to "pending" because that is the
+  // common case (the dashboard shows what needs human attention now).
+  const statusFilter = String(req.query.status ?? "pending");
+  const status = ["pending", "approved", "rejected", "expired"].includes(statusFilter) ? statusFilter : "pending";
+
+  const exceptions = await prisma.cortexApprovalRequest.findMany({
+    where: { accountId: session.accountId, status },
+    // BullMQ-style priority ordering: critical → high → normal → low.
+    // Prisma can't sort by a free-text field's logical priority natively,
+    // so we sort by createdAt and let the dashboard apply visual priority.
+    orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+    take: limit,
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      approvalType: true,
+      priority: true,
+      status: true,
+      agentId: true,
+      traceId: true,
+      aiRecommendation: true,
+      aiReasoning: true,
+      aiConfidence: true,
+      pendingAction: true,
+      relatedDocType: true,
+      relatedDocId: true,
+      expiresAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  return res.json(apiSuccess({ exceptions, count: exceptions.length, status }));
+});
+
+// ─── POST /cortex/approve/:id ──────────────────────────────────────────────
+//
+// Mark an approval request as approved. The pendingAction stays on the row
+// so a worker (or the next agent run that opens this trace) can execute it
+// using the captured tool input. We do NOT execute the action here — the
+// route is the human signal, the worker is the executor. This split keeps
+// the API response fast and lets execution happen with the same usageGate
+// + safety checks the original agent run used.
+
+const approveSchema = z.object({
+  comment: z.string().max(1_000).optional(),
+});
+
+router.post("/cortex/approve/:id", requireAuth, requireCsrf, async (req: Request, res: Response) => {
+  const session = req.session!;
+  const parsed = approveSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json(apiError("VALIDATION", "Invalid approve body"));
+  }
+
+  // Atomic update: only flip status if it's currently pending. Two reviewers
+  // racing to click approve cannot both succeed.
+  const updated = await prisma.cortexApprovalRequest.updateMany({
+    where: {
+      id: String(req.params.id),
+      accountId: session.accountId,
+      status: "pending",
+    },
+    data: {
+      status: "approved",
+      approvedBy: session.userId,
+      approvedAt: new Date(),
+    },
+  });
+
+  if (updated.count === 0) {
+    // Either the row doesn't exist, isn't on this tenant, or is already
+    // resolved. Return 404 either way to avoid leaking row existence.
+    return res.status(404).json(apiError("NOT_FOUND", "Approval request not found, expired, or already resolved"));
+  }
+
+  // Emit a Cortex event so the activity log + downstream workers see the
+  // approval. The event payload carries the approval id so a worker can
+  // load the row and execute the pendingAction.
+  await emitEvent({
+    accountId: session.accountId,
+    type: "cortex.approval.approved",
+    source: "user.action",
+    data: { approvalId: String(req.params.id), comment: parsed.data.comment ?? null },
+    userId: session.userId,
+  });
+
+  return res.json(apiSuccess({ approved: true }));
+});
+
+// ─── POST /cortex/reject/:id ───────────────────────────────────────────────
+
+const rejectSchema = z.object({
+  reason: z.string().min(1).max(1_000),
+});
+
+router.post("/cortex/reject/:id", requireAuth, requireCsrf, async (req: Request, res: Response) => {
+  const session = req.session!;
+  const parsed = rejectSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json(apiError("VALIDATION", "Reject requires a non-empty reason explaining why"));
+  }
+
+  const updated = await prisma.cortexApprovalRequest.updateMany({
+    where: {
+      id: String(req.params.id),
+      accountId: session.accountId,
+      status: "pending",
+    },
+    data: {
+      status: "rejected",
+      rejectedBy: session.userId,
+      rejectedAt: new Date(),
+      rejectionReason: parsed.data.reason,
+    },
+  });
+
+  if (updated.count === 0) {
+    return res.status(404).json(apiError("NOT_FOUND", "Approval request not found, expired, or already resolved"));
+  }
+
+  await emitEvent({
+    accountId: session.accountId,
+    type: "cortex.approval.rejected",
+    source: "user.action",
+    data: { approvalId: String(req.params.id), reason: parsed.data.reason },
+    userId: session.userId,
+  });
+
+  return res.json(apiSuccess({ rejected: true }));
+});
+
+// ─── GET /cortex/briefing ──────────────────────────────────────────────────
+//
+// Daily briefing: a structured summary of what the AI did in the last 24
+// hours plus what currently needs human attention. The dashboard renders
+// this on the home screen so a user opening the app first thing in the
+// morning sees state-of-the-business at a glance.
+//
+// Phase 5 ships a structured aggregate built from the existing tables.
+// Phase 9 (future) wires this through a dedicated briefing agent that
+// turns the aggregate into prose using Claude.
+
+router.get("/cortex/briefing", requireAuth, async (req: Request, res: Response) => {
+  const session = req.session!;
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  // Run the four aggregate queries in parallel — none depend on each other.
+  const [executions, pendingApprovals, recentExceptions, recentEvents] = await Promise.all([
+    prisma.cortexExecutionLog.aggregate({
+      where: { accountId: session.accountId, createdAt: { gte: since } },
+      _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+    }),
+    prisma.cortexApprovalRequest.count({
+      where: { accountId: session.accountId, status: "pending" },
+    }),
+    prisma.cortexApprovalRequest.findMany({
+      where: { accountId: session.accountId, status: "pending" },
+      orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
+      take: 5,
+      select: {
+        id: true,
+        title: true,
+        priority: true,
+        agentId: true,
+        createdAt: true,
+      },
+    }),
+    prisma.cortexEvent.findMany({
+      where: { accountId: session.accountId, createdAt: { gte: since } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: {
+        id: true,
+        eventType: true,
+        source: true,
+        processed: true,
+        processedBy: true,
+        createdAt: true,
+      },
+    }),
+  ]);
+
+  return res.json(
+    apiSuccess({
+      windowHours: 24,
+      generatedAt: new Date().toISOString(),
+      activity: {
+        runs: executions._count._all,
+        inputTokens: executions._sum.inputTokens ?? 0,
+        outputTokens: executions._sum.outputTokens ?? 0,
+        costUsd: executions._sum.costUsd ?? 0,
+      },
+      attention: {
+        pendingApprovals,
+        topExceptions: recentExceptions,
+      },
+      recentEvents,
+    }),
+  );
+});
+
+// ─── POST /cortex/feedback ─────────────────────────────────────────────────
+//
+// Capture human ratings, comments, and corrections on AI decisions. Writes
+// to CortexFeedback (added in Phase 2). The learning pipeline later promotes
+// corrections into per-tenant CortexMemory rules; for now we just persist
+// the feedback so it accumulates.
+
+const feedbackSchema = z.object({
+  // Trace id of the agent run being graded — links this feedback to a
+  // specific CortexExecutionLog row.
+  traceId: z.string().min(1).max(200),
+  // The agent that produced the output. Useful for per-agent satisfaction
+  // metrics so we know which agents need tuning.
+  agentId: z.string().min(1).max(100),
+  // The original AI output the user is grading. Pass-through JSON so we
+  // preserve tool call shapes alongside textual replies.
+  originalOutput: z.unknown(),
+  // What kind of feedback this is. Drives downstream processing:
+  //   - rating       → star rating, no other action
+  //   - thumbs_up    → positive signal, no further action
+  //   - thumbs_down  → negative signal, no correction supplied
+  //   - correction   → user supplied a corrected output, learning pipeline
+  //                    will turn it into a CortexMemory rule
+  feedbackType: z.enum(["rating", "thumbs_up", "thumbs_down", "correction"]),
+  rating: z.number().int().min(1).max(5).optional(),
+  comment: z.string().max(2_000).optional(),
+  correctedOutput: z.unknown().optional(),
+});
+
+router.post("/cortex/feedback", requireAuth, requireCsrf, async (req: Request, res: Response) => {
+  const session = req.session!;
+  const parsed = feedbackSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json(apiError("VALIDATION", "Invalid feedback body"));
+  }
+  const data = parsed.data;
+
+  // Domain rule: rating type requires the rating field; correction type
+  // requires the correctedOutput field. Enforce here rather than in Zod so
+  // the error message is clearer than a refinement failure.
+  if (data.feedbackType === "rating" && data.rating === undefined) {
+    return res.status(400).json(apiError("VALIDATION", "feedbackType=rating requires a rating field (1-5)"));
+  }
+  if (data.feedbackType === "correction" && data.correctedOutput === undefined) {
+    return res.status(400).json(apiError("VALIDATION", "feedbackType=correction requires a correctedOutput field"));
+  }
+
+  // originalOutput is unknown JSON — Prisma's Json type accepts it but the
+  // Prisma client typings reject `unknown`. The cast is local and audited
+  // here rather than spread through the schema definition.
+  const feedback = await prisma.cortexFeedback.create({
+    data: {
+      accountId: session.accountId,
+      agentId: data.agentId,
+      traceId: data.traceId,
+      originalOutput: data.originalOutput as never,
+      feedbackType: data.feedbackType,
+      correctedOutput: data.correctedOutput as never,
+      rating: data.rating ?? null,
+      comment: data.comment ?? null,
+      userId: session.userId,
+      appliedToMemory: false,
+    },
+    select: { id: true, createdAt: true },
+  });
+
+  // Emit a Cortex event so the learning worker can pick up corrections and
+  // promote them into CortexMemory. Phase 6 wires the worker; for now the
+  // event flows in and is no-op'd by the empty dispatch table.
+  await emitEvent({
+    accountId: session.accountId,
+    type: "cortex.feedback.captured",
+    source: "user.action",
+    data: {
+      feedbackId: feedback.id,
+      agentId: data.agentId,
+      feedbackType: data.feedbackType,
+      traceId: data.traceId,
+    },
+    userId: session.userId,
+  });
+
+  return res.json(apiSuccess({ feedbackId: feedback.id, createdAt: feedback.createdAt }));
 });
 
 export default router;

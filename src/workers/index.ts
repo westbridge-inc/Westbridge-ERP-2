@@ -89,7 +89,15 @@ async function assertNotPrivateUrl(url: string): Promise<void> {
     }
   }
 }
-import type { EmailJobData, CleanupJobData, WebhookJobData, ErpSyncJobData, ReportJobData } from "../lib/jobs/queue.js";
+import type {
+  EmailJobData,
+  CleanupJobData,
+  WebhookJobData,
+  ErpSyncJobData,
+  ReportJobData,
+  CortexEventJobData,
+} from "../lib/jobs/queue.js";
+import { processCortexEvent } from "../events/processor.js";
 
 const connection = getRedisConfig();
 
@@ -495,6 +503,37 @@ function createReportsWorker(): Worker {
   );
 }
 
+// ─── Cortex Worker ─────────────────────────────────────────────────────────────
+
+/**
+ * Drains the cortex BullMQ queue. Each event flows through processCortexEvent
+ * which loads the row, dispatches to a registered agent (Phase 6 wires the
+ * dispatch table), and marks the event processed. The worker is intentionally
+ * thin — all logic lives in events/processor.ts so it can be unit tested
+ * without spinning up a Worker.
+ */
+function createCortexWorker(): Worker {
+  return new Worker<CortexEventJobData>(
+    "cortex",
+    async (job: Job<CortexEventJobData>) => {
+      const start = Date.now();
+      const result = await processCortexEvent(job.data);
+      logger.info("cortex event processed", {
+        jobId: job.id,
+        eventId: job.data.eventId,
+        type: job.data.type,
+        accountId: job.data.accountId,
+        traceId: job.data.traceId,
+        status: result.status,
+        agentId: result.agentId,
+        durationMs: Date.now() - start,
+      });
+      return result;
+    },
+    { connection },
+  );
+}
+
 // ─── Start all workers ─────────────────────────────────────────────────────────
 
 export function startWorkers(): Worker[] {
@@ -504,6 +543,7 @@ export function startWorkers(): Worker[] {
     createWebhooksWorker(),
     createErpSyncWorker(),
     createReportsWorker(),
+    createCortexWorker(),
   ];
 
   logger.info("Started BullMQ workers", { count: workers.length });

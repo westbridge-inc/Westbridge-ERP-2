@@ -33,6 +33,7 @@ import {
   type CortexToolCallRecord,
   type CortexToolContext,
   type CortexToolDefinition,
+  type UsageGate,
 } from "./protocol.js";
 
 // Per-million-token rates for cost computation. Mirrors the table in the
@@ -98,6 +99,17 @@ export interface ExecuteAgentParams {
   messages: Anthropic.MessageParam[];
   /** Tool context. Passed verbatim to every tool handler. */
   ctx: CortexToolContext;
+  /**
+   * Optional usage gate. When provided, the engine clamps autonomy to the
+   * tenant plan's max, refuses to start if the tenant has no quota left, and
+   * records token usage after every Claude API call. When omitted (legacy
+   * test fixtures + the existing chat route that pre-checks externally),
+   * the engine runs with no quota enforcement of its own.
+   *
+   * Spec mandate: "the AI query counter must increment in the engine, not
+   * just in the chat endpoint" — the gate is the canonical hook.
+   */
+  usageGate?: UsageGate;
 }
 
 /**
@@ -106,13 +118,16 @@ export interface ExecuteAgentParams {
  * route returns it; the worker queues approvals).
  */
 export async function executeAgent(params: ExecuteAgentParams): Promise<CortexExecutionResult> {
-  const { client, agent, messages, ctx } = params;
+  const { client, agent, messages, ctx, usageGate } = params;
   const startTime = Date.now();
   const toolCalls: CortexToolCallRecord[] = [];
   const toolCallCountByName = new Map<string, number>();
   let totalInput = 0;
   let totalOutput = 0;
   let iterations = 0;
+  // Effective autonomy used for the run — starts at the requested value and
+  // gets clamped down by the usage gate if the tenant's plan caps it lower.
+  let effectiveAutonomy: typeof ctx.autonomyLevel = ctx.autonomyLevel;
 
   // Hard fail when the SDK is not configured. The route is responsible for
   // detecting this and returning a graceful 503; we just throw so the route
@@ -133,12 +148,76 @@ export async function executeAgent(params: ExecuteAgentParams): Promise<CortexEx
     };
   }
 
+  // ── Usage gate (autonomy clamp + quota check) ──
+  // Both run BEFORE the first API call so a tenant who's out of quota never
+  // burns Claude tokens, and a Solo-plan tenant can never run a Business-tier
+  // autonomy level even if the agent definition asks for it.
+  if (usageGate) {
+    try {
+      const clamped = await usageGate.clampAutonomy(ctx.accountId, ctx.autonomyLevel);
+      if (clamped !== ctx.autonomyLevel) {
+        logger.info("Cortex engine: autonomy clamped by plan ceiling", {
+          agentId: agent.id,
+          accountId: ctx.accountId,
+          requested: ctx.autonomyLevel,
+          clamped,
+        });
+      }
+      effectiveAutonomy = clamped;
+
+      const limit = await usageGate.checkLimit(ctx.accountId);
+      if (!limit.allowed) {
+        return {
+          status: "failed",
+          output: "",
+          traceId: ctx.traceId,
+          agentId: agent.id,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          latencyMs: Date.now() - startTime,
+          iterations: 0,
+          toolCalls: [],
+          errorMessage: limit.reason ?? "AI usage limit reached for this billing period",
+        };
+      }
+    } catch (err) {
+      // The gate itself failed (Redis down, DB hiccup). Fail closed: better
+      // to refuse a single agent run than silently bypass the quota system.
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error("Cortex engine: usage gate failed; refusing run", {
+        agentId: agent.id,
+        accountId: ctx.accountId,
+        error: errorMessage,
+      });
+      return {
+        status: "failed",
+        output: "",
+        traceId: ctx.traceId,
+        agentId: agent.id,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        latencyMs: Date.now() - startTime,
+        iterations: 0,
+        toolCalls: [],
+        errorMessage: "AI usage gate is unavailable; please retry shortly",
+      };
+    }
+  }
+
   // Wall-clock guard. The agent timeout is enforced via AbortSignal.timeout
   // so each underlying HTTP call inherits the same deadline.
   const deadline = AbortSignal.timeout(agent.timeoutMs);
 
   const claudeTools = toClaudeTools(agent.tools);
   const runningMessages: Anthropic.MessageParam[] = [...messages];
+
+  // Tools see the EFFECTIVE autonomy, not the requested one. This way a tool
+  // that gates its own behavior on `ctx.autonomyLevel` (e.g. a write-tool that
+  // refuses to commit at < SUPERVISED) gets the post-clamp value, not the
+  // pre-clamp value the agent definition asked for.
+  const toolCtx: CortexToolContext = { ...ctx, autonomyLevel: effectiveAutonomy };
 
   let lastMessage: Anthropic.Message | null = null;
 
@@ -211,6 +290,22 @@ export async function executeAgent(params: ExecuteAgentParams): Promise<CortexEx
     totalInput += response.usage.input_tokens;
     totalOutput += response.usage.output_tokens;
 
+    // Record usage AFTER the API call succeeded — even if the agent later
+    // hits the iteration cap or a tool error, we still bill for the tokens
+    // we actually consumed. recordUsage is best-effort: a bookkeeping
+    // failure must NOT block the response to the user.
+    if (usageGate) {
+      try {
+        await usageGate.recordUsage(ctx.accountId, response.usage.input_tokens, response.usage.output_tokens);
+      } catch (err) {
+        logger.warn("Cortex engine: usageGate.recordUsage failed; continuing", {
+          agentId: agent.id,
+          accountId: ctx.accountId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     // No tool calls → the agent is done thinking, return the text.
     const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     if (toolUses.length === 0) {
@@ -276,8 +371,11 @@ export async function executeAgent(params: ExecuteAgentParams): Promise<CortexEx
       toolCallCountByName.set(toolDef.name, calledSoFar + 1);
 
       // Approval gate — refuse to execute if the tool requires approval and
-      // the agent is running below autonomous level.
-      if (toolDef.requiresApproval && ctx.autonomyLevel < AUTONOMY.AUTONOMOUS) {
+      // the EFFECTIVE autonomy (after plan clamp) is below autonomous level.
+      // Using effectiveAutonomy here is what makes Solo-plan tenants safe:
+      // even if the agent definition asks for AUTONOMOUS, the plan clamp
+      // pulls it down to SUPERVISED so any side-effecting tool needs approval.
+      if (toolDef.requiresApproval && effectiveAutonomy < AUTONOMY.AUTONOMOUS) {
         return {
           status: "needs_approval",
           output: extractText(response),
@@ -292,7 +390,7 @@ export async function executeAgent(params: ExecuteAgentParams): Promise<CortexEx
           pendingAction: {
             toolName: toolDef.name,
             input: toolUse.input,
-            reason: `Tool "${toolDef.name}" requires human approval (agent autonomy ${ctx.autonomyLevel} < ${AUTONOMY.AUTONOMOUS}).`,
+            reason: `Tool "${toolDef.name}" requires human approval (effective autonomy ${effectiveAutonomy} < ${AUTONOMY.AUTONOMOUS}).`,
           },
         };
       }
@@ -325,7 +423,7 @@ export async function executeAgent(params: ExecuteAgentParams): Promise<CortexEx
       // tool_result error block instead of crashing the loop.
       const toolStart = Date.now();
       try {
-        const result = await toolDef.handler(toolUse.input, ctx);
+        const result = await toolDef.handler(toolUse.input, toolCtx);
         const durationMs = Date.now() - toolStart;
         toolCalls.push({
           tool: toolDef.name,

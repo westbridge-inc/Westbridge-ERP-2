@@ -11,7 +11,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { executeAgent, __testing__ } from "../engine.js";
-import { AUTONOMY, type CortexAgentDefinition, type CortexToolContext } from "../protocol.js";
+import { AUTONOMY, type CortexAgentDefinition, type CortexToolContext, type UsageGate } from "../protocol.js";
 
 // ─── Test fixtures ─────────────────────────────────────────────────────────
 
@@ -436,5 +436,201 @@ describe("engine.__testing__ — cost + impact helpers", () => {
     expect(__testing__.estimateFinancialImpactUsd({ unrelated: "field" })).toBe(0);
     expect(__testing__.estimateFinancialImpactUsd(null)).toBe(0);
     expect(__testing__.estimateFinancialImpactUsd("not an object")).toBe(0);
+  });
+});
+
+// ─── UsageGate ─────────────────────────────────────────────────────────────
+//
+// Phase 3 of the AI-Native overhaul: the engine accepts a usageGate that
+// clamps autonomy, gates the run on plan quota, and records token usage
+// per Claude API iteration. These tests use a fake gate so we can verify
+// the engine wires it correctly without touching Redis or Prisma.
+
+function fakeGate(overrides: Partial<UsageGate> = {}): UsageGate {
+  return {
+    clampAutonomy: vi.fn().mockResolvedValue(AUTONOMY.AUTONOMOUS),
+    checkLimit: vi.fn().mockResolvedValue({ allowed: true }),
+    recordUsage: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+describe("engine.executeAgent — usage gate", () => {
+  it("calls clampAutonomy + checkLimit before the first Claude call", async () => {
+    const client = fakeClient([textOnlyMessage("hi")]);
+    const agent = buildAgent();
+    const gate = fakeGate();
+
+    await executeAgent({
+      client,
+      agent,
+      messages: [{ role: "user", content: "ping" }],
+      ctx: ctx(),
+      usageGate: gate,
+    });
+
+    expect(gate.clampAutonomy).toHaveBeenCalledTimes(1);
+    expect(gate.clampAutonomy).toHaveBeenCalledWith("acc_test", AUTONOMY.AUTONOMOUS);
+    expect(gate.checkLimit).toHaveBeenCalledTimes(1);
+    expect(gate.checkLimit).toHaveBeenCalledWith("acc_test");
+  });
+
+  it("returns failed (zero tokens charged) when checkLimit denies", async () => {
+    const create = vi.fn();
+    const client = { messages: { create } } as unknown as Anthropic;
+    const agent = buildAgent();
+    const gate = fakeGate({
+      checkLimit: vi.fn().mockResolvedValue({ allowed: false, reason: "Monthly query limit reached" }),
+    });
+
+    const result = await executeAgent({
+      client,
+      agent,
+      messages: [{ role: "user", content: "ping" }],
+      ctx: ctx(),
+      usageGate: gate,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.errorMessage).toContain("Monthly query limit reached");
+    expect(result.inputTokens).toBe(0);
+    expect(result.outputTokens).toBe(0);
+    // Critical: Claude was NEVER called when the limit gate denied.
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("records usage after every iteration, not just at the end", async () => {
+    // Two iterations: tool call → text reply.
+    const handler = vi.fn().mockResolvedValue({ ok: true });
+    const agent = buildAgent({
+      tools: [
+        {
+          name: "ping",
+          description: "ping",
+          inputSchema: { type: "object" },
+          handler,
+          sideEffects: false,
+          requiresApproval: false,
+          reversible: true,
+          maxCallsPerRun: 5,
+        },
+      ],
+    });
+    const client = fakeClient([toolUseMessage("ping", {}), textOnlyMessage("done")]);
+    const gate = fakeGate();
+
+    await executeAgent({
+      client,
+      agent,
+      messages: [{ role: "user", content: "go" }],
+      ctx: ctx(),
+      usageGate: gate,
+    });
+
+    // recordUsage should fire ONCE per iteration — twice for this run.
+    expect(gate.recordUsage).toHaveBeenCalledTimes(2);
+    // Each call should pass the per-message token counts (200/50 from the
+    // tool-use message and 100/50 from the text-only reply).
+    expect(gate.recordUsage).toHaveBeenNthCalledWith(1, "acc_test", 200, 50);
+    expect(gate.recordUsage).toHaveBeenNthCalledWith(2, "acc_test", 100, 50);
+  });
+
+  it("clamps autonomy to plan ceiling — Solo (L2) cannot run AUTONOMOUS tools", async () => {
+    // Tool that requires approval — only AUTONOMOUS+ can execute it.
+    const handler = vi.fn();
+    const agent = buildAgent({
+      tools: [
+        {
+          name: "make_payment",
+          description: "Make a payment",
+          inputSchema: { type: "object" },
+          handler,
+          sideEffects: true,
+          requiresApproval: true,
+          reversible: false,
+          maxCallsPerRun: 1,
+        },
+      ],
+    });
+    // Agent definition asks for AUTONOMOUS, but the gate clamps to SUPERVISED.
+    const client = fakeClient([toolUseMessage("make_payment", { amount: 100 })]);
+    const gate = fakeGate({
+      clampAutonomy: vi.fn().mockResolvedValue(AUTONOMY.SUPERVISED),
+    });
+
+    const result = await executeAgent({
+      client,
+      agent,
+      messages: [{ role: "user", content: "pay vendor" }],
+      ctx: ctx({ autonomyLevel: AUTONOMY.AUTONOMOUS }),
+      usageGate: gate,
+    });
+
+    // The clamp pulled effective autonomy down to SUPERVISED, so the
+    // approval-required tool gates out instead of executing.
+    expect(result.status).toBe("needs_approval");
+    expect(result.pendingAction?.toolName).toBe("make_payment");
+    expect(handler).not.toHaveBeenCalled();
+    // Verify the reason mentions the EFFECTIVE (clamped) autonomy, not requested.
+    expect(result.pendingAction?.reason).toContain(`autonomy ${AUTONOMY.SUPERVISED}`);
+  });
+
+  it("fails closed if the gate itself throws (Redis down, DB hiccup)", async () => {
+    const create = vi.fn();
+    const client = { messages: { create } } as unknown as Anthropic;
+    const agent = buildAgent();
+    const gate = fakeGate({
+      checkLimit: vi.fn().mockRejectedValue(new Error("redis is down")),
+    });
+
+    const result = await executeAgent({
+      client,
+      agent,
+      messages: [{ role: "user", content: "ping" }],
+      ctx: ctx(),
+      usageGate: gate,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.errorMessage).toContain("AI usage gate is unavailable");
+    // Critical: Claude was NEVER called when the gate threw.
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("recordUsage failure is logged but does NOT fail the run (best-effort)", async () => {
+    const client = fakeClient([textOnlyMessage("hello")]);
+    const agent = buildAgent();
+    const gate = fakeGate({
+      recordUsage: vi.fn().mockRejectedValue(new Error("meter unreachable")),
+    });
+
+    const result = await executeAgent({
+      client,
+      agent,
+      messages: [{ role: "user", content: "ping" }],
+      ctx: ctx(),
+      usageGate: gate,
+    });
+
+    // The user gets their reply even though the meter call failed.
+    expect(result.status).toBe("success");
+    expect(result.output).toBe("hello");
+    expect(gate.recordUsage).toHaveBeenCalled();
+  });
+
+  it("legacy callers without a usageGate run unchanged", async () => {
+    const client = fakeClient([textOnlyMessage("legacy")]);
+    const agent = buildAgent();
+
+    const result = await executeAgent({
+      client,
+      agent,
+      messages: [{ role: "user", content: "ping" }],
+      ctx: ctx(),
+      // No usageGate — legacy fixtures must still pass.
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.output).toBe("legacy");
   });
 });

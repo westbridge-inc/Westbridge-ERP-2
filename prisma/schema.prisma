@@ -43,6 +43,7 @@ model Account {
   cortexExecutions   CortexExecutionLog[]
   cortexApprovals    CortexApprovalRequest[]
   cortexMemory       CortexMemory[]
+  cortexFeedback     CortexFeedback[]
 
   @@index([createdAt])
   @@index([deletedAt])
@@ -444,4 +445,40 @@ model CortexMemory {
   @@index([accountId, memoryType])
   @@index([accountId, isActive])
   @@map("cortex_memory")
+}
+
+/// Human feedback on Cortex agent decisions. Captures thumbs-up/down ratings,
+/// free-text comments, and explicit corrections so the system can (a) measure
+/// per-agent satisfaction and (b) feed corrections back into the CortexMemory
+/// learning store. Linked by traceId so a feedback row always points at the
+/// exact agent run it is grading.
+model CortexFeedback {
+  id              String   @id @default(cuid())
+  accountId       String   @map("account_id")
+  agentId         String   @map("agent_id")
+  traceId         String   @map("trace_id")
+  /// The original AI output the user is grading. Stored as Json so we can
+  /// preserve tool call shapes alongside textual replies.
+  originalOutput  Json     @map("original_output")
+  /// "thumbs_up" | "thumbs_down" | "correction" | "rating"
+  feedbackType    String   @map("feedback_type")
+  /// User-supplied corrected output, when feedbackType is "correction".
+  /// Drives the memory learning pipeline that promotes corrections into
+  /// per-tenant business rules over time.
+  correctedOutput Json?    @map("corrected_output")
+  rating          Int? // 1-5 scale, present when feedbackType is "rating"
+  comment         String?  @db.Text
+  userId          String   @map("user_id")
+  /// Set once the feedback has been used to update CortexMemory; used by the
+  /// learning worker to skip already-processed rows.
+  appliedToMemory Boolean  @default(false) @map("applied_to_memory")
+  memoryId        String?  @map("memory_id")
+  createdAt       DateTime @default(now())         @map("created_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, agentId, createdAt])
+  @@index([accountId, feedbackType])
+  @@index([traceId])
+  @@map("cortex_feedback")
 }

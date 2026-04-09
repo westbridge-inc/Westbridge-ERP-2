@@ -179,3 +179,39 @@ export interface CortexStoredMessage {
   content: unknown; // Anthropic.MessageParam.content — string or content blocks
   createdAt: string; // ISO timestamp
 }
+
+// ─── Usage gate ───────────────────────────────────────────────────────────────
+//
+// The engine accepts a `UsageGate` to enforce per-tenant AI quotas, clamp the
+// running autonomy level against the tenant's plan ceiling, and record token
+// usage after every Claude API call. This is dependency-injected (rather than
+// hard-coded inside the engine) so the unit suite can run with a fake gate
+// and the chat route + future events processor can share one implementation.
+//
+// When omitted from ExecuteAgentParams the engine skips all four checks — this
+// preserves the existing test fixtures and lets callers that handle quotas
+// outside the engine (e.g. the legacy /api/cortex/chat path that pre-checks)
+// keep working unchanged. New code paths SHOULD pass a real gate.
+
+export interface UsageGate {
+  /**
+   * Clamp the agent's requested autonomy to the tenant plan's ceiling. Solo
+   * tenants should never run above L2 (supervised) regardless of what the
+   * agent definition asks for. Called once at the start of each agent run.
+   */
+  clampAutonomy(accountId: string, requested: AutonomyLevel): Promise<AutonomyLevel>;
+  /**
+   * Check whether the tenant has any quota left for this billing period.
+   * Returns `{ allowed: false, reason }` to block the run; the engine maps
+   * this to a `failed` execution result with an `AI_LIMIT_REACHED` error.
+   * Called once at the start of each agent run.
+   */
+  checkLimit(accountId: string): Promise<{ allowed: boolean; reason?: string }>;
+  /**
+   * Record token + query usage for this iteration. Called after EVERY
+   * successful Claude API call inside the loop, not just at the end — so
+   * a runaway agent that hits the iteration cap still bills for the work
+   * it actually consumed.
+   */
+  recordUsage(accountId: string, inputTokens: number, outputTokens: number): Promise<void>;
+}

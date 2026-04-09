@@ -30,12 +30,23 @@ vi.mock("../../lib/data/prisma.js", () => ({
     cortexExecutionLog: {
       create: vi.fn().mockResolvedValue({}),
       findMany: vi.fn().mockResolvedValue([]),
+      aggregate: vi.fn().mockResolvedValue({
+        _count: { _all: 0 },
+        _sum: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+      }),
     },
     cortexApprovalRequest: {
       create: vi.fn().mockResolvedValue({ id: "approval_1" }),
+      findMany: vi.fn().mockResolvedValue([]),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      count: vi.fn().mockResolvedValue(0),
     },
     cortexEvent: {
       create: vi.fn().mockResolvedValue({ id: "event_1" }),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    cortexFeedback: {
+      create: vi.fn().mockResolvedValue({ id: "fb_1", createdAt: new Date() }),
     },
   },
 }));
@@ -386,5 +397,301 @@ describe("GET /api/cortex/activity", () => {
     expect(res.status).toBe(200);
     expect(res.body.data.activity).toHaveLength(1);
     expect(res.body.data.activity[0].agentId).toBe("conversation");
+  });
+});
+
+// ─── GET /api/cortex/exceptions ────────────────────────────────────────────
+
+describe("GET /api/cortex/exceptions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 when not authenticated", async () => {
+    (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "no session" });
+    const res = await request(app).get("/api/cortex/exceptions");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the pending approval queue scoped to the tenant", async () => {
+    mockSession();
+    (prisma.cortexApprovalRequest.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: "appr_1",
+        title: "Approve $12,500 vendor payment",
+        description: "AI matched invoice INV-002 to PO PO-99",
+        approvalType: "payment.execute",
+        priority: "high",
+        status: "pending",
+        agentId: "finance.payment",
+        traceId: "trace_99",
+        aiRecommendation: "approve",
+        aiReasoning: "Matched all line items",
+        aiConfidence: 0.92,
+        pendingAction: { name: "make_payment", input: { amount: 12500 } },
+        relatedDocType: "Payment Entry",
+        relatedDocId: "PE-1",
+        expiresAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const res = await request(app).get("/api/cortex/exceptions").set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.exceptions).toHaveLength(1);
+    expect(res.body.data.count).toBe(1);
+    expect(res.body.data.status).toBe("pending");
+    expect(res.body.data.exceptions[0].id).toBe("appr_1");
+    // Confirm tenant scoping was applied — the where clause must include accountId.
+    expect((prisma.cortexApprovalRequest.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0].where.accountId).toBe(
+      "acc_1",
+    );
+  });
+
+  it("clamps the limit query param to a max of 200", async () => {
+    mockSession();
+    (prisma.cortexApprovalRequest.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const res = await request(app)
+      .get("/api/cortex/exceptions?limit=999")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`);
+
+    expect(res.status).toBe(200);
+    const args = (prisma.cortexApprovalRequest.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(args.take).toBe(200);
+  });
+});
+
+// ─── POST /api/cortex/approve/:id ──────────────────────────────────────────
+
+describe("POST /api/cortex/approve/:id", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 without authentication", async () => {
+    (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "no session" });
+    const res = await request(app).post("/api/cortex/approve/appr_1").send({});
+    expect(res.status).toBe(401);
+  });
+
+  it("approves a pending request and emits an event", async () => {
+    mockSession();
+    (prisma.cortexApprovalRequest.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+
+    const res = await request(app)
+      .post("/api/cortex/approve/appr_1")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({ comment: "looks right" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.approved).toBe(true);
+    // Atomic update: where clause must constrain to status=pending so two
+    // racers can't both succeed.
+    const updateArgs = (prisma.cortexApprovalRequest.updateMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(updateArgs.where.status).toBe("pending");
+    expect(updateArgs.where.accountId).toBe("acc_1");
+    expect(updateArgs.data.approvedBy).toBe("usr_1");
+    // Emits a Cortex event for the activity log + downstream worker.
+    expect(prisma.cortexEvent.create).toHaveBeenCalled();
+  });
+
+  it("returns 404 when the request is missing or already resolved", async () => {
+    mockSession();
+    (prisma.cortexApprovalRequest.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+
+    const res = await request(app)
+      .post("/api/cortex/approve/appr_missing")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({});
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe("NOT_FOUND");
+  });
+});
+
+// ─── POST /api/cortex/reject/:id ───────────────────────────────────────────
+
+describe("POST /api/cortex/reject/:id", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 400 when no reason is supplied", async () => {
+    mockSession();
+    const res = await request(app)
+      .post("/api/cortex/reject/appr_1")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION");
+  });
+
+  it("rejects a pending request with a captured reason", async () => {
+    mockSession();
+    (prisma.cortexApprovalRequest.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
+
+    const res = await request(app)
+      .post("/api/cortex/reject/appr_1")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({ reason: "Wrong vendor — duplicate of last week" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.rejected).toBe(true);
+    const updateArgs = (prisma.cortexApprovalRequest.updateMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(updateArgs.data.rejectedBy).toBe("usr_1");
+    expect(updateArgs.data.rejectionReason).toContain("duplicate");
+    expect(prisma.cortexEvent.create).toHaveBeenCalled();
+  });
+});
+
+// ─── GET /api/cortex/briefing ──────────────────────────────────────────────
+
+describe("GET /api/cortex/briefing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 without authentication", async () => {
+    (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "no session" });
+    const res = await request(app).get("/api/cortex/briefing");
+    expect(res.status).toBe(401);
+  });
+
+  it("aggregates 24h activity + pending approvals + recent events", async () => {
+    mockSession();
+    (prisma.cortexExecutionLog.aggregate as ReturnType<typeof vi.fn>).mockResolvedValue({
+      _count: { _all: 12 },
+      _sum: { inputTokens: 4000, outputTokens: 1200, costUsd: 0.045 },
+    });
+    (prisma.cortexApprovalRequest.count as ReturnType<typeof vi.fn>).mockResolvedValue(3);
+    (prisma.cortexApprovalRequest.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "a1", title: "Pay $5k", priority: "high", agentId: "finance.payment", createdAt: new Date() },
+    ]);
+    (prisma.cortexEvent.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: "e1",
+        eventType: "invoice.created",
+        source: "user.action",
+        processed: true,
+        processedBy: "no_handler",
+        createdAt: new Date(),
+      },
+    ]);
+
+    const res = await request(app).get("/api/cortex/briefing").set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.windowHours).toBe(24);
+    expect(res.body.data.activity.runs).toBe(12);
+    expect(res.body.data.activity.inputTokens).toBe(4000);
+    expect(res.body.data.activity.outputTokens).toBe(1200);
+    expect(res.body.data.activity.costUsd).toBe(0.045);
+    expect(res.body.data.attention.pendingApprovals).toBe(3);
+    expect(res.body.data.attention.topExceptions).toHaveLength(1);
+    expect(res.body.data.recentEvents).toHaveLength(1);
+  });
+});
+
+// ─── POST /api/cortex/feedback ─────────────────────────────────────────────
+
+describe("POST /api/cortex/feedback", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 401 without authentication", async () => {
+    (validateSession as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, error: "no session" });
+    const res = await request(app).post("/api/cortex/feedback").send({});
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 400 when feedbackType=rating but rating field is absent", async () => {
+    mockSession();
+    const res = await request(app)
+      .post("/api/cortex/feedback")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({
+        traceId: "trace_1",
+        agentId: "conversation",
+        originalOutput: { text: "hi" },
+        feedbackType: "rating",
+        // missing rating
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain("rating");
+  });
+
+  it("returns 400 when feedbackType=correction but correctedOutput is absent", async () => {
+    mockSession();
+    const res = await request(app)
+      .post("/api/cortex/feedback")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({
+        traceId: "trace_1",
+        agentId: "conversation",
+        originalOutput: { text: "hi" },
+        feedbackType: "correction",
+        // missing correctedOutput
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain("correctedOutput");
+  });
+
+  it("persists a thumbs_down with comment + emits an event", async () => {
+    mockSession();
+
+    const res = await request(app)
+      .post("/api/cortex/feedback")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({
+        traceId: "trace_1",
+        agentId: "conversation",
+        originalOutput: { text: "wrong answer" },
+        feedbackType: "thumbs_down",
+        comment: "ignored my instruction",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.feedbackId).toBe("fb_1");
+    const createArgs = (prisma.cortexFeedback.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(createArgs.data.accountId).toBe("acc_1");
+    expect(createArgs.data.userId).toBe("usr_1");
+    expect(createArgs.data.feedbackType).toBe("thumbs_down");
+    expect(createArgs.data.comment).toContain("ignored");
+    // Event emission so the learning worker can pick this up
+    expect(prisma.cortexEvent.create).toHaveBeenCalled();
+  });
+
+  it("persists a correction with correctedOutput", async () => {
+    mockSession();
+
+    const res = await request(app)
+      .post("/api/cortex/feedback")
+      .set("Cookie", `${SESSION_COOKIE}; ${CSRF_COOKIE}`)
+      .set("x-csrf-token", "test-csrf-token")
+      .send({
+        traceId: "trace_1",
+        agentId: "extract.invoice",
+        originalOutput: { supplier: "ABC", amount: 100 },
+        feedbackType: "correction",
+        correctedOutput: { supplier: "ABC Co.", amount: 1000 },
+      });
+
+    expect(res.status).toBe(200);
+    const createArgs = (prisma.cortexFeedback.create as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(createArgs.data.feedbackType).toBe("correction");
+    expect(createArgs.data.correctedOutput).toEqual({ supplier: "ABC Co.", amount: 1000 });
   });
 });

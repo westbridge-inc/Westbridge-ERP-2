@@ -10,7 +10,21 @@
 
 // ─── Plan IDs ─────────────────────────────────────────────────────────────────
 
-export type PlanId = "starter" | "business" | "enterprise";
+export type PlanId = "solo" | "starter" | "business" | "enterprise";
+
+// ─── Autonomy Levels ──────────────────────────────────────────────────────────
+//
+// The Cortex AI engine clamps every agent run to the tenant's plan-level
+// `maxAutonomyLevel`. Plans never go below L1 (a chatbot-only plan would be
+// L0/manual, but we don't sell that). Mirror of the engine's runtime enum
+// in src/cortex/protocol.ts; both must stay in sync.
+//
+//   1 = Assisted        — AI drafts and suggests, human executes everything
+//   2 = Supervised      — AI executes routine ops, human reviews after the fact
+//   3 = Autonomous      — AI executes, only flags exceptions for human review
+//   4 = Self-Optimizing — AI executes AND tunes its own thresholds over time
+
+export type AutonomyLevel = 1 | 2 | 3 | 4;
 
 // ─── Usage Limits ─────────────────────────────────────────────────────────────
 
@@ -19,7 +33,10 @@ export interface PlanLimits {
   storageGB: number; // GB included; -1 = unlimited
   erpRecordsPerMonth: number; // creates + updates across all doctypes; -1 = unlimited
   apiCallsPerMonth: number; // calls to /api/erp/*; -1 = unlimited
-  aiQueriesPerMonth: number; // AI chat + insight requests combined; -1 = unlimited
+  // AI operations — counts every Cortex agent run, including chat messages,
+  // autonomous invoice extraction, bank reconciliation matches, journal entry
+  // creation, and any other Anthropic API call from the engine. NOT just chat.
+  aiQueriesPerMonth: number; // -1 = unlimited
   aiTokensPerMonth: number; // total AI tokens (input + output); -1 = unlimited
   bundleCount: number; // how many module bundles accessible; -1 = all
 }
@@ -30,7 +47,7 @@ export interface OverageRates {
   perExtraUser: number; // USD per user per month above limit
   perExtraGB: number; // USD per GB per month above limit
   perExtraErpRecord: number; // USD per record above monthly limit
-  perExtraAiQuery: number; // USD per AI query above monthly limit
+  perExtraAiQuery: number; // USD per AI operation above monthly limit
   perExtra1kApiCalls: number; // USD per 1,000 API calls above limit
 }
 
@@ -44,6 +61,13 @@ export interface Plan {
   includedBundleIds: string[]; // which module bundles are included
   limits: PlanLimits;
   overageRates: OverageRates;
+  /**
+   * Hard ceiling on Cortex agent autonomy for tenants on this plan. The
+   * engine refuses to run any agent above this level — Solo accounts get
+   * supervised execution (human reviews everything), Business+ get
+   * self-optimizing autonomous operation. See AutonomyLevel above.
+   */
+  maxAutonomyLevel: AutonomyLevel;
   features: string[];
   badge?: string;
 }
@@ -539,79 +563,125 @@ export const MODULE_BUNDLES: ModuleBundle[] = [
 
 export const PLANS: Plan[] = [
   {
+    id: "solo",
+    name: "Solo",
+    pricePerMonth: 49.99,
+    annualPricePerMonth: 41.66,
+    includedBundleIds: ["finance"],
+    limits: {
+      users: 3,
+      storageGB: 10,
+      erpRecordsPerMonth: 500,
+      apiCallsPerMonth: 5_000,
+      // 500 AI ops/mo: enough for ~100 invoices + reconciliation + chat at
+      // ~5 ops per invoice flow. The previous 50/mo limit was sized for a
+      // chatbot, not an autonomous agent system.
+      aiQueriesPerMonth: 500,
+      aiTokensPerMonth: 2_000_000,
+      bundleCount: 1,
+    },
+    overageRates: {
+      perExtraUser: 15,
+      perExtraGB: 1.5,
+      perExtraErpRecord: 0.02,
+      perExtraAiQuery: 0.08,
+      perExtra1kApiCalls: 0.1,
+    },
+    maxAutonomyLevel: 2,
+    features: [
+      "Up to 3 users",
+      "Finance & Accounting",
+      "Invoicing, expenses, journal entries",
+      "10 GB storage",
+      "500 AI operations / month",
+      "AI Assisted — drafts and suggests, you review and approve",
+      "Email support",
+      "API access",
+    ],
+  },
+  {
     id: "starter",
     name: "Starter",
-    pricePerMonth: 500,
-    annualPricePerMonth: 416,
+    pricePerMonth: 199.99,
+    annualPricePerMonth: 166.66,
     includedBundleIds: ["finance", "crm"],
     limits: {
       users: 10,
       storageGB: 50,
       erpRecordsPerMonth: 2_000,
       apiCallsPerMonth: 10_000,
-      aiQueriesPerMonth: 100,
-      aiTokensPerMonth: 500_000,
+      // 2,500 AI ops/mo: room for ~500 invoices + reconciliation + payment
+      // scheduling + chat. Starter is the first plan where the AI runs
+      // routine operations autonomously rather than requiring approval.
+      aiQueriesPerMonth: 2_500,
+      aiTokensPerMonth: 10_000_000,
       bundleCount: 2,
     },
     overageRates: {
-      perExtraUser: 35,
+      perExtraUser: 25,
       perExtraGB: 1.0,
       perExtraErpRecord: 0.01,
-      perExtraAiQuery: 0.25,
+      perExtraAiQuery: 0.05,
       perExtra1kApiCalls: 0.05,
     },
+    maxAutonomyLevel: 3,
     features: [
       "Up to 10 users",
-      "Finance & Accounting (8 modules)",
-      "Sales & CRM (6 modules)",
+      "Finance & Accounting",
+      "Sales & CRM",
       "50 GB storage",
-      "100 AI queries / month",
-      "2,000 ERP records / month",
-      "Email support (24hr)",
-      "API access",
-      "Overage billing — scale past limits",
-    ],
-  },
-  {
-    id: "business",
-    name: "Business",
-    pricePerMonth: 1_000,
-    annualPricePerMonth: 833,
-    includedBundleIds: ["finance", "crm", "inventory", "hr"],
-    limits: {
-      users: 30,
-      storageGB: 250,
-      erpRecordsPerMonth: 15_000,
-      apiCallsPerMonth: 100_000,
-      aiQueriesPerMonth: 500,
-      aiTokensPerMonth: 3_000_000,
-      bundleCount: 4,
-    },
-    overageRates: {
-      perExtraUser: 28,
-      perExtraGB: 0.75,
-      perExtraErpRecord: 0.007,
-      perExtraAiQuery: 0.15,
-      perExtra1kApiCalls: 0.03,
-    },
-    features: [
-      "Up to 30 users",
-      "Finance, Sales & CRM, Inventory, HR",
-      "250 GB storage",
-      "500 AI queries / month",
-      "15,000 ERP records / month",
-      "Priority support (4hr response)",
-      "Advanced analytics",
-      "Multi-warehouse",
+      "2,500 AI operations / month",
+      "AI Autonomous — handles routine operations, escalates exceptions",
+      "Priority email support (12hr)",
+      "Advanced reporting",
       "Overage billing — scale past limits",
     ],
     badge: "Most Popular",
   },
   {
+    id: "business",
+    name: "Business",
+    pricePerMonth: 999.99,
+    annualPricePerMonth: 833.33,
+    includedBundleIds: ["finance", "crm", "inventory", "hr"],
+    limits: {
+      users: 50,
+      storageGB: 250,
+      erpRecordsPerMonth: 15_000,
+      apiCallsPerMonth: 100_000,
+      // 15,000 AI ops/mo: covers ~3,000 invoices + full reconciliation +
+      // payroll runs + forecasting + chat for a 50-person company.
+      // L4 = the AI tunes its own thresholds based on observed accuracy.
+      aiQueriesPerMonth: 15_000,
+      aiTokensPerMonth: 75_000_000,
+      bundleCount: 4,
+    },
+    overageRates: {
+      perExtraUser: 20,
+      perExtraGB: 0.75,
+      perExtraErpRecord: 0.007,
+      perExtraAiQuery: 0.03,
+      perExtra1kApiCalls: 0.03,
+    },
+    maxAutonomyLevel: 4,
+    features: [
+      "Up to 50 users",
+      "Finance, CRM, Inventory, Human Resources",
+      "250 GB storage",
+      "15,000 AI operations / month",
+      "AI Self-Optimizing — operates and continuously improves",
+      "Multi-warehouse support",
+      "Priority support (4hr response)",
+      "Advanced analytics",
+      "OIDC single sign-on & TOTP 2FA",
+      "Overage billing — scale past limits",
+    ],
+  },
+  {
     id: "enterprise",
     name: "Enterprise",
-    pricePerMonth: 5_000,
-    annualPricePerMonth: 4_166,
+    pricePerMonth: 4_999.99,
+    annualPricePerMonth: 4_166.66,
     includedBundleIds: ["finance", "crm", "inventory", "hr", "manufacturing", "projects", "biztools"],
     limits: {
       users: -1,
@@ -629,18 +699,19 @@ export const PLANS: Plan[] = [
       perExtraAiQuery: 0,
       perExtra1kApiCalls: 0,
     },
+    maxAutonomyLevel: 4,
     features: [
       "Unlimited users",
-      "All 34 modules — every bundle included",
-      "Manufacturing & Production planning",
-      "Project Management",
-      "Business Tools (Website, Custom Reports)",
+      "All 38 modules included",
+      "Manufacturing & production",
+      "Project management",
       "Unlimited storage",
-      "Unlimited AI — no query limits",
+      "Unlimited AI operations — no caps",
+      "AI Self-Optimizing — operates and continuously improves",
       "Dedicated account manager",
-      "1hr SLA support",
+      "Priority email support",
       "Custom integrations",
-      "SOC 2 compliance reporting",
+      "Security audit reports",
       "No overage charges — ever",
     ],
   },

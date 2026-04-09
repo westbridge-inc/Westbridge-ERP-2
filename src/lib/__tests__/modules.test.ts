@@ -16,9 +16,9 @@ import {
 } from "../modules.js";
 
 describe("PLANS", () => {
-  it("has 3 plans: starter, business, enterprise", () => {
-    expect(PLANS).toHaveLength(3);
-    expect(PLANS.map((p) => p.id)).toEqual(["starter", "business", "enterprise"]);
+  it("has 4 plans in solo→enterprise order", () => {
+    expect(PLANS).toHaveLength(4);
+    expect(PLANS.map((p) => p.id)).toEqual(["solo", "starter", "business", "enterprise"]);
   });
 
   it("plans are ordered by price ascending", () => {
@@ -44,16 +44,61 @@ describe("PLANS", () => {
     }
   });
 
-  it("starter costs $500/month", () => {
-    expect(getPlan("starter").pricePerMonth).toBe(500);
+  it("solo costs $49.99/month", () => {
+    expect(getPlan("solo").pricePerMonth).toBe(49.99);
   });
 
-  it("business costs $1000/month", () => {
-    expect(getPlan("business").pricePerMonth).toBe(1000);
+  it("starter costs $199.99/month", () => {
+    expect(getPlan("starter").pricePerMonth).toBe(199.99);
   });
 
-  it("enterprise costs $5000/month", () => {
-    expect(getPlan("enterprise").pricePerMonth).toBe(5000);
+  it("business costs $999.99/month", () => {
+    expect(getPlan("business").pricePerMonth).toBe(999.99);
+  });
+
+  it("enterprise costs $4,999.99/month", () => {
+    expect(getPlan("enterprise").pricePerMonth).toBe(4999.99);
+  });
+
+  // ─── AI-native limits (designed for autonomous agent ops, not chatbot) ────
+
+  it("solo: 500 AI ops/mo, 2M tokens/mo, $0.08 overage, L2 max autonomy", () => {
+    const p = getPlan("solo");
+    expect(p.limits.aiQueriesPerMonth).toBe(500);
+    expect(p.limits.aiTokensPerMonth).toBe(2_000_000);
+    expect(p.overageRates.perExtraAiQuery).toBe(0.08);
+    expect(p.maxAutonomyLevel).toBe(2);
+  });
+
+  it("starter: 2,500 AI ops/mo, 10M tokens/mo, $0.05 overage, L3 max autonomy", () => {
+    const p = getPlan("starter");
+    expect(p.limits.aiQueriesPerMonth).toBe(2_500);
+    expect(p.limits.aiTokensPerMonth).toBe(10_000_000);
+    expect(p.overageRates.perExtraAiQuery).toBe(0.05);
+    expect(p.maxAutonomyLevel).toBe(3);
+  });
+
+  it("business: 15,000 AI ops/mo, 75M tokens/mo, $0.03 overage, L4 max autonomy", () => {
+    const p = getPlan("business");
+    expect(p.limits.aiQueriesPerMonth).toBe(15_000);
+    expect(p.limits.aiTokensPerMonth).toBe(75_000_000);
+    expect(p.overageRates.perExtraAiQuery).toBe(0.03);
+    expect(p.maxAutonomyLevel).toBe(4);
+  });
+
+  it("enterprise: unlimited AI ops + tokens, no overage, L4 max autonomy", () => {
+    const p = getPlan("enterprise");
+    expect(p.limits.aiQueriesPerMonth).toBe(-1);
+    expect(p.limits.aiTokensPerMonth).toBe(-1);
+    expect(p.overageRates.perExtraAiQuery).toBe(0);
+    expect(p.maxAutonomyLevel).toBe(4);
+  });
+
+  it("maxAutonomyLevel is monotonic non-decreasing across plan tiers", () => {
+    // Higher-tier plans never give less AI freedom than lower-tier plans.
+    for (let i = 1; i < PLANS.length; i++) {
+      expect(PLANS[i].maxAutonomyLevel).toBeGreaterThanOrEqual(PLANS[i - 1].maxAutonomyLevel);
+    }
   });
 });
 
