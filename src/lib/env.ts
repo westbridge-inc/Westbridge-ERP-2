@@ -19,7 +19,7 @@ import { validateEncryptionKey } from "./encryption.js";
 
 const envSchema = z.object({
   // ── Core ────────────────────────────────────────────────────────────────────
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  NODE_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
 
   // ── Database ────────────────────────────────────────────────────────────────
@@ -121,9 +121,13 @@ function parseEnv() {
     );
   }
 
-  // Safety checks for non-development/test environments (production, staging, etc.)
-  const isProduction = result.data.NODE_ENV !== "development" && result.data.NODE_ENV !== "test";
-  if (isProduction) {
+  // Safety checks for production-like environments. We treat `staging` as
+  // production-like for SECRET hygiene (must have real session/csrf/encryption
+  // keys, not the dev placeholders) but as non-production for the email
+  // requirement: staging never sends real email by design (see lib/email/index.ts).
+  const isProductionLike = result.data.NODE_ENV !== "development" && result.data.NODE_ENV !== "test";
+  const isRealProduction = result.data.NODE_ENV === "production";
+  if (isProductionLike) {
     const warnings: string[] = [];
     if (result.data.SESSION_SECRET.startsWith("change-me-in-production")) {
       warnings.push("SESSION_SECRET is still the default — generate with: openssl rand -hex 32");
@@ -139,8 +143,10 @@ function parseEnv() {
       throw new Error("Insecure default secrets detected in production. See warnings above.");
     }
 
-    // Email is critical: password resets, invites, and payment receipts all require it
-    if (!result.data.RESEND_API_KEY && !result.data.SMTP_HOST) {
+    // Email is critical in REAL production: password resets, invites, and
+    // payment receipts all require it. Staging never sends email by design
+    // so the requirement is skipped.
+    if (isRealProduction && !result.data.RESEND_API_KEY && !result.data.SMTP_HOST) {
       throw new Error(
         "RESEND_API_KEY (or SMTP_HOST) is required in production. " +
           "Password resets, invites, and payment receipts will silently fail without it.",

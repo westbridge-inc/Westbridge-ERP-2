@@ -68,12 +68,26 @@ function isTransientError(error: unknown): boolean {
 export async function sendEmail(opts: SendEmailOptions): Promise<Result<{ id: string }, string>> {
   const from = opts.from ?? process.env.EMAIL_FROM ?? "Westbridge <noreply@westbridgetoday.com>";
 
+  const nodeEnv = process.env.NODE_ENV;
+
+  // STAGING SAFETY: staging never sends real email by design — even if
+  // RESEND_API_KEY is set. This protects against an operator running a
+  // smoke-test signup against staging and accidentally emailing a real
+  // user from a production-shaped Resend account. The dev/test path
+  // below still uses Resend when explicitly mocked in unit tests.
+  if (nodeEnv === "staging") {
+    logger.warn(
+      `[email] NODE_ENV=staging — email send intentionally skipped. To: ${opts.to}, Subject: ${opts.subject}`,
+    );
+    return ok({ id: `staging-skipped-${Date.now()}` });
+  }
+
   // In development/test without RESEND_API_KEY, log instead of silently failing
   if (!process.env.RESEND_API_KEY) {
-    const isDev = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+    const isDev = nodeEnv === "development" || nodeEnv === "test";
     if (isDev) {
       logger.warn(
-        `[email] RESEND_API_KEY not set — skipping email send in ${process.env.NODE_ENV}. ` +
+        `[email] RESEND_API_KEY not set — skipping email send in ${nodeEnv}. ` +
           `To: ${opts.to}, Subject: ${opts.subject}`,
       );
       return ok({ id: `dev-skipped-${Date.now()}` });

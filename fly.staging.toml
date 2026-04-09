@@ -1,0 +1,55 @@
+# Fly.io deployment config for Westbridge ERP Backend STAGING
+# Deploy: fly deploy --config fly.staging.toml --app westbridge-api-staging
+#
+# Staging environment for pre-production validation:
+#   - Same Dockerfile as prod
+#   - Smaller VM (cheaper) — single shared-cpu-1x machine, no HA
+#   - Same release_command (prisma db push) so schema stays in sync
+#   - Sentry environment auto-tagged as "staging" via NODE_ENV
+#
+# Staging spends ~$5/month on Fly vs prod's ~$30/month — sized for the
+# CI deploy job + occasional smoke tests, NOT real user traffic.
+
+app = "westbridge-api-staging"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  release_command = "npx prisma db push"
+
+[env]
+  NODE_ENV = "staging"
+  PORT = "4000"
+  DATABASE_POOL_SIZE = "5"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "stop"  # Aggressive stop saves money since traffic is bursty
+  auto_start_machines = true
+  min_machines_running = 0     # Cheap: scale to zero when idle
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 100
+    soft_limit = 80
+
+[[http_service.checks]]
+  grace_period = "30s"
+  interval = "30s"
+  method = "GET"
+  path = "/api/health/live"
+  timeout = "5s"
+
+[[http_service.checks]]
+  grace_period = "60s"
+  interval = "60s"
+  method = "GET"
+  path = "/api/health/ready"
+  timeout = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
