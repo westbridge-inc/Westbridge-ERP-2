@@ -2,7 +2,7 @@
  * Encryption unit tests — AES-256-GCM encrypt/decrypt, key validation, key rotation.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { encrypt, decrypt, isEncrypted, validateEncryptionKey } from "../encryption.js";
+import { encrypt, decrypt, isEncrypted, validateEncryptionKey, ENCRYPTION_CONTEXT } from "../encryption.js";
 import { randomBytes as _randomBytes } from "crypto";
 
 // Valid 32-byte hex key for testing
@@ -298,5 +298,121 @@ describe("Encryption — IV length enforcement", () => {
     const shortIv = "a".repeat(16); // 8 bytes
     const tampered = `${shortIv}:${parts[1]}:${parts[2]}`;
     expect(() => decrypt(tampered)).toThrow();
+  });
+});
+
+describe("Encryption — v1 envelope with AAD context binding", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("round-trips when encrypt + decrypt use the same context", () => {
+    const ctx = "totp.secret:user-abc";
+    const ciphertext = encrypt("topsecret", ctx);
+    expect(decrypt(ciphertext, ctx)).toBe("topsecret");
+  });
+
+  it("produces a 4-part v1 envelope when context is provided", () => {
+    const ciphertext = encrypt("data", "ctx-1");
+    const parts = ciphertext.split(":");
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toBe("v1");
+    expect(parts[1]).toMatch(/^[0-9a-f]{24}$/); // IV
+    expect(parts[2]).toMatch(/^[0-9a-f]{32}$/); // auth tag
+    expect(parts[3]).toMatch(/^[0-9a-f]+$/); // ciphertext
+  });
+
+  it("produces a 3-part v0 envelope when context is omitted (back-compat)", () => {
+    const ciphertext = encrypt("data");
+    expect(ciphertext.split(":")).toHaveLength(3);
+  });
+
+  it("rejects v1 ciphertext when no context is supplied on decrypt", () => {
+    const ciphertext = encrypt("data", "ctx-1");
+    expect(() => decrypt(ciphertext)).toThrow(/v1 envelope requires AAD context/);
+  });
+
+  it("rejects v1 ciphertext when context is wrong (cross-context attack)", () => {
+    const ciphertext = encrypt("data", "totp.secret:user-A");
+    expect(() => decrypt(ciphertext, "totp.secret:user-B")).toThrow("Decryption failed");
+  });
+
+  it("rejects v1 ciphertext when context is empty string vs unset", () => {
+    const ciphertext = encrypt("data", "ctx");
+    expect(() => decrypt(ciphertext, "")).toThrow("Decryption failed");
+  });
+
+  it("v0 legacy ciphertext decrypts even when context is supplied (ignored)", () => {
+    // Existing rows in the DB are v0; passing context to decrypt should not break them.
+    const legacy = encrypt("legacy data");
+    expect(legacy.split(":")).toHaveLength(3);
+    expect(decrypt(legacy, "any-context")).toBe("legacy data");
+    expect(decrypt(legacy)).toBe("legacy data");
+  });
+
+  it("AAD-bound ciphertexts cannot be moved between rows (cross-row attack)", () => {
+    // Two TOTP secrets, one per user
+    const userA = "user-a-id";
+    const userB = "user-b-id";
+    const secretA = encrypt("AAAAAAAAAA", ENCRYPTION_CONTEXT.totpSecret(userA));
+    const secretB = encrypt("BBBBBBBBBB", ENCRYPTION_CONTEXT.totpSecret(userB));
+
+    // Each decrypts under its own context
+    expect(decrypt(secretA, ENCRYPTION_CONTEXT.totpSecret(userA))).toBe("AAAAAAAAAA");
+    expect(decrypt(secretB, ENCRYPTION_CONTEXT.totpSecret(userB))).toBe("BBBBBBBBBB");
+
+    // An attacker who copies user A's encrypted secret onto user B's row
+    // (e.g. via SQL injection or a compromised admin) cannot decrypt it,
+    // because the auth tag was computed against userA's AAD context.
+    expect(() => decrypt(secretA, ENCRYPTION_CONTEXT.totpSecret(userB))).toThrow("Decryption failed");
+    expect(() => decrypt(secretB, ENCRYPTION_CONTEXT.totpSecret(userA))).toThrow("Decryption failed");
+  });
+
+  it("v1 envelope survives key rotation when context still matches", () => {
+    const ctx = "sso.clientSecret:account-xyz";
+    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", "");
+    const ciphertext = encrypt("rotated v1", ctx);
+
+    // Rotate keys: old → previous, new → current
+    vi.stubEnv("ENCRYPTION_KEY", ALTERNATE_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", TEST_KEY);
+
+    expect(decrypt(ciphertext, ctx)).toBe("rotated v1");
+  });
+
+  it("ENCRYPTION_CONTEXT helpers produce stable, namespaced strings", () => {
+    expect(ENCRYPTION_CONTEXT.totpSecret("u1")).toBe("totp.secret:u1");
+    expect(ENCRYPTION_CONTEXT.ssoClientSecret("a1")).toBe("sso.clientSecret:a1");
+    expect(ENCRYPTION_CONTEXT.sessionErpnextSid("u1")).toBe("session.erpnextSid:u1");
+    expect(ENCRYPTION_CONTEXT.webhookSecret("e1")).toBe("webhook.secret:e1");
+  });
+
+  it("rejects malformed v1 envelope (claims v1 but missing parts)", () => {
+    expect(() => decrypt("v1:onlyone", "ctx")).toThrow("Invalid ciphertext format");
+    expect(() => decrypt("v1::", "ctx")).toThrow("Invalid ciphertext format");
+  });
+
+  it("v1 envelope with tampered auth tag is rejected (AAD does not weaken integrity)", () => {
+    const ctx = "ctx-1";
+    const ciphertext = encrypt("data", ctx);
+    const parts = ciphertext.split(":");
+    const tamperedTag = parts[2]!.slice(0, -2) + "ff";
+    const bad = `${parts[0]}:${parts[1]}:${tamperedTag}:${parts[3]}`;
+    expect(() => decrypt(bad, ctx)).toThrow();
+  });
+
+  it("isEncrypted recognises both v0 and v1 envelopes", () => {
+    const v0 = encrypt("legacy");
+    const v1 = encrypt("modern", "ctx");
+    expect(isEncrypted(v0)).toBe(true);
+    expect(isEncrypted(v1)).toBe(true);
+    expect(isEncrypted("plaintext")).toBe(false);
+    expect(isEncrypted("v1:not-real-hex")).toBe(false);
   });
 });

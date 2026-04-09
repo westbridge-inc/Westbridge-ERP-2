@@ -18,7 +18,7 @@ import {
   type SsoConfig,
 } from "../lib/services/sso.service.js";
 import { createSession } from "../lib/services/session.service.js";
-import { encrypt, decrypt } from "../lib/encryption.js";
+import { encrypt, decrypt, ENCRYPTION_CONTEXT } from "../lib/encryption.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE, COOKIE_SAME_SITE, COOKIE_SECURE } from "../lib/constants.js";
 
@@ -47,7 +47,8 @@ async function loadSsoConfig(accountId: string): Promise<SsoConfig | null> {
       provider: row.provider as "oidc",
       issuerUrl: row.issuerUrl,
       clientId: row.clientId,
-      clientSecret: decrypt(row.clientSecret),
+      // AAD-bound to accountId on v1 envelopes; v0 legacy still decrypts.
+      clientSecret: decrypt(row.clientSecret, ENCRYPTION_CONTEXT.ssoClientSecret(accountId)),
       allowedDomains: row.allowedDomains,
       autoProvision: row.autoProvision,
       defaultRole: row.defaultRole,
@@ -58,13 +59,16 @@ async function loadSsoConfig(accountId: string): Promise<SsoConfig | null> {
 }
 
 async function saveSsoConfig(config: SsoConfig): Promise<void> {
+  // AAD-bind clientSecret to accountId so an attacker who gains write access
+  // to sso_configs cannot copy a client secret onto another account's row.
+  const aad = ENCRYPTION_CONTEXT.ssoClientSecret(config.accountId);
   await prisma.ssoConfig.upsert({
     where: { accountId: config.accountId },
     update: {
       provider: config.provider,
       issuerUrl: config.issuerUrl,
       clientId: config.clientId,
-      clientSecret: encrypt(config.clientSecret),
+      clientSecret: encrypt(config.clientSecret, aad),
       allowedDomains: config.allowedDomains,
       autoProvision: config.autoProvision,
       defaultRole: config.defaultRole,
@@ -74,7 +78,7 @@ async function saveSsoConfig(config: SsoConfig): Promise<void> {
       provider: config.provider,
       issuerUrl: config.issuerUrl,
       clientId: config.clientId,
-      clientSecret: encrypt(config.clientSecret),
+      clientSecret: encrypt(config.clientSecret, aad),
       allowedDomains: config.allowedDomains,
       autoProvision: config.autoProvision,
       defaultRole: config.defaultRole,

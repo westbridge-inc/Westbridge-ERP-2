@@ -131,10 +131,19 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
   identify: vi.fn(),
   capture: vi.fn(),
 }));
-// TOTP routes use encryption (needs ENCRYPTION_KEY env var)
+// TOTP routes use encryption (needs ENCRYPTION_KEY env var).
+// ENCRYPTION_CONTEXT is imported by the routes for AAD-bound v1 envelopes;
+// the helper values themselves don't matter for these tests since encrypt/
+// decrypt are mocked, but the property must exist on the module surface.
 vi.mock("../../lib/encryption.js", () => ({
   encrypt: vi.fn().mockReturnValue("encrypted"),
   decrypt: vi.fn().mockReturnValue("JBSWY3DPEHPK3PXP"),
+  ENCRYPTION_CONTEXT: {
+    totpSecret: (userId: string) => `totp.secret:${userId}`,
+    ssoClientSecret: (accountId: string) => `sso.clientSecret:${accountId}`,
+    sessionErpnextSid: (userId: string) => `session.erpnextSid:${userId}`,
+    webhookSecret: (endpointId: string) => `webhook.secret:${endpointId}`,
+  },
 }));
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import { prisma } from "../data/prisma.js";
 import { ok, err, type Result } from "../utils/result.js";
 import { logAudit, auditContext } from "../services/audit.service.js";
 import { reportSecurityEvent } from "../security-monitor.js";
-import { encrypt, decrypt } from "../encryption.js";
+import { encrypt, decrypt, ENCRYPTION_CONTEXT } from "../encryption.js";
 import { getRedis } from "../redis.js";
 import { logger } from "../logger.js";
 
@@ -113,7 +113,10 @@ export async function createSession(
         });
       }
 
-      const encryptedSid = erpnextSid ? encrypt(erpnextSid) : undefined;
+      // AAD-bind the encrypted ERPNext SID to this user — see ENCRYPTION_CONTEXT.
+      // An attacker who can write to the sessions table cannot move one user's
+      // encrypted SID onto another user's row; the auth tag will not validate.
+      const encryptedSid = erpnextSid ? encrypt(erpnextSid, ENCRYPTION_CONTEXT.sessionErpnextSid(userId)) : undefined;
       await tx.session.create({
         data: {
           userId,
@@ -290,7 +293,9 @@ export async function validateSession(
             erpnextSid: parsed.erpnextSid
               ? (() => {
                   try {
-                    return decrypt(parsed.erpnextSid!);
+                    // Pass AAD context — required for v1 envelopes,
+                    // ignored for v0 legacy ciphertexts.
+                    return decrypt(parsed.erpnextSid!, ENCRYPTION_CONTEXT.sessionErpnextSid(parsed.userId));
                   } catch {
                     return undefined;
                   }
@@ -406,7 +411,7 @@ export async function validateSession(
     const erpnextSid = session.erpnextSid
       ? (() => {
           try {
-            return decrypt(session.erpnextSid!);
+            return decrypt(session.erpnextSid!, ENCRYPTION_CONTEXT.sessionErpnextSid(session.userId));
           } catch (decryptErr) {
             logger.warn("ERPNext SID decryption failed — user will need to re-authenticate with ERPNext", {
               sessionId: session.id,
@@ -423,8 +428,11 @@ export async function validateSession(
     if (redis) {
       const cached: CachedSession = {
         ...result,
-        // Encrypt SID before caching — never store plaintext credentials in Redis
-        erpnextSid: result.erpnextSid ? encrypt(result.erpnextSid) : null,
+        // Encrypt SID before caching — never store plaintext credentials in Redis.
+        // AAD-bound to userId so a Redis-only attacker cannot move SIDs between users.
+        erpnextSid: result.erpnextSid
+          ? encrypt(result.erpnextSid, ENCRYPTION_CONTEXT.sessionErpnextSid(result.userId))
+          : null,
         expiresAt: session.expiresAt.getTime(),
         lastActiveAt: (shouldUpdate ? now : lastActiveTs).getTime(),
         fingerprint: session.fingerprint ?? null,

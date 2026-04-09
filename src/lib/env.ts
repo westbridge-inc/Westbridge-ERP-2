@@ -36,8 +36,18 @@ const envSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().default("http://localhost:3000"),
 
   // ── Security (required in production) ───────────────────────────────────────
-  SESSION_SECRET: z.string().default("change-me-in-production"),
-  CSRF_SECRET: z.string().default("change-me-in-production"),
+  // SESSION_SECRET / CSRF_SECRET: HMAC keys for session + CSRF token signing.
+  // Minimum 32 chars enforced here so a typo or single-letter "secret" never
+  // makes it past startup. The placeholder default is exactly 32 chars long
+  // and is rejected by the production guard below before the server boots.
+  SESSION_SECRET: z
+    .string()
+    .min(32, "SESSION_SECRET must be ≥32 chars (use: openssl rand -hex 32)")
+    .default("change-me-in-production-change-me"),
+  CSRF_SECRET: z
+    .string()
+    .min(32, "CSRF_SECRET must be ≥32 chars (use: openssl rand -hex 32)")
+    .default("change-me-in-production-change-me"),
   CSRF_SECRET_PREVIOUS: z.string().optional().default(""),
   ENCRYPTION_KEY: z.string().default("change-me-in-production"),
   ENCRYPTION_KEY_PREVIOUS: z.string().optional().default(""),
@@ -96,14 +106,29 @@ function parseEnv() {
     throw new Error(`Missing or invalid environment variables:\n${JSON.stringify(formatted, null, 2)}`);
   }
 
+  // Defence-in-depth: a misconfigured rotation pair (PREVIOUS == current) is
+  // a no-op that silently disables rotation. Catch this in every environment,
+  // not just production, since it costs nothing to check and saves a debug
+  // session later. Only meaningful when both are real (non-empty) hex keys.
+  if (
+    result.data.ENCRYPTION_KEY_PREVIOUS &&
+    result.data.ENCRYPTION_KEY !== "change-me-in-production" &&
+    result.data.ENCRYPTION_KEY === result.data.ENCRYPTION_KEY_PREVIOUS
+  ) {
+    throw new Error(
+      "ENCRYPTION_KEY_PREVIOUS must differ from ENCRYPTION_KEY — " +
+        "rotation is meaningless if both keys are identical.",
+    );
+  }
+
   // Safety checks for non-development/test environments (production, staging, etc.)
   const isProduction = result.data.NODE_ENV !== "development" && result.data.NODE_ENV !== "test";
   if (isProduction) {
     const warnings: string[] = [];
-    if (result.data.SESSION_SECRET === "change-me-in-production") {
+    if (result.data.SESSION_SECRET.startsWith("change-me-in-production")) {
       warnings.push("SESSION_SECRET is still the default — generate with: openssl rand -hex 32");
     }
-    if (result.data.CSRF_SECRET === "change-me-in-production") {
+    if (result.data.CSRF_SECRET.startsWith("change-me-in-production")) {
       warnings.push("CSRF_SECRET is still the default — generate with: openssl rand -hex 32");
     }
     if (result.data.ENCRYPTION_KEY === "change-me-in-production") {

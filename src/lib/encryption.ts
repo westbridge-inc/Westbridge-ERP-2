@@ -1,3 +1,36 @@
+/**
+ * AES-256-GCM authenticated encryption for field-level data at rest.
+ *
+ * Algorithm choice: AES-256-GCM (NIST SP 800-38D) — the same primitive used by
+ * HashiCorp Vault, Themis, Acra, and TLS 1.3 GCM ciphersuites. AES-NI hardware
+ * acceleration on every modern CPU keeps performance at ~1 GB/s.
+ *
+ * Envelope formats (auto-detected by decrypt):
+ *
+ *   v0 (legacy, 3 parts):  ivHex:authTagHex:encryptedHex
+ *     • No additional authenticated data (AAD) binding.
+ *     • Still readable for backwards compatibility with rows written before AAD.
+ *
+ *   v1 (current, 4 parts): v1:ivHex:authTagHex:encryptedHex
+ *     • Caller passes a `context` string on both encrypt() and decrypt().
+ *     • The context becomes GCM Additional Authenticated Data — it is NOT
+ *       secret, but is cryptographically bound to the ciphertext, so an
+ *       attacker who substitutes one user's encrypted secret onto another row
+ *       (cross-row attack) cannot decrypt it. The auth tag will not match.
+ *     • Use a stable namespaced context like `totp.secret:${userId}` or
+ *       `sso.clientSecret:${accountId}`. ENCRYPTION_CONTEXT below has helpers
+ *       for the canonical strings.
+ *     • The context is *not* stored in the envelope; both encrypt and decrypt
+ *       must derive it identically from row metadata.
+ *
+ * Key rotation:
+ *   ENCRYPTION_KEY          — current key, used for all encryption.
+ *   ENCRYPTION_KEY_PREVIOUS — optional fallback key for decryption only.
+ *   During rotation set ENCRYPTION_KEY=new and ENCRYPTION_KEY_PREVIOUS=old,
+ *   re-encrypt rows lazily on read or via a background job, then unset
+ *   PREVIOUS once the migration window closes.
+ */
+
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
@@ -9,13 +42,19 @@ const IV_BYTES = 12;
 // the only length we accept on decryption. Anything shorter weakens the
 // integrity guarantee and enables tag-truncation forgery.
 const AUTH_TAG_BYTES = 16;
+// Envelope version prefix for the AAD-bound format. v0 had no prefix and is
+// still accepted on decrypt for backwards compatibility with legacy rows.
+const ENVELOPE_V1 = "v1";
 
 const HEX_KEY_REGEX = /^[0-9a-fA-F]{64}$/;
 
-// Ciphertext structural pattern: ivHex(24):authTagHex(32):encryptedHex(>=2).
-// Used by isEncrypted() to discriminate encrypted blobs from plaintext during
-// transparent migration windows where a column may contain both formats.
+// Ciphertext structural patterns. Used by isEncrypted() to discriminate
+// encrypted blobs from plaintext during transparent migration windows where a
+// column may contain both formats.
+//   v0: ivHex(24):authTagHex(32):encryptedHex(≥2)
+//   v1: literal "v1:" + same three hex segments
 const CIPHERTEXT_REGEX = /^[0-9a-f]{24}:[0-9a-f]{32}:[0-9a-f]+$/;
+const CIPHERTEXT_V1_REGEX = /^v1:[0-9a-f]{24}:[0-9a-f]{32}:[0-9a-f]+$/;
 
 function getKey(): Buffer {
   const secret = process.env.ENCRYPTION_KEY;
@@ -75,24 +114,79 @@ export function validateEncryptionKey(): void {
  */
 export function isEncrypted(value: string): boolean {
   if (!value || typeof value !== "string") return false;
-  return CIPHERTEXT_REGEX.test(value);
+  return CIPHERTEXT_REGEX.test(value) || CIPHERTEXT_V1_REGEX.test(value);
 }
 
-export function encrypt(plaintext: string): string {
+/**
+ * Encrypt plaintext using AES-256-GCM with a fresh random 96-bit IV.
+ *
+ * @param plaintext  UTF-8 string to encrypt.
+ * @param context    Optional Additional Authenticated Data (AAD). When supplied,
+ *                   the ciphertext is bound to this context — the exact same
+ *                   string must be passed to decrypt(), or the auth tag will not
+ *                   verify. Pass a stable namespaced identifier such as
+ *                   `"totp.secret:" + userId`. This prevents an attacker who
+ *                   can write to your DB from moving one user's encrypted
+ *                   secret onto another user's row.
+ *
+ *                   When omitted, produces a v0 envelope (no AAD) for
+ *                   backwards compatibility with legacy callers.
+ */
+export function encrypt(plaintext: string, context?: string): string {
   const key = getKey();
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv);
+  if (context !== undefined) {
+    // setAAD must be called BEFORE update() — Node enforces this ordering.
+    cipher.setAAD(Buffer.from(context, "utf8"));
+  }
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
-  return [iv.toString("hex"), authTag.toString("hex"), encrypted.toString("hex")].join(":");
+  const segments = [iv.toString("hex"), authTag.toString("hex"), encrypted.toString("hex")];
+  if (context !== undefined) {
+    return [ENVELOPE_V1, ...segments].join(":");
+  }
+  return segments.join(":");
 }
 
-export function decrypt(ciphertext: string): string {
+/**
+ * Decrypt a ciphertext produced by encrypt(). Auto-detects envelope version.
+ *
+ * @param ciphertext  3-part v0 (`iv:tag:ct`) or 4-part v1 (`v1:iv:tag:ct`).
+ * @param context     Required when the envelope is v1; ignored for v0. Must
+ *                    match the value passed to encrypt() exactly.
+ */
+export function decrypt(ciphertext: string, context?: string): string {
+  if (typeof ciphertext !== "string" || ciphertext.length === 0) {
+    throw new Error("Invalid ciphertext: empty or non-string input");
+  }
+
   const parts = ciphertext.split(":");
-  if (parts.length !== 3) throw new Error("Invalid ciphertext format: expected ivHex:authTagHex:encryptedHex");
-  const [ivHex, authTagHex, encryptedHex] = parts;
+
+  let envelopeVersion: "v0" | "v1";
+  let ivHex: string | undefined;
+  let authTagHex: string | undefined;
+  let encryptedHex: string | undefined;
+
+  if (parts.length === 4 && parts[0] === ENVELOPE_V1) {
+    envelopeVersion = "v1";
+    [, ivHex, authTagHex, encryptedHex] = parts;
+  } else if (parts.length === 3) {
+    envelopeVersion = "v0";
+    [ivHex, authTagHex, encryptedHex] = parts;
+  } else {
+    throw new Error("Invalid ciphertext format: expected v0 (iv:tag:ct) or v1 (v1:iv:tag:ct)");
+  }
+
   if (!ivHex || !authTagHex || !encryptedHex)
     throw new Error("Invalid ciphertext format: one or more segments are empty");
+
+  // v1 envelopes require an AAD context — fail closed rather than silently
+  // decrypting without the integrity binding the writer intended.
+  if (envelopeVersion === "v1" && context === undefined) {
+    throw new Error("Decryption failed: v1 envelope requires AAD context but none was provided");
+  }
+
   const iv = Buffer.from(ivHex, "hex");
   const authTag = Buffer.from(authTagHex, "hex");
   const encrypted = Buffer.from(encryptedHex, "hex");
@@ -114,6 +208,10 @@ export function decrypt(ciphertext: string): string {
     }
     const decipher = createDecipheriv(ALGORITHM, key, iv); // nosemgrep: javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length
     decipher.setAuthTag(authTag);
+    if (envelopeVersion === "v1") {
+      // setAAD must be called BEFORE update() — Node enforces this ordering.
+      decipher.setAAD(Buffer.from(context!, "utf8"));
+    }
     return decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8");
   };
 
@@ -140,3 +238,20 @@ export function decrypt(ciphertext: string): string {
     });
   }
 }
+
+/**
+ * Stable AAD context strings used by callers across the codebase. Defined here
+ * (rather than at each call site) so the binding strings are auditable in one
+ * place and never accidentally diverge between encrypt and decrypt sides.
+ */
+export const ENCRYPTION_CONTEXT = {
+  /** Per-user TOTP secret. Bound to the userId so a TOTP secret cannot be
+   *  cross-substituted onto another user's row. */
+  totpSecret: (userId: string) => `totp.secret:${userId}`,
+  /** Per-account SSO OIDC client secret. Bound to accountId. */
+  ssoClientSecret: (accountId: string) => `sso.clientSecret:${accountId}`,
+  /** Per-session ERPNext SID. Bound to the user the session belongs to. */
+  sessionErpnextSid: (userId: string) => `session.erpnextSid:${userId}`,
+  /** Per-account webhook signing secret. Bound to the endpoint id. */
+  webhookSecret: (endpointId: string) => `webhook.secret:${endpointId}`,
+} as const;

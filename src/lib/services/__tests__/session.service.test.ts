@@ -57,6 +57,12 @@ vi.mock("../../security-monitor.js", () => ({
 vi.mock("../../encryption.js", () => ({
   encrypt: vi.fn().mockImplementation((v: string) => `encrypted:${v}`),
   decrypt: vi.fn().mockImplementation((v: string) => v.replace("encrypted:", "")),
+  ENCRYPTION_CONTEXT: {
+    totpSecret: (userId: string) => `totp.secret:${userId}`,
+    ssoClientSecret: (accountId: string) => `sso.clientSecret:${accountId}`,
+    sessionErpnextSid: (userId: string) => `session.erpnextSid:${userId}`,
+    webhookSecret: (endpointId: string) => `webhook.secret:${endpointId}`,
+  },
 }));
 
 vi.mock("../../logger.js", () => ({

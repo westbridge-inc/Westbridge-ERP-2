@@ -12,7 +12,7 @@ import { randomBytes, createHash, createHmac } from "crypto";
 import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
-import { encrypt, decrypt } from "../lib/encryption.js";
+import { encrypt, decrypt, ENCRYPTION_CONTEXT } from "../lib/encryption.js";
 import { prisma } from "../lib/data/prisma.js";
 
 const router = Router();
@@ -100,17 +100,20 @@ router.post("/auth/2fa/setup", requireAuth, requireCsrf, async (req: Request, re
   const backupCodes = Array.from({ length: 8 }, () => randomBytes(4).toString("hex"));
   const hashedBackupCodes = backupCodes.map((c) => createHash("sha256").update(c).digest("hex"));
 
-  // Store encrypted secret
+  // Store encrypted secret. AAD-bound to userId, so an attacker who gains
+  // write access to totp_secrets cannot copy one user's verified secret onto
+  // another user's row to take over their 2FA.
+  const totpAad = ENCRYPTION_CONTEXT.totpSecret(session.userId);
   await prisma.totpSecret.upsert({
     where: { userId: session.userId },
     update: {
-      secret: encrypt(base32Secret),
+      secret: encrypt(base32Secret, totpAad),
       verified: false,
       backupCodes: hashedBackupCodes,
     },
     create: {
       userId: session.userId,
-      secret: encrypt(base32Secret),
+      secret: encrypt(base32Secret, totpAad),
       verified: false,
       backupCodes: hashedBackupCodes,
     },
@@ -157,7 +160,8 @@ router.post(
       return res.status(400).json(apiError("NOT_SETUP", "2FA setup not started. Call /auth/2fa/setup first."));
     }
 
-    const secretBase32 = decrypt(totp.secret);
+    // Pass the AAD context — required for v1 envelopes, ignored for v0 legacy.
+    const secretBase32 = decrypt(totp.secret, ENCRYPTION_CONTEXT.totpSecret(session.userId));
     // Decode base32 to bytes
     const secretBytes = fromBase32(secretBase32);
 

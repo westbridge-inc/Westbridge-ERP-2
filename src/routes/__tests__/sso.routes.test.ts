@@ -126,10 +126,17 @@ vi.mock("../../lib/analytics/posthog.server.js", () => ({
   identify: vi.fn(),
   capture: vi.fn(),
 }));
-// SSO routes use encryption (needs ENCRYPTION_KEY env var)
+// SSO routes use encryption (needs ENCRYPTION_KEY env var).
+// ENCRYPTION_CONTEXT helpers are imported by sso.routes for AAD-bound v1 envelopes.
 vi.mock("../../lib/encryption.js", () => ({
   encrypt: vi.fn().mockReturnValue("encrypted"),
   decrypt: vi.fn().mockReturnValue("decrypted"),
+  ENCRYPTION_CONTEXT: {
+    totpSecret: (userId: string) => `totp.secret:${userId}`,
+    ssoClientSecret: (accountId: string) => `sso.clientSecret:${accountId}`,
+    sessionErpnextSid: (userId: string) => `session.erpnextSid:${userId}`,
+    webhookSecret: (endpointId: string) => `webhook.secret:${endpointId}`,
+  },
 }));
 vi.mock("../../lib/services/sso.service.js", () => ({
   buildAuthorizationUrl: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),

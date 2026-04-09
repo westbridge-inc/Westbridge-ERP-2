@@ -12,7 +12,7 @@ import { prisma } from "../lib/data/prisma.js";
 import { logger } from "../lib/logger.js";
 import { DATA_RETENTION } from "../lib/data-retention.js";
 import { erpGet } from "../lib/data/erpnext.client.js";
-import { decrypt, isEncrypted } from "../lib/encryption.js";
+import { decrypt, isEncrypted, ENCRYPTION_CONTEXT } from "../lib/encryption.js";
 import { publish } from "../lib/realtime.js";
 import { getRedisConfig } from "../lib/redis.js";
 import { SECURITY } from "../lib/constants.js";
@@ -212,7 +212,12 @@ function createWebhooksWorker(): Worker {
         // and skipping decryption when the value is not a ciphertext blob.
         // This keeps webhook delivery functional through the migration window
         // without weakening the encrypt-on-write guarantee for new rows.
-        const secret = isEncrypted(endpoint.secret) ? decrypt(endpoint.secret) : endpoint.secret;
+        //
+        // AAD-bound to endpointId on v1 envelopes — the context is ignored on
+        // v0 (legacy) ciphertexts so transparent migration still works.
+        const secret = isEncrypted(endpoint.secret)
+          ? decrypt(endpoint.secret, ENCRYPTION_CONTEXT.webhookSecret(endpointId))
+          : endpoint.secret;
         const bodyStr = JSON.stringify(payload);
         const signature = createHmac("sha256", secret).update(bodyStr).digest("hex");
 

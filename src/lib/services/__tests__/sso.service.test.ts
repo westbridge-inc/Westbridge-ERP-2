@@ -1,4 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// SSO state HMAC is HKDF-derived from SESSION_SECRET (≥32 chars required).
+// Stub before importing the service so the cached state key is initialised
+// against a real value rather than failing-closed on first use.
+vi.stubEnv("SESSION_SECRET", "test-session-secret-at-least-32-characters-long-for-hkdf");
 
 const mockRedis = {
   set: vi.fn().mockResolvedValue("OK"),
@@ -29,6 +34,7 @@ import {
   buildAuthorizationUrl,
   handleCallback,
   findOrCreateSsoUser,
+  _resetSsoStateKeyCacheForTests,
   type SsoConfig,
 } from "../sso.service.js";
 import { prisma } from "../../data/prisma.js";
@@ -49,6 +55,14 @@ describe("sso.service", () => {
     vi.clearAllMocks();
     // Reset global fetch mock
     vi.restoreAllMocks();
+    // Re-stub SESSION_SECRET after restoreAllMocks (which clears env stubs).
+    vi.stubEnv("SESSION_SECRET", "test-session-secret-at-least-32-characters-long-for-hkdf");
+    _resetSsoStateKeyCacheForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    _resetSsoStateKeyCacheForTests();
   });
 
   describe("discoverOidc", () => {

@@ -21,11 +21,53 @@
  *     claim validation here before trusting any claims.
  */
 
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "crypto";
 import { ok, err, type Result } from "../utils/result.js";
 import { logger } from "../logger.js";
 import { prisma } from "../data/prisma.js";
 import { getRedis } from "../redis.js";
+
+// ─── State HMAC key (HKDF-derived from SESSION_SECRET) ──────────────────────
+//
+// The SSO state parameter is HMAC-signed to prevent CSRF on the OIDC callback.
+// We derive a *dedicated* signing key from SESSION_SECRET using HKDF-SHA256
+// rather than reusing SESSION_SECRET directly. This gives us domain separation:
+// even if a future bug exposed an HMAC oracle for SSO state, the underlying
+// SESSION_SECRET (used elsewhere for cookies, CSRF, etc.) is not directly
+// recoverable, and the SSO state key cannot be substituted into other contexts.
+//
+// Lazy-initialised so the module can be imported in dev/test environments
+// where SESSION_SECRET may not be set yet at module-load time.
+let cachedStateKey: Buffer | null = null;
+
+function getStateHmacKey(): Buffer {
+  if (cachedStateKey) return cachedStateKey;
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret || sessionSecret.length < 32) {
+    // Fail closed: refuse to sign or verify SSO state if no real key is set.
+    // env.ts already enforces a min length of 32 at startup; this is a
+    // defence-in-depth check that catches any code path that bypasses env.ts.
+    throw new Error("SSO state signing requires SESSION_SECRET to be set to a value of at least 32 characters");
+  }
+  // HKDF-SHA256: 32-byte output, fixed salt + info string for domain separation.
+  // RFC 5869 explicitly supports a constant salt when none is available;
+  // the info string uniquely identifies this purpose so the key cannot be
+  // confused with one derived for any other use.
+  const derived = hkdfSync(
+    "sha256",
+    Buffer.from(sessionSecret, "utf8"),
+    Buffer.from("westbridge-sso-state-v1", "utf8"), // salt
+    Buffer.from("sso.state.hmac.key", "utf8"), // info
+    32,
+  );
+  cachedStateKey = Buffer.from(derived);
+  return cachedStateKey;
+}
+
+/** @internal — exposed only for unit tests. */
+export function _resetSsoStateKeyCacheForTests(): void {
+  cachedStateKey = null;
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -114,13 +156,15 @@ export async function buildAuthorizationUrl(
 
   // State: HMAC-signed to prevent CSRF + a server-stored nonce that pins the
   // state to a single Redis key. Both must validate on callback or the login
-  // is rejected. SESSION_SECRET is the keying material; env.ts is the
-  // production gatekeeper that ensures SESSION_SECRET is non-default before
-  // the server starts, so here we tolerate the dev fallback for tests/local.
+  // is rejected.
+  //
+  // Signing key: HKDF-derived from SESSION_SECRET (see getStateHmacKey) for
+  // domain separation. We retain the full 256-bit HMAC output instead of
+  // slicing to 128 bits — truncation only weakens forgery resistance and
+  // gives no defensive benefit.
   const nonce = randomBytes(16).toString("hex");
   const statePayload = `${accountId}:${nonce}`;
-  const stateSecret = process.env.SESSION_SECRET ?? "dev-secret";
-  const stateSig = createHmac("sha256", stateSecret).update(statePayload).digest("hex").slice(0, 32);
+  const stateSig = createHmac("sha256", getStateHmacKey()).update(statePayload).digest("hex");
   const state = `${statePayload}:${stateSig}`;
 
   // Store code verifier and nonce in Redis (5 min TTL). The nonce is also
@@ -172,18 +216,14 @@ export async function handleCallback(
     accountId: string;
   };
 
-  // Verify state signature using the same SESSION_SECRET that signed it.
-  // env.ts is the production gatekeeper for SESSION_SECRET; the dev fallback
-  // must match the one used in buildAuthorizationUrl() so signatures verify.
-  const stateSecret = process.env.SESSION_SECRET ?? "dev-secret";
+  // Verify state signature using the same HKDF-derived state HMAC key.
+  // Must match the signing path in buildAuthorizationUrl exactly.
   const parts = state.split(":");
   if (parts.length !== 3) return err("Malformed SSO state");
   const [stateAccountId, stateNonce, stateSig] = parts;
-  const expectedSig = createHmac("sha256", stateSecret)
-    .update(`${stateAccountId}:${stateNonce}`)
-    .digest("hex")
-    .slice(0, 32);
+  const expectedSig = createHmac("sha256", getStateHmacKey()).update(`${stateAccountId}:${stateNonce}`).digest("hex");
   if (
+    !stateSig ||
     stateSig.length !== expectedSig.length ||
     !timingSafeEqual(Buffer.from(stateSig, "utf8"), Buffer.from(expectedSig, "utf8"))
   ) {
