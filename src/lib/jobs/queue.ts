@@ -86,6 +86,35 @@ export const cortexQueue = new Queue("cortex", {
   },
 });
 
+/**
+ * Account provisioning queue (M5).
+ *
+ * Owns the work that used to run as fire-and-forget dynamic imports from
+ * billing.service.createAccount: ERPNext company + user creation, and
+ * subscription record creation. Putting these on a real queue means:
+ *
+ *   1. The work survives a process restart mid-flight (not the case
+ *      with `void import().then().catch()`).
+ *   2. Retries are managed by BullMQ with proper exponential backoff and
+ *      attempt counting that survives restart.
+ *   3. Failures land in the BullMQ dead-letter queue and can be
+ *      inspected via the queue admin tooling, instead of disappearing
+ *      into a Sentry breadcrumb.
+ *
+ * Five attempts × 5s exponential backoff gives a worst-case retry tail of
+ * about 10 minutes — long enough for most ERPNext hiccups to clear, short
+ * enough that the customer notices "setup incomplete" and can contact
+ * support if it really has failed.
+ */
+export const provisioningQueue = new Queue("provisioning", {
+  ...DEFAULT_OPTIONS,
+  defaultJobOptions: {
+    ...DEFAULT_OPTIONS.defaultJobOptions,
+    attempts: 5,
+    backoff: { type: "exponential", delay: 5_000 },
+  },
+});
+
 // ─── Job type payloads ────────────────────────────────────────────────────────
 
 export interface EmailJobData {
@@ -141,6 +170,15 @@ export interface CortexEventJobData {
   type: string;
   traceId: string;
 }
+
+/**
+ * Provisioning job payload (M5). Discriminated by `task` so a single
+ * worker can handle both ERPNext setup and subscription-record creation
+ * for a fresh signup.
+ */
+export type ProvisioningJobData =
+  | { task: "erpnext"; accountId: string }
+  | { task: "subscription"; accountId: string; plan: string };
 
 // ─── Queue helpers ────────────────────────────────────────────────────────────
 
@@ -212,4 +250,33 @@ export async function scheduleCleanupJobs(): Promise<void> {
     { task: "purge-deleted-accounts" } satisfies CleanupJobData,
     { repeat: { every: 24 * 60 * 60 * 1000 } }, // daily
   );
+}
+
+/**
+ * Enqueue an ERPNext provisioning job for a newly-created account (M5).
+ *
+ * Replaces the previous `void import("./provisioning.service.js").then(...)`
+ * fire-and-forget pattern in billing.service. The work now survives a
+ * process restart and gets BullMQ-managed retries instead of an in-memory
+ * `for` loop that gets killed on shutdown.
+ *
+ * Caller is signup / Paddle webhook handler. Both are unauthenticated
+ * cross-tenant entry points; do NOT add any tenant pinning here.
+ */
+export async function enqueueProvisioning(accountId: string): Promise<void> {
+  await provisioningQueue.add("erpnext", { task: "erpnext", accountId } satisfies ProvisioningJobData, {
+    jobId: `provisioning:erpnext:${accountId}`, // de-dupe — multiple webhook deliveries shouldn't double-provision
+  });
+}
+
+/**
+ * Enqueue a subscription record creation job for a newly-paid account (M5).
+ *
+ * Same justification as enqueueProvisioning — replaces a fire-and-forget
+ * dynamic import that wouldn't survive a restart.
+ */
+export async function enqueueSubscriptionCreate(accountId: string, plan: string): Promise<void> {
+  await provisioningQueue.add("subscription", { task: "subscription", accountId, plan } satisfies ProvisioningJobData, {
+    jobId: `provisioning:subscription:${accountId}`, // de-dupe
+  });
 }

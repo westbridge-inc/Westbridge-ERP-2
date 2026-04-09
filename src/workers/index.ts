@@ -107,6 +107,7 @@ import type {
   ErpSyncJobData,
   ReportJobData,
   CortexEventJobData,
+  ProvisioningJobData,
 } from "../lib/jobs/queue.js";
 import { processCortexEvent } from "../events/processor.js";
 
@@ -569,6 +570,71 @@ function createReportsWorker(): Worker {
   );
 }
 
+// ─── Provisioning Worker (M5) ──────────────────────────────────────────────────
+
+/**
+ * Drains the provisioning queue. Replaces the fire-and-forget dynamic
+ * imports that used to live in billing.service.createAccount /
+ * markAccountPaid. Each job retries up to 5 times with exponential backoff
+ * via the queue config; on permanent failure the BullMQ failed-jobs list
+ * preserves the error and the account stays flagged
+ * (`erpnextCompany = "__PROVISIONING_FAILED__"`) by the underlying service.
+ */
+function createProvisioningWorker(): Worker {
+  return new Worker<ProvisioningJobData>(
+    "provisioning",
+    async (job: Job<ProvisioningJobData>) => {
+      const data = job.data;
+      logger.info("Processing provisioning job", {
+        jobId: job.id,
+        task: data.task,
+        accountId: data.accountId,
+        attempt: job.attemptsMade + 1,
+      });
+
+      if (data.task === "erpnext") {
+        // Use the underlying provisionErpnextAccount (single attempt) and
+        // let BullMQ handle the retry budget. The legacy provisionWithRetry
+        // had its own in-memory retry loop that would not survive a restart;
+        // BullMQ's attempt counter does survive.
+        const { provisionErpnextAccount } = await import("../lib/services/provisioning.service.js");
+        const result = await provisionErpnextAccount(data.accountId);
+        if (!result.ok) {
+          // Throw so BullMQ schedules the next attempt with exponential backoff.
+          throw new Error(result.error);
+        }
+        logger.info("Provisioning job succeeded", {
+          jobId: job.id,
+          accountId: data.accountId,
+          companyName: result.data.companyName,
+        });
+        return;
+      }
+
+      if (data.task === "subscription") {
+        const { createSubscription } = await import("../lib/services/subscription.service.js");
+        // createSubscription returns Result<T,E>; throw on err so BullMQ retries.
+        type CreateSubResult = { ok: true; data: unknown } | { ok: false; error: string } | undefined;
+        const result = (await createSubscription(data.accountId, data.plan)) as CreateSubResult;
+        if (result && "ok" in result && !result.ok) {
+          throw new Error(result.error);
+        }
+        logger.info("Subscription provisioning job succeeded", {
+          jobId: job.id,
+          accountId: data.accountId,
+          plan: data.plan,
+        });
+        return;
+      }
+
+      // Exhaustive check — TypeScript ensures we covered all task variants.
+      const _exhaustive: never = data;
+      throw new Error(`Unknown provisioning task: ${JSON.stringify(_exhaustive)}`);
+    },
+    { connection },
+  );
+}
+
 // ─── Cortex Worker ─────────────────────────────────────────────────────────────
 
 /**
@@ -610,6 +676,7 @@ export function startWorkers(): Worker[] {
     createErpSyncWorker(),
     createReportsWorker(),
     createCortexWorker(),
+    createProvisioningWorker(),
   ];
 
   logger.info("Started BullMQ workers", { count: workers.length });
