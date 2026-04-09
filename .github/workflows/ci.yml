@@ -122,6 +122,10 @@ jobs:
       # superuser so point both URLs at the same connection string.
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
       REDIS_URL: redis://localhost:6379
+      # Tenant isolation hardening: provision the westbridge_app role and
+      # use it for the RLS-enforced regression suite. The other integration
+      # tests continue to use TEST_DATABASE_URL (the schema-owner URL).
+      TEST_RLS_DATABASE_URL: postgresql://westbridge_app:ci-rls-password-not-for-production@localhost:5432/westbridge_test?schema=public
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -130,6 +134,15 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
+      - name: Provision westbridge_app role for RLS tests
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: westbridge_test
+          WESTBRIDGE_APP_PASSWORD: ci-rls-password-not-for-production
+        run: ./scripts/provision-rls-role.sh
       - name: Run database integration tests
         run: npx vitest run --config vitest.integration.config.ts src/__tests__/integration/ --reporter=verbose
       - name: Run rate limiter integration tests

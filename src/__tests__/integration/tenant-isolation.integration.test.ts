@@ -12,32 +12,44 @@
  *     the same transaction.
  *
  * Required environment:
- *   TEST_DATABASE_URL — must point at a Postgres database AS the
- *                       `westbridge_app` role (no BYPASSRLS, no DDL).
+ *   TEST_RLS_DATABASE_URL — REQUIRED. Must point at a Postgres database
+ *                       AS the `westbridge_app` role (no BYPASSRLS, no
+ *                       DDL). This is a DEDICATED env var (not the same
+ *                       as TEST_DATABASE_URL used by the other
+ *                       integration tests) so the existing tests can
+ *                       continue to use the schema-owner role while
+ *                       this suite uses the RLS-enforced role.
  *                       Provision locally with:
  *                         ./scripts/provision-rls-role.sh
  *                       and use a URL of the form:
  *                         postgresql://westbridge_app:<pw>@localhost:5432/westbridge?schema=public
- *   TEST_MIGRATION_DATABASE_URL (optional) — schema-owner URL used to
- *                       seed fixtures across tenants. Falls back to
- *                       TEST_DATABASE_URL only if not set, in which case
- *                       fixture seeding will fail (and the test will
- *                       skip with a clear error).
+ *   TEST_MIGRATION_DATABASE_URL — REQUIRED. Schema-owner URL used to
+ *                       seed fixtures across BOTH tenants without RLS
+ *                       getting in the way. Without this, fixture
+ *                       seeding from the RLS-enforced role would fail.
  *
  * Locally:
- *   TEST_DATABASE_URL='postgresql://westbridge_app:local-dev-rls-password-do-not-use-in-prod@localhost:5432/westbridge?schema=public' \
+ *   TEST_RLS_DATABASE_URL='postgresql://westbridge_app:local-dev-rls-password-do-not-use-in-prod@localhost:5432/westbridge?schema=public' \
  *   TEST_MIGRATION_DATABASE_URL='postgresql://postgres:postgres@localhost:5432/westbridge?schema=public' \
- *   npx vitest run src/__tests__/integration/tenant-isolation.integration.test.ts
+ *   npx vitest run --config vitest.integration.config.ts \
+ *     src/__tests__/integration/tenant-isolation.integration.test.ts
+ *
+ * In CI: the integration-test job in .github/workflows/ci.yml provisions
+ * the westbridge_app role via scripts/provision-rls-role.sh and exports
+ * TEST_RLS_DATABASE_URL before invoking vitest.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { PrismaClient } from "@prisma/client";
 
-const TEST_DB_URL = process.env.TEST_DATABASE_URL;
+const TEST_DB_URL = process.env.TEST_RLS_DATABASE_URL;
 const SEED_DB_URL = process.env.TEST_MIGRATION_DATABASE_URL ?? TEST_DB_URL;
 
-// Skip the entire suite when no test database is available so `npm test`
-// stays fast for contributors who don't have Postgres running.
+// Skip the entire suite when no RLS-enforced test database is available
+// so `npm test` stays fast for contributors who don't have Postgres
+// running, AND so the regular integration test job (which uses the
+// schema-owner role and would bypass RLS) doesn't run these assertions
+// against the wrong role and produce confusing failures.
 const shouldSkip = !TEST_DB_URL;
 
 describe.skipIf(shouldSkip)("tenant isolation (RLS enforcement)", () => {
