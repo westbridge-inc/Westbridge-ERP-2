@@ -159,6 +159,8 @@ const VALID_SIGNUP = {
   password: "password123",
   companyName: "Acme Corp",
   plan: "Starter",
+  // B3 age gate — required by signupBodySchema as literal-true
+  ageConfirmed: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -232,6 +234,7 @@ describe("Signup Routes", () => {
           password: "password123",
           companyName: "Spammer Inc",
           plan: "Starter",
+          ageConfirmed: true,
         });
 
       expect(res.status).toBe(400);
@@ -249,10 +252,39 @@ describe("Signup Routes", () => {
           password: "password123",
           companyName: "Test Corp",
           plan: "Starter",
+          ageConfirmed: true,
         });
 
       expect(res.status).toBe(400);
       expect(res.body.error.message).toContain("Disposable");
+    });
+
+    // ─── B3: age gate ────────────────────────────────────────────────────
+    // The signupBodySchema rejects payloads without `ageConfirmed: true`.
+    // The route should surface the schema error message so the frontend
+    // can show a meaningful error if a request bypasses the UI checkbox.
+    it("returns 400 when ageConfirmed is missing (B3 age gate)", async () => {
+      const { ageConfirmed: _omit, ...withoutAge } = VALID_SIGNUP;
+      void _omit;
+      const res = await request(app)
+        .post("/api/signup")
+        .set("Cookie", CSRF_COOKIE)
+        .set("x-csrf-token", "test-csrf-token")
+        .send(withoutAge);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 when ageConfirmed is false (B3 age gate)", async () => {
+      const res = await request(app)
+        .post("/api/signup")
+        .set("Cookie", CSRF_COOKIE)
+        .set("x-csrf-token", "test-csrf-token")
+        .send({ ...VALID_SIGNUP, ageConfirmed: false });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("VALIDATION_ERROR");
     });
 
     it("returns 200 for valid signup", async () => {

@@ -109,6 +109,7 @@ router.post("/signup", async (req: Request, res: Response) => {
         first.password?.[0] ??
         first.companyName?.[0] ??
         first.plan?.[0] ??
+        first.ageConfirmed?.[0] ??
         "Invalid request";
       res.set(responseHeaders());
       return res.status(400).json(apiError("VALIDATION_ERROR", message, undefined, meta()));
