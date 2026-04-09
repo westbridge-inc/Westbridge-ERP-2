@@ -3,8 +3,15 @@
  * Generates the spec from registered route schemas using @asteasolutions/zod-to-openapi.
  * Served at GET /api/docs.
  */
-import { OpenAPIRegistry, OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi";
+import { extendZodWithOpenApi, OpenAPIRegistry, OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+
+// MUST be called before any registry.register() call so that the .openapi()
+// fluent helper is grafted onto the Zod prototype. Without this, every
+// schema registration crashes with "zodSchema.openapi is not a function"
+// and GET /api/docs returns a 500. Reproduced live: prod was 500'ing because
+// this line was missing.
+extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
 
@@ -18,11 +25,10 @@ const ErrorSchema = registry.register(
       code: z.string(),
       message: z.string(),
     }),
-  })
+  }),
 );
 
-const SuccessSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
-  z.object({ ok: z.literal(true), data: dataSchema });
+const SuccessSchema = <T extends z.ZodTypeAny>(dataSchema: T) => z.object({ ok: z.literal(true), data: dataSchema });
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 
@@ -31,12 +37,12 @@ const LoginBodySchema = registry.register(
   z.object({
     email: z.string().email(),
     password: z.string().min(1),
-  })
+  }),
 );
 
 const LoginResponseSchema = registry.register(
   "LoginResponse",
-  SuccessSchema(z.object({ userId: z.string(), accountId: z.string(), role: z.string() }))
+  SuccessSchema(z.object({ userId: z.string(), accountId: z.string(), role: z.string() })),
 );
 
 registry.registerPath({
@@ -52,10 +58,7 @@ registry.registerPath({
   },
 });
 
-const ForgotPasswordBodySchema = registry.register(
-  "ForgotPasswordBody",
-  z.object({ email: z.string().email() })
-);
+const ForgotPasswordBodySchema = registry.register("ForgotPasswordBody", z.object({ email: z.string().email() }));
 
 registry.registerPath({
   method: "post",
@@ -168,7 +171,11 @@ registry.registerPath({
   summary: "Get a single ERP document",
   security: [{ cookieAuth: [] }],
   request: { query: z.object({ doctype: z.string(), name: z.string() }) },
-  responses: { 200: { description: "Document data" }, 401: { description: "Unauthenticated" }, 404: { description: "Not found" } },
+  responses: {
+    200: { description: "Document data" },
+    401: { description: "Unauthenticated" },
+    404: { description: "Not found" },
+  },
 });
 
 registry.registerPath({
@@ -177,7 +184,11 @@ registry.registerPath({
   tags: ["ERP"],
   summary: "Create a new ERP document",
   security: [{ cookieAuth: [] }],
-  responses: { 200: { description: "Document created" }, 400: { description: "Validation error" }, 401: { description: "Unauthenticated" } },
+  responses: {
+    200: { description: "Document created" },
+    400: { description: "Validation error" },
+    401: { description: "Unauthenticated" },
+  },
 });
 
 registry.registerPath({
@@ -240,7 +251,13 @@ registry.registerPath({
   tags: ["Reports"],
   summary: "List completed reports",
   security: [{ cookieAuth: [] }],
-  request: { query: z.object({ page: z.string().optional(), per_page: z.string().optional(), report_type: z.string().optional() }) },
+  request: {
+    query: z.object({
+      page: z.string().optional(),
+      per_page: z.string().optional(),
+      report_type: z.string().optional(),
+    }),
+  },
   responses: { 200: { description: "Paginated report list" } },
 });
 
