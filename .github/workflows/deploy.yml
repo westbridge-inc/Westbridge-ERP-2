@@ -47,6 +47,9 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
+      # Prisma schema declares directUrl = env("MIGRATION_DATABASE_URL"); CI
+      # runs as a single superuser so point both URLs at the same connection.
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/westbridge_test
       REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
