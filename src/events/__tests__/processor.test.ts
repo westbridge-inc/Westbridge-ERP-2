@@ -11,8 +11,14 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../../lib/data/prisma.js", () => ({
-  prisma: {
+// The processor now wraps its mark-processed + execution-log writes in
+// `withTenantScope`, which delegates to `prisma.$transaction(fn)`. Each
+// callback is invoked with a transaction client that mirrors the same
+// model methods. We make `$transaction(fn)` simply pass `prismaMock`
+// itself as the `tx` argument so the existing toHaveBeenCalledWith
+// assertions on `prisma.cortexEvent.update` keep working.
+vi.mock("../../lib/data/prisma.js", () => {
+  const prismaMock: Record<string, unknown> = {
     cortexEvent: {
       findUnique: vi.fn(),
       update: vi.fn(),
@@ -20,8 +26,14 @@ vi.mock("../../lib/data/prisma.js", () => ({
     cortexExecutionLog: {
       create: vi.fn().mockResolvedValue({}),
     },
-  },
-}));
+    // withTenantScope calls $executeRaw to set the session variable, then
+    // hands the tx client to the callback. The mock `tx` is the same
+    // prismaMock object so the existing assertions still pass through.
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prismaMock)),
+  };
+  return { prisma: prismaMock };
+});
 
 vi.mock("../../lib/logger.js", () => ({
   logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -60,8 +72,16 @@ vi.mock("../../lib/ai/claude.js", () => ({
   anthropic: { messages: { create: vi.fn() } },
 }));
 
+// Tenant-mismatch defence (Phase 1 of the tenant isolation hardening) calls
+// reportSecurityEvent. Mock it so we can assert it fires exactly once on
+// mismatch and never on the happy path.
+vi.mock("../../lib/security-monitor.js", () => ({
+  reportSecurityEvent: vi.fn(),
+}));
+
 import { processCortexEvent, registerEventHandler, lookupEventHandler, _resetDispatchForTests } from "../processor.js";
 import { prisma } from "../../lib/data/prisma.js";
+import { reportSecurityEvent } from "../../lib/security-monitor.js";
 
 /** Helper: register a fake agent in the mocked registry. */
 function registerFakeAgent(id: string): void {
@@ -221,6 +241,82 @@ describe("processor.processCortexEvent", () => {
 
     expect(result.status).toBe("error");
     expect(result.error).toContain("engine crashed");
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 1 — tenant isolation hardening: queue-poisoning defence.
+  //
+  // The job payload may carry an accountId that does not match the persisted
+  // event row's accountId. This can happen via:
+  //   - Compromised Redis credentials enqueuing forged jobs
+  //   - Replay of an old job whose event id has been reused
+  //   - Race against a recycled identifier
+  //
+  // The processor MUST refuse the dispatch, log + page the security team
+  // via reportSecurityEvent, and leave the event row UNTOUCHED for a
+  // legitimate retry. Tests below assert each of these properties.
+  // -------------------------------------------------------------------------
+  describe("tenant binding (Failure D fix)", () => {
+    it("refuses to dispatch when job accountId does not match the row's accountId", async () => {
+      registerEventHandler("sales_invoice.created", "extract.invoice");
+      registerFakeAgent("extract.invoice");
+      // Row belongs to acc_VICTIM
+      (prisma.cortexEvent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockEventRow({ accountId: "acc_VICTIM" }),
+      );
+
+      // Job claims acc_ATTACKER
+      const result = await processCortexEvent({
+        ...baseJob,
+        accountId: "acc_ATTACKER",
+      });
+
+      expect(result.status).toBe("tenant_mismatch");
+      // No agent dispatch happened.
+      expect(fakeExecuteAgent).not.toHaveBeenCalled();
+      // Row was NOT marked processed — leave it for a legitimate retry.
+      expect(prisma.cortexEvent.update).not.toHaveBeenCalled();
+      // Security event fired exactly once with the structured metadata
+      // an on-call responder needs.
+      expect(reportSecurityEvent).toHaveBeenCalledTimes(1);
+      expect(reportSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "tenant_mismatch",
+          accountId: "acc_ATTACKER",
+          metadata: expect.objectContaining({
+            eventId: "evt_1",
+            jobAccountId: "acc_ATTACKER",
+            rowAccountId: "acc_VICTIM",
+          }),
+        }),
+      );
+    });
+
+    it("dispatches normally when accountIds match", async () => {
+      registerEventHandler("sales_invoice.created", "extract.invoice");
+      registerFakeAgent("extract.invoice");
+      (prisma.cortexEvent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockEventRow({ accountId: "acc_1" }),
+      );
+      (prisma.cortexEvent.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+
+      const result = await processCortexEvent({ ...baseJob, accountId: "acc_1" });
+
+      expect(result.status).toBe("processed");
+      expect(reportSecurityEvent).not.toHaveBeenCalled();
+      expect(fakeExecuteAgent).toHaveBeenCalled();
+    });
+
+    it("returns 'missing' (not 'tenant_mismatch') when the row does not exist", async () => {
+      // Missing row is a separate failure path — must not raise a security
+      // event because it can happen during a legitimate hard-delete race.
+      (prisma.cortexEvent.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+      const result = await processCortexEvent({ ...baseJob, accountId: "acc_ATTACKER" });
+
+      expect(result.status).toBe("missing");
+      expect(reportSecurityEvent).not.toHaveBeenCalled();
+    });
   });
 });
 
