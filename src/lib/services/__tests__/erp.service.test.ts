@@ -20,6 +20,12 @@ vi.mock("../../data/erpnext.client.js", () => ({
 // Logger: suppress output to avoid noisy test runs
 vi.mock("../../logger.js", () => ({
   logger: {
+    // Top-level methods (used by callers that don't go through .child())
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
     child: () => ({
       debug: vi.fn(),
       info: vi.fn(),
@@ -27,6 +33,15 @@ vi.mock("../../logger.js", () => ({
       error: vi.fn(),
     }),
   },
+}));
+
+// Mock the events emitter so createDoc's fire-and-forget emitEvent call
+// (added in Phase 4 of the AI-Native overhaul) does not try to write to a
+// real cortex_events table. Without this mock, emitEvent's prisma.create
+// call rejects (no DB) and the catch handler ends up as an unhandled
+// rejection which CI's strict-mode vitest treats as a job failure.
+vi.mock("../../../events/emitter.js", () => ({
+  emitEvent: vi.fn().mockResolvedValue({ eventId: "evt_test", traceId: "trace_test", queued: true }),
 }));
 
 import { list, getDoc, createDoc, updateDoc, deleteDoc } from "../erp.service.js";
