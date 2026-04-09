@@ -134,6 +134,21 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
+      - name: Apply RLS migrations (db push skips them)
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: westbridge_test
+        # `prisma db push` syncs the schema but does NOT execute migration
+        # files. The RLS policies live in raw SQL migrations so we have to
+        # apply them manually here. Order matters: the original migration
+        # creates the role + 10 base-table policies, the cortex migration
+        # adds 9 more.
+        run: |
+          psql -v ON_ERROR_STOP=1 -f prisma/migrations/20260318_add_row_level_security/migration.sql
+          psql -v ON_ERROR_STOP=1 -f prisma/migrations/20260409060845_cortex_and_user_scoped_rls/migration.sql
       - name: Provision westbridge_app role for RLS tests
         env:
           PGHOST: localhost
