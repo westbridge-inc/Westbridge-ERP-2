@@ -86,9 +86,13 @@ ALTER ROLE westbridge_app LOGIN;
 ALTER ROLE westbridge_app PASSWORD :'password';
 SQL
 
-# 3. Grants. Idempotent — re-running just refreshes them.
-psql -v ON_ERROR_STOP=1 <<'SQL'
-GRANT CONNECT ON DATABASE westbridge TO westbridge_app;
+# 3. Grants. Idempotent — re-running just refreshes them. Use the connected
+# database name (PGDATABASE) so the script works against any database name —
+# `westbridge` in production, `westbridge_test` in CI, or whatever a
+# contributor sets locally. Note: heredoc terminator is unquoted so the
+# shell expands $PGDATABASE before psql sees it.
+psql -v ON_ERROR_STOP=1 <<SQL
+GRANT CONNECT ON DATABASE "${PGDATABASE}" TO westbridge_app;
 GRANT USAGE ON SCHEMA public TO westbridge_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO westbridge_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO westbridge_app;
