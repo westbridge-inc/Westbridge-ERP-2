@@ -448,16 +448,11 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
   const ctx = auditContext(toWebRequest(req));
 
   try {
-    // Per-IP anonymous rate limit — same tier as /auth/login so brute-force
-    // attempts via the second factor are gated by the same per-IP budget.
-    const id = getClientIdentifier(toWebRequest(req));
-    const rateLimit = await checkTieredRateLimit(id, "anonymous", "/api/auth/login/totp");
-    if (!rateLimit.allowed) {
-      return res
-        .status(429)
-        .set({ ...responseTime(), ...rateLimitHeaders(rateLimit) })
-        .json(apiError("RATE_LIMIT", "Too many attempts. Try again in a minute.", undefined, meta()));
-    }
+    // Per-IP anonymous rate limit is enforced at the route layer via the
+    // `rateLimit("anonymous", "/api/auth/login/totp")` middleware in
+    // auth.routes.ts so it's visible to static analysers and code reviewers.
+    // No internal rate-limit check here — keeps the per-request budget at
+    // exactly 1 token instead of double-counting.
 
     const parsed = totpLoginBodySchema.safeParse(req.body);
     if (!parsed.success) {
