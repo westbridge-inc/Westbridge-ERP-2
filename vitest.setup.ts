@@ -15,6 +15,18 @@ if (typeof globalThis.crypto === "undefined") {
 // Flag: tells integration tests to skip when running under global mocks.
 process.env.__VITEST_GLOBAL_MOCKS__ = "true";
 
+// Seed placeholder DB URLs so module-level PrismaClient construction doesn't
+// throw when CI runs without a real database. Phase 3 introduced
+// `prismaAdmin` (`src/lib/data/prisma-admin.ts`), which deliberately throws
+// at construction if neither MIGRATION_DATABASE_URL nor DATABASE_URL is set
+// — so a misconfigured production deploy fails loudly at boot. In tests
+// every Prisma client is mocked at module load via vi.mock(), so the URL
+// is never actually dialed; we just need a non-empty string for the
+// constructor to accept. The "postgresql://" scheme keeps Prisma's internal
+// URL parser happy without implying a real connection.
+process.env.MIGRATION_DATABASE_URL ??= "postgresql://test:test@localhost:5432/test_db?schema=public";
+process.env.DATABASE_URL ??= "postgresql://test:test@localhost:5432/test_db?schema=public";
+
 // Prevent real Redis connections in unit tests.
 // Individual tests that need Redis behavior mock it themselves.
 vi.mock("ioredis", () => {

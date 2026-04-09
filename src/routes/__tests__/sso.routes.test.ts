@@ -5,16 +5,24 @@ import request from "supertest";
 // Mocks — external boundaries needed to mount createApp()
 // ---------------------------------------------------------------------------
 
-vi.mock("../../lib/data/prisma.js", () => ({
-  prisma: {
+// sso.routes.ts uses prismaAdmin (Phase 3): SSO callbacks run BEFORE
+// requireAuth establishes a tenant context, so the helper that loads
+// the SSO config has to bypass RLS. Use vi.hoisted to share one mock
+// object across both `prisma` and `prismaAdmin` module names so the
+// route's lookups land on the same spies.
+const { sharedPrismaMock } = vi.hoisted(() => ({
+  sharedPrismaMock: {
     $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
     $executeRaw: vi.fn().mockResolvedValue(0),
     account: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
     auditLog: { create: vi.fn() },
     ssoConfig: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() },
-  },
+  } as Record<string, unknown>,
 }));
+
+vi.mock("../../lib/data/prisma.js", () => ({ prisma: sharedPrismaMock }));
+vi.mock("../../lib/data/prisma-admin.js", () => ({ prismaAdmin: sharedPrismaMock }));
 
 vi.mock("../../lib/redis.js", () => ({
   getRedis: vi.fn().mockReturnValue(null),
