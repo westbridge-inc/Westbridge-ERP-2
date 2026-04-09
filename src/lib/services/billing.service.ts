@@ -224,7 +224,70 @@ export async function markAccountPaid(
 
 // ─── Refunds ─────────────────────────────────────────────────────────────────
 
-const REFUND_WINDOW_DAYS = 14;
+/**
+ * Refund eligibility windows by invoice type. These MUST stay in sync with
+ * the published Refund Policy at
+ *   /Users/westbridgeinc/Westbridge-ERP-1/app/(marketing)/refund-policy/
+ *      _components/RefundPolicyContent.tsx
+ *
+ * Policy table:
+ *   First monthly subscription          → 14 days from payment date  → 100% refund
+ *   Monthly subscription renewals       → not eligible
+ *   Annual subscription (first-time)    → 30 days from payment date  → pro-rata
+ *   Annual subscription renewals        → 14 days from renewal date  → pro-rata
+ *
+ * Pro-rata refund logic is a follow-up — for now we issue a full refund
+ * within the eligibility window because (a) it is more generous than
+ * pro-rata, never less, so it cannot trigger a contract complaint in the
+ * customer's favor, and (b) the existing refundPaddleTransaction call
+ * defaults to type="full". A follow-up should compute the pro-rata amount
+ * for annual plans and pass type="partial" with line items.
+ */
+const REFUND_WINDOW = {
+  /** First-time monthly subscription. */
+  MONTHLY_FIRST_TIME_DAYS: 14,
+  /** First-time annual subscription. */
+  ANNUAL_FIRST_TIME_DAYS: 30,
+  /** Annual renewal (first invoice in current period of an annual sub). */
+  ANNUAL_RENEWAL_DAYS: 14,
+} as const;
+
+/** Threshold in days that distinguishes a monthly invoice from an annual one. */
+const ANNUAL_INVOICE_PERIOD_DAYS = 180;
+
+/**
+ * Detect whether an invoice is for an annual or monthly billing period by
+ * inspecting the period span. We use 180 days as the threshold so a 12-month
+ * invoice is unambiguously annual and a 1-month invoice is unambiguously
+ * monthly, with no chance of misclassifying a leap month.
+ */
+function isAnnualInvoice(periodStart: Date, periodEnd: Date): boolean {
+  const spanDays = (periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24);
+  return spanDays >= ANNUAL_INVOICE_PERIOD_DAYS;
+}
+
+/**
+ * Compute the refund window in days for a given invoice. Encapsulates the
+ * monthly-vs-annual + first-time-vs-renewal branching from the policy table.
+ *
+ * Returns 0 (= no window) for monthly renewals, which the policy excludes.
+ *
+ * @param invoice the BillingInvoice row being refunded
+ * @param priorPaidInvoiceCount the number of OTHER `paid` invoices for the
+ *   same account that pre-date this one. Zero ⇒ first-time purchase.
+ */
+export function refundWindowDaysFor(
+  invoice: { periodStart: Date; periodEnd: Date },
+  priorPaidInvoiceCount: number,
+): number {
+  const annual = isAnnualInvoice(invoice.periodStart, invoice.periodEnd);
+  const firstTime = priorPaidInvoiceCount === 0;
+  if (annual) {
+    return firstTime ? REFUND_WINDOW.ANNUAL_FIRST_TIME_DAYS : REFUND_WINDOW.ANNUAL_RENEWAL_DAYS;
+  }
+  // Monthly: only first-time is eligible per the published policy.
+  return firstTime ? REFUND_WINDOW.MONTHLY_FIRST_TIME_DAYS : 0;
+}
 
 export interface RefundRequest {
   invoiceId: string;
@@ -243,12 +306,11 @@ export interface RefundResult {
 /**
  * Process a refund for a billing invoice.
  *
- * Policy:
- *   - Refunds allowed within REFUND_WINDOW_DAYS (14) of the original payment
- *   - Already-refunded invoices are rejected
- *   - Only the account owner or admin can request a refund (enforced by route)
- *   - Refund issued through Paddle (Merchant of Record) — funds returned to
- *     original payment method by Paddle within 5-10 business days
+ * Policy: see the REFUND_WINDOW table above. Eligibility depends on whether
+ * the invoice is monthly or annual AND whether it is the first-time purchase
+ * or a renewal. Already-refunded invoices are rejected. Only the account
+ * owner or admin can request a refund (enforced by the route). Refunds are
+ * issued through Paddle (Merchant of Record).
  */
 export async function refundInvoice(req: RefundRequest): Promise<Result<RefundResult, string>> {
   if (!req.invoiceId || !req.reason?.trim()) {
@@ -277,11 +339,30 @@ export async function refundInvoice(req: RefundRequest): Promise<Result<RefundRe
     return err("Invoice has no payment date — cannot determine refund eligibility");
   }
 
+  // Count prior paid invoices for this account (excluding the one being
+  // refunded) to determine first-time vs renewal status. We compare on
+  // createdAt because paidAt may be null on legacy rows.
+  const priorPaidInvoiceCount = await prisma.billingInvoice.count({
+    where: {
+      accountId: req.accountId,
+      status: { in: ["paid", "refunded"] },
+      id: { not: invoice.id },
+      createdAt: { lt: invoice.createdAt },
+    },
+  });
+
+  const windowDays = refundWindowDaysFor(invoice, priorPaidInvoiceCount);
+  if (windowDays === 0) {
+    return err(
+      "This invoice is not eligible for a refund. Per our published Refund Policy, monthly subscription renewals are not refundable. Please contact support if you believe this is an error.",
+    );
+  }
+
   const ageMs = Date.now() - invoice.paidAt.getTime();
   const ageDays = ageMs / (1000 * 60 * 60 * 24);
-  if (ageDays > REFUND_WINDOW_DAYS) {
+  if (ageDays > windowDays) {
     return err(
-      `Refund window has expired. Refunds are available within ${REFUND_WINDOW_DAYS} days of payment. This payment was ${Math.floor(ageDays)} days ago.`,
+      `Refund window has expired. For this invoice the refund window is ${windowDays} days from the payment date. This payment was ${Math.floor(ageDays)} days ago.`,
     );
   }
 

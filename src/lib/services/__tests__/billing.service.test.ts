@@ -57,7 +57,7 @@ vi.mock("../session.service.js", () => ({
   createSession: vi.fn().mockResolvedValue({ ok: true, data: { token: "session-token" } }),
 }));
 
-import { createAccount, verifyPaddleWebhook, markAccountPaid } from "../billing.service.js";
+import { createAccount, verifyPaddleWebhook, markAccountPaid, refundWindowDaysFor } from "../billing.service.js";
 import { prisma } from "../../data/prisma.js";
 import { verifyWebhookSignature } from "../../data/paddle.client.js";
 
@@ -193,6 +193,59 @@ describe("billing.service", () => {
 
       const result = await markAccountPaid("acc_1");
       expect(result.ok).toBe(false);
+    });
+  });
+
+  // ─── Refund window branching (B5: align with published policy) ─────────
+  //
+  // The published Refund Policy table:
+  //
+  //   First monthly subscription          → 14 days, 100% refund
+  //   Monthly subscription renewals       → not eligible
+  //   Annual subscription (first-time)    → 30 days, pro-rata
+  //   Annual subscription renewals        → 14 days, pro-rata
+  //
+  // Pre-fix the code hardcoded `REFUND_WINDOW_DAYS = 14` for every invoice
+  // type, so a customer who paid for an annual plan and asked for a refund
+  // on day 20 was rejected even though the policy promised 30 days. The
+  // refundWindowDaysFor() helper now branches on (annual?, first-time?).
+  describe("refundWindowDaysFor", () => {
+    const monthly = {
+      periodStart: new Date("2026-01-01"),
+      periodEnd: new Date("2026-02-01"), // 31 days
+    };
+    const annual = {
+      periodStart: new Date("2026-01-01"),
+      periodEnd: new Date("2027-01-01"), // 365 days
+    };
+
+    it("first-time monthly → 14-day window", () => {
+      expect(refundWindowDaysFor(monthly, 0)).toBe(14);
+    });
+
+    it("monthly renewal → 0 days (not eligible per policy)", () => {
+      expect(refundWindowDaysFor(monthly, 1)).toBe(0);
+      expect(refundWindowDaysFor(monthly, 5)).toBe(0);
+    });
+
+    it("first-time annual → 30-day window", () => {
+      expect(refundWindowDaysFor(annual, 0)).toBe(30);
+    });
+
+    it("annual renewal → 14-day window", () => {
+      expect(refundWindowDaysFor(annual, 1)).toBe(14);
+      expect(refundWindowDaysFor(annual, 12)).toBe(14);
+    });
+
+    it("classifies a 30-day period as monthly, not annual", () => {
+      const thirty = { periodStart: new Date("2026-01-01"), periodEnd: new Date("2026-01-31") };
+      expect(refundWindowDaysFor(thirty, 0)).toBe(14); // monthly first-time
+    });
+
+    it("classifies a 365-day period as annual, not monthly", () => {
+      // Defensive: 180-day threshold means anything > 180 days is annual.
+      // A 365-day period is unambiguously annual.
+      expect(refundWindowDaysFor(annual, 0)).toBe(30);
     });
   });
 });
