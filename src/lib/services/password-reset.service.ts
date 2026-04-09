@@ -7,6 +7,7 @@ import { prisma } from "../data/prisma.js";
 import { sendEmail } from "../email/index.js";
 import { passwordResetEmail } from "../email/templates.js";
 import { ok, err, type Result } from "../utils/result.js";
+import { hashPassword } from "./auth.service.js";
 
 const RESET_EXPIRY_MINUTES = 30;
 
@@ -103,12 +104,24 @@ export async function applyPasswordReset(
     return err("Failed to update password. Please try again.");
   }
 
-  // Mark token used, reset lockout state, and revoke all sessions (stolen tokens invalid after password change)
+  // Update the LOCAL bcrypt hash so the new password actually authenticates.
+  // Without this, login() in auth.service.ts continues to verify against the
+  // OLD hash (it short-circuits on user.passwordHash), leaving the old
+  // password valid AND the new password unable to authenticate.
+  const newPasswordHash = await hashPassword(input.newPassword);
+
+  // Mark token used, write the new hash, reset lockout state, and revoke
+  // all sessions so any stolen tokens become invalid after password change.
   await prisma.$transaction([
     prisma.passwordResetToken.update({ where: { id: tokenId }, data: { usedAt: new Date() } }),
     prisma.user.update({
       where: { id: userId },
-      data: { failedLoginAttempts: 0, lockedUntil: null, passwordChangedAt: new Date() },
+      data: {
+        passwordHash: newPasswordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        passwordChangedAt: new Date(),
+      },
     }),
     prisma.session.deleteMany({ where: { userId } }),
   ]);
