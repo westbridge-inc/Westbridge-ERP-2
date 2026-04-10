@@ -208,6 +208,11 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
         const { cancelSubscription } = await import("../lib/services/subscription.service.js");
         await cancelSubscription(accountId);
 
+        const redis = getRedis();
+        if (redis) {
+          redis.del(`account:status:${accountId}`).catch(() => {});
+        }
+
         void logAudit({
           accountId,
           action: "subscription.canceled",
