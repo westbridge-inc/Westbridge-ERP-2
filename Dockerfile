@@ -39,7 +39,9 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy Prisma schema, migrations, and generated client
 COPY prisma ./prisma
-RUN npx --yes prisma generate
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Copy compiled output
 COPY --from=builder /app/dist ./dist
