@@ -121,7 +121,7 @@ router.get("/audit/export", requireAuth, requirePermission("audit_logs:read"), a
     const toParam = (req.query.to as string) ?? null;
     const format = (req.query.format as string) === "json" ? "json" : "csv";
 
-    const fromDate = fromParam ? new Date(fromParam) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const fromDate = fromParam ? new Date(fromParam) : new Date(Date.now - 30 * 24 * 60 * 60 * 1000);
     const toDate = toParam ? new Date(toParam) : new Date();
 
     if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {

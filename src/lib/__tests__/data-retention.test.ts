@@ -16,7 +16,7 @@ describe("Data retention constants", () => {
   it("soft-deleted accounts are purged after 30 days (matches Privacy Policy)", () => {
     // The published Privacy Policy promises hard delete from production
     // systems within 30 days post-cancellation. Drift here is a contract
-    // breach (Big-4 audit B1).
+    // breach (compliance review).
     expect(DATA_RETENTION.SOFT_DELETED_DAYS).toBe(30);
   });
 

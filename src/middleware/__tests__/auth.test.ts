@@ -20,7 +20,7 @@ vi.mock("../../lib/data/prisma.js", () => ({
   },
 }));
 
-// Phase 3: requireActiveSubscription now reads from prismaAdmin (the
+// v3.0: requireActiveSubscription now reads from prismaAdmin (the
 // cross-tenant client) so the lookup runs irrespective of tenant pin.
 vi.mock("../../lib/data/prisma-admin.js", () => ({
   prismaAdmin: {
@@ -33,9 +33,9 @@ vi.mock("../../lib/data/prisma-admin.js", () => ({
   },
 }));
 
-// Phase 3: requireAuth wraps next() in tenantContextStorage.run() so
+// v3.0: requireAuth wraps next in tenantContextStorage.run so
 // the rest of the middleware chain has the tenant context. Provide a
-// pass-through stub so the test's next() spy still fires.
+// pass-through stub so the test's next spy still fires.
 vi.mock("../../lib/data/tenant-als.js", () => ({
   tenantContextStorage: {
     run: vi.fn((_value, fn) => fn()),
@@ -86,7 +86,7 @@ import { validateCsrf as mockValidateCsrf } from "../../lib/csrf.js";
 import { getRedis } from "../../lib/redis.js";
 import { prismaAdmin } from "../../lib/data/prisma-admin.js";
 
-// Phase 3: requireActiveSubscription now reads via prismaAdmin (the
+// v3.0: requireActiveSubscription now reads via prismaAdmin (the
 // cross-tenant client) so it can check account status before tenant
 // pinning takes effect. Existing assertions on prisma.account.findUnique
 // were rewritten to mockPrismaAdmin.account.findUnique.
@@ -152,7 +152,7 @@ describe("Auth Middleware", () => {
 
     it("returns 401 and clears cookie for malformed token", async () => {
       const req = mockReq({
-        cookies: { westbridge_sid: "invalid!@#$%^&*()" },
+        cookies: { westbridge_sid: "invalid!@#$%^&*" },
       });
       const res = mockRes();
       const next = vi.fn();

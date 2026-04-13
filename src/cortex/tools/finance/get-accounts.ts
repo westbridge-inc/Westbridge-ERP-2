@@ -1,7 +1,7 @@
 /**
  * get_accounts — list the chart of accounts for the current tenant.
  *
- * Phase 7 of the AI-Native ERP overhaul. Wraps the legacy `list_records`
+ * v7.0 of the AI-Native ERP overhaul. Wraps the legacy `list_records`
  * doctype query with `Account` pre-bound, so the agent does not need to
  * remember the doctype name and cannot accidentally query a different
  * doctype with this tool. Read-only, side-effect free.

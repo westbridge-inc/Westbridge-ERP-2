@@ -73,7 +73,7 @@ describe("redis", () => {
     it("closes redis connection", async () => {
       process.env.REDIS_URL = "redis://localhost:6379";
       const { getRedis, closeRedis } = await import("../redis.js");
-      getRedis(); // ensure connected
+      getRedis; // ensure connected
       await closeRedis();
       // Should not throw
     });

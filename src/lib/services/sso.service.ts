@@ -157,7 +157,7 @@ export async function buildAuthorizationUrl(
   // State: HMAC-signed to prevent CSRF + a server-stored nonce that pins the
   // state to a single Redis key. Both must validate on callback or the login
   // is rejected.
-  //
+//
   // Signing key: HKDF-derived from SESSION_SECRET (see getStateHmacKey) for
   // domain separation. We retain the full 256-bit HMAC output instead of
   // slicing to 128 bits — truncation only weakens forgery resistance and

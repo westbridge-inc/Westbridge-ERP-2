@@ -28,7 +28,7 @@ describe("realtime", () => {
       expect(mockRedis.publish).toHaveBeenCalledWith("realtime:acc1", expect.any(String));
     });
 
-    it("publishes to global channel for '*'", async () => {
+    it("publishes to global channel for '*'", async  => {
       await publish("*", { type: "test", payload: {}, timestamp: "now" });
       expect(mockRedis.publish).toHaveBeenCalledWith(GLOBAL_CHANNEL, expect.any(String));
     });

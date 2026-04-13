@@ -76,7 +76,7 @@ describe("sendEmail", () => {
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ from: "Custom <custom@test.com>" }));
   });
 
-  // ── M6: retry-on-failure ────────────────────────────────────────────────
+  // ── retry-on-failure ────────────────────────────────────────────────
   describe("retry behaviour (M6)", () => {
     it("retries on transient 5xx error and eventually succeeds", async () => {
       mockSend

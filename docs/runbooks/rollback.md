@@ -234,7 +234,7 @@ If the migration dropped or altered existing structures:
 
 To minimize destructive migration risks:
 
-- **Two-phase migrations:** Phase 1 adds new structures, deploys code that writes to both old and new. Phase 2 (after verification) removes old structures.
+- **Two-phase migrations:** v1.0 adds new structures, deploys code that writes to both old and new. v2.0 (after verification) removes old structures.
 - **Always test migrations** against a production-like dataset in staging.
 - **Backup before migration:** Take a manual snapshot immediately before running `prisma migrate deploy` in production.
 

@@ -230,7 +230,7 @@ touch /var/lib/postgresql/16/main/recovery.signal
 systemctl start postgresql
 
 # 6. Verify recovery
-psql -c "SELECT pg_is_in_recovery();"  # Should return false after promotion
+psql -c "SELECT pg_is_in_recovery;"  # Should return false after promotion
 ```
 
 ## 6. Cross-Region Replication

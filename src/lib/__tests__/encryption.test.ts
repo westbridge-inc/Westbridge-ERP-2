@@ -245,7 +245,7 @@ describe("Encryption — isEncrypted", () => {
   });
 
   it("rejects ciphertexts that contain uppercase hex (encrypt only emits lowercase)", () => {
-    // encrypt() always emits lowercase hex, so an uppercase blob is either
+    // encrypt always emits lowercase hex, so an uppercase blob is either
     // hand-crafted or corrupted — either way we should not consider it valid.
     const ct = encrypt("hi").toUpperCase();
     expect(isEncrypted(ct)).toBe(false);
@@ -304,7 +304,7 @@ describe("Encryption — IV length enforcement", () => {
     const ciphertext = encrypt("guarded");
     const parts = ciphertext.split(":");
     // Replace 12-byte IV with an 8-byte one — still hex, still parseable,
-    // but cryptographically distinct from anything encrypt() emits.
+    // but cryptographically distinct from anything encrypt emits.
     const shortIv = "a".repeat(16); // 8 bytes
     const tampered = `${shortIv}:${parts[1]}:${parts[2]}`;
     expect(() => decrypt(tampered)).toThrow();

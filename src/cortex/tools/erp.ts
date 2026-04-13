@@ -8,7 +8,7 @@
  * adapt them to the CortexToolDefinition shape so the engine can pass them
  * the typed CortexToolContext.
  *
- * The wrapper is intentionally thin: every call delegates to executeTool()
+ * The wrapper is intentionally thin: every call delegates to executeTool
  * with the context's accountId / erpnextCompany / erpnextSid pulled out.
  * Side-effect flags are derived from the tool name — read-only tools
  * (`list_records`, `get_record`, `get_summary`) get sideEffects=false and
@@ -78,7 +78,7 @@ export const CORTEX_ERP_TOOLS: CortexToolDefinition[] = ERP_TOOLS.map((legacy) =
     case "create_record":
       return wrapErpTool(legacy, {
         sideEffects: true,
-        // Phase 1: creating new docs is allowed without explicit approval
+        // v1.0: creating new docs is allowed without explicit approval
         // for the user-facing conversation agent — the model is required by
         // its system prompt to confirm with the user first. Future agents
         // (cron-driven, event-driven) will run at lower autonomy and the

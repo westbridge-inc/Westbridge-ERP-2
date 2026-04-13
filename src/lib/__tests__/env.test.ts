@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-// env.ts runs parseEnv() on import, which reads process.env.
+// env.ts runs parseEnv on import, which reads process.env.
 // In test environment, NODE_ENV=test, so it should parse fine with defaults.
 describe("env", () => {
   it("exports env object", async () => {
@@ -37,7 +37,7 @@ describe("env", () => {
 
 // ─── Secret length + rotation validation (fresh import per test) ─────────────
 //
-// parseEnv() runs at import time, so we re-import the module after stubbing
+// parseEnv runs at import time, so we re-import the module after stubbing
 // env vars. NODE_ENV=test bypasses the production-only safety checks but the
 // length checks (Zod schema) and rotation no-op check run in every environment.
 describe("env — secret length + rotation validation", () => {
@@ -100,7 +100,7 @@ describe("env — secret length + rotation validation", () => {
 
   it("allows the change-me-in-production placeholder in non-prod", async () => {
     // The default is exactly 32 chars long ("change-me-in-production-change-me")
-    // so it satisfies the length requirement, and parseEnv() lets it through
+    // so it satisfies the length requirement, and parseEnv lets it through
     // in dev/test paths that don't actually exercise the crypto layer.
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("ENCRYPTION_KEY", "change-me-in-production");

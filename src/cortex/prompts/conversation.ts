@@ -16,7 +16,7 @@ export interface ConversationPromptContext {
   planName: string;
   userName: string;
   userRole: string;
-  /** ISO date YYYY-MM-DD. Avoid Date.now() in the system prompt body — see prompt-caching.md. */
+  /** ISO date YYYY-MM-DD. Avoid Date.now in the system prompt body — see prompt-caching.md. */
   currentDate: string;
 }
 

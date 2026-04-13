@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 // ---------------------------------------------------------------------------
-// Mocks — external boundaries needed to mount createApp()
+// Mocks — external boundaries needed to mount createApp
 // ---------------------------------------------------------------------------
 
 vi.mock("../../lib/data/prisma.js", () => ({
@@ -279,7 +279,7 @@ describe("TOTP Routes", () => {
     it("returns 400 when code format is invalid", async () => {
       mockSession("member");
 
-      // None of these are 8 hex chars after trim():
+      // None of these are 8 hex chars after trim:
       // - "short": 5 chars
       // - "TOOLONGCODE": 11 chars (after lowercase still 11)
       // - "ghijklmn": 8 chars but g/h/i/j/k/l/m/n are not hex

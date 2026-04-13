@@ -245,7 +245,7 @@ export async function executeAgent(params: ExecuteAgentParams): Promise<CortexEx
     // every agent benefits — routine reconciliation does NOT need it,
     // financial-analytics does. The SDK rejects `thinking` on older models,
     // so the agent definition is the source of truth.
-    //
+//
     // Use the explicit non-streaming params type so TypeScript narrows the
     // return value to Message (not Stream). This module is the agentic
     // foundation; streaming happens one layer up in the API route via the

@@ -1,17 +1,17 @@
 /**
- * Cortex tools index — central catalog of every Phase 7 specialised tool.
+ * Cortex tools index — central catalog of every v7.0 specialised tool.
  *
  * Agents import individual tools (or curated bundles) from here so the wire
  * surface stays small and discoverable. The legacy CORTEX_ERP_TOOLS bundle
  * is also re-exported so existing imports keep working.
  */
 
-// Legacy ERP tool bundle (Phase 1) — kept for backwards compatibility with
+// Legacy ERP tool bundle (v1.0) — kept for backwards compatibility with
 // the conversation agent and any future agent that needs the full ERPNext
 // CRUD surface.
 export { CORTEX_ERP_TOOLS } from "./erp.js";
 
-// Phase 7 specialised tools
+// v7.0 specialised tools
 export { getAccountsTool } from "./finance/get-accounts.js";
 export { getInvoicesTool } from "./finance/get-invoices.js";
 export { getOutstandingTool } from "./finance/get-outstanding.js";
@@ -24,7 +24,7 @@ export { analyticsQueryTool } from "./analytics/query.js";
 
 // ── Curated bundles ────────────────────────────────────────────────────────
 //
-// Each bundle is the typical tool set for one of the Phase 6 specialised
+// Each bundle is the typical tool set for one of the v6.0 specialised
 // agents. Agents import the bundle they need rather than picking individual
 // tools so the system prompt + tool list stay in sync.
 

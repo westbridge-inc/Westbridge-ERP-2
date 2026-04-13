@@ -1,8 +1,8 @@
 /**
  * Shared test helpers and utilities.
  *
- * For route tests (supertest), vi.mock() must be in the test file itself
- * because vitest only hoists vi.mock() calls from the test file.
+ * For route tests (supertest), vi.mock must be in the test file itself
+ * because vitest only hoists vi.mock calls from the test file.
  * Use setupRouteTest.ts as a vitest setup file instead.
  *
  * This file provides non-mock helpers: session setup, cookies, etc.
@@ -35,7 +35,7 @@ export const CSRF_COOKIE = "westbridge_csrf=test-csrf-token";
 
 /**
  * Shared Prisma mock factory. Returns an object suitable for vi.mock return value.
- * Each test file should still call vi.mock() in their own file scope,
+ * Each test file should still call vi.mock in their own file scope,
  * but can call this to get the standard mock shape.
  */
 export function createPrismaMock(overrides: Record<string, unknown> = {}) {

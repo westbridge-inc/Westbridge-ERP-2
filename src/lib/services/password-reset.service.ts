@@ -32,7 +32,7 @@ export async function requestPasswordReset(email: string, baseUrl: string): Prom
 
   const raw = randomBytes(32).toString("base64url");
   const tokenHash = hashToken(raw);
-  const expiresAt = new Date(Date.now() + RESET_EXPIRY_MINUTES * 60 * 1000);
+  const expiresAt = new Date(Date.now + RESET_EXPIRY_MINUTES * 60 * 1000);
 
   try {
     await prismaAdmin.passwordResetToken.create({
@@ -105,7 +105,7 @@ export async function applyPasswordReset(
   }
 
   // Update the LOCAL bcrypt hash so the new password actually authenticates.
-  // Without this, login() in auth.service.ts continues to verify against the
+  // Without this, login in auth.service.ts continues to verify against the
   // OLD hash (it short-circuits on user.passwordHash), leaving the old
   // password valid AND the new password unable to authenticate.
   const newPasswordHash = await hashPassword(input.newPassword);

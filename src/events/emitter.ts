@@ -1,7 +1,7 @@
 /**
  * Event emitter — the seam between existing business logic and the Cortex.
  *
- * Every meaningful state change in the application calls `emitEvent()`. The
+ * Every meaningful state change in the application calls `emitEvent`. The
  * emitter does two things atomically (from the caller's perspective):
  *
  *   1. Writes a row to `cortex_events` so the activity log captures the
@@ -18,9 +18,9 @@
  * key enforces this; the function signature surfaces it as a required
  * parameter so callers can't forget.
  *
- * Phase 1 scope: the emitter is wired up but the orchestrator + cortex
+ * v1.0 scope: the emitter is wired up but the orchestrator + cortex
  * worker are not yet running, so events flow into the table for the
- * activity log without triggering any agent runs. Phase 2 adds the worker
+ * activity log without triggering any agent runs. v2.0 adds the worker
  * + router and turns the events into agent invocations.
  */
 

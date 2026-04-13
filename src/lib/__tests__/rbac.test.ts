@@ -74,13 +74,13 @@ describe("RBAC — hasPermission", () => {
     expect(hasPermission("admin", "billing:manage")).toBe(false);
   });
 
-  it("admin does NOT have admin:* wildcard", () => {
+  it("admin does NOT have admin:* wildcard",  => {
     expect(hasPermission("admin", "admin:*")).toBe(false);
   });
 
   // ── owner (inherits admin → full chain) ─────────────────────────────────
 
-  it("owner has admin:* wildcard", () => {
+  it("owner has admin:* wildcard",  => {
     expect(hasPermission("owner", "admin:*")).toBe(true);
   });
 
@@ -102,7 +102,7 @@ describe("RBAC — hasPermission", () => {
 
   // ── wildcard bypass ─────────────────────────────────────────────────────
 
-  it("owner's admin:* grants access to any permission", () => {
+  it("owner's admin:* grants access to any permission",  => {
     // admin:* should bypass the explicit permission check
     expect(hasPermission("owner", "webhooks:delete")).toBe(true);
     expect(hasPermission("owner", "api_keys:delete")).toBe(true);
@@ -132,7 +132,7 @@ describe("RBAC — getPermissions", () => {
     expect(perms).toContain("invoices:write"); // own
   });
 
-  it("owner permissions include admin:*", () => {
+  it("owner permissions include admin:*",  => {
     const perms = getPermissions("owner");
     expect(perms).toContain("admin:*");
   });

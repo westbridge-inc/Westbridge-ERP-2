@@ -59,7 +59,7 @@ The application defines four customer-facing roles in `src/lib/rbac.ts`:
 | member | CRUD on ERP documents (sales invoices, expenses, projects, etc.). Cannot manage users, billing, or settings.                 |
 | viewer | Read-only access to ERP documents.                                                                                           |
 
-Permission checks use string identifiers (e.g., `users:invite`, `billing:refund`) and are enforced by the `requirePermission()` middleware applied to every state-changing route.
+Permission checks use string identifiers (e.g., `users:invite`, `billing:refund`) and are enforced by the `requirePermission` middleware applied to every state-changing route.
 
 ### 4.2 Tenant isolation
 
@@ -90,7 +90,7 @@ Role provisioning scripts: `scripts/provision-rls-role.sh`. Password rotation: s
 - **`westbridge-inc/Westbridge-ERP-1` (frontend)** and **`westbridge-inc/Westbridge-ERP-2` (backend)** are private. Members are added to the `westbridge-inc` GitHub org with the minimum-needed role.
 - Branch protection on `main` requires: 1 approving review, status checks (`build`), strict (branch must be up-to-date).
 - Squash-merge is the only allowed merge strategy. Force-push is disabled.
-- The disable-protection-merge-enable pattern is permitted only for the founder/CISO and only for documented operator actions (e.g., the Phase 3 RLS rollout).
+- The disable-protection-merge-enable pattern is permitted only for the founder/CISO and only for documented operator actions (e.g., the v3.0 RLS rollout).
 
 ## 5. Provisioning and Deprovisioning
 

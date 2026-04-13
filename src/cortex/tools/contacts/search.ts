@@ -1,7 +1,7 @@
 /**
  * search_contacts — find Customers and Suppliers by name fragment.
  *
- * Phase 7 of the AI-Native ERP overhaul. Pre-binds the doctype set so the
+ * v7.0 of the AI-Native ERP overhaul. Pre-binds the doctype set so the
  * agent can find a counterparty by partial name across both Customer and
  * Supplier tables in a single call. Read-only.
  *

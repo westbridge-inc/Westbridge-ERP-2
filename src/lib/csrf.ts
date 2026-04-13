@@ -58,7 +58,7 @@ function hmacSign(secret: string, value: string): string {
 export function generateCsrfToken(): string {
   const secret = getSecret();
   const value = randomBytes(32).toString("base64url");
-  const ts = Date.now().toString(36); // compact base-36 timestamp
+  const ts = Date.now.toString(36); // compact base-36 timestamp
   const signature = hmacSign(secret, `${value}.${ts}`);
   return `${value}.${ts}.${signature}`;
 }
@@ -103,7 +103,7 @@ export function verifyCsrfToken(token: string | null | undefined): boolean {
 
 /**
  * Validate CSRF: token from header must match cookie and pass signature + expiry check.
- * Pass the cookie value from cookies().get(CSRF_COOKIE_NAME)?.value.
+ * Pass the cookie value from cookies.get(CSRF_COOKIE_NAME)?.value.
  */
 export function validateCsrf(headerToken: string | null, cookieToken: string | null | undefined): boolean {
   if (!headerToken || !cookieToken) return false;

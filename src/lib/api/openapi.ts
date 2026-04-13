@@ -6,7 +6,7 @@
 import { extendZodWithOpenApi, OpenAPIRegistry, OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
 
-// MUST be called before any registry.register() call so that the .openapi()
+// MUST be called before any registry.register call so that the .openapi
 // fluent helper is grafted onto the Zod prototype. Without this, every
 // schema registration crashes with "zodSchema.openapi is not a function"
 // and GET /api/docs returns a 500. Reproduced live: prod was 500'ing because

@@ -2,7 +2,7 @@
  * get_invoices — list Sales Invoices for the current tenant with optional
  * filters by status, date range, customer, and minimum amount.
  *
- * Phase 7 of the AI-Native ERP overhaul. Pre-binds doctype="Sales Invoice"
+ * v7.0 of the AI-Native ERP overhaul. Pre-binds doctype="Sales Invoice"
  * so agents do not need to remember the doctype string. Read-only.
  *
  * Used by: finance.reconcile (matching bank deposits to invoices),

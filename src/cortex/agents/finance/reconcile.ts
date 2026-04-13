@@ -1,7 +1,7 @@
 /**
  * Bank Reconciliation agent — matches bank transactions to ledger entries.
  *
- * Phase 6 of the AI-Native ERP overhaul. Triggered by `bank_transaction.imported`
+ * v6.0 of the AI-Native ERP overhaul. Triggered by `bank_transaction.imported`
  * events. The agent applies a multi-strategy matching pipeline (exact ref →
  * amount + date → pattern → split → suggest new entry) and returns either a
  * structured match list or an exception that lands in the human queue.
@@ -93,7 +93,7 @@ export const reconcileAgent: CortexAgentDefinition = {
   systemPrompt: RECONCILE_SYSTEM_PROMPT,
   maxTokens: 8_000,
   adaptiveThinking: true,
-  // Phase 7 wires the reconcile bundle: get_bank_transactions, get_invoices,
+  // v7.0 wires the reconcile bundle: get_bank_transactions, get_invoices,
   // get_outstanding, search_contacts, get_accounts. The agent uses these to
   // gather both sides of every potential match before scoring confidence.
   tools: RECONCILE_AGENT_TOOLS,

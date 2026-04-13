@@ -1,5 +1,5 @@
 /**
- * Error codes tests (B6)
+ * Error codes tests 
  */
 
 import { describe, it, expect, vi } from "vitest";

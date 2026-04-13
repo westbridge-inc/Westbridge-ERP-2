@@ -3,10 +3,10 @@
  * data to the request, AND pins the per-request tenant context for
  * RLS-bound Prisma queries.
  *
- * The tenant pin is the runtime side of Phase 3 of the tenant
+ * The tenant pin is the runtime side of v3.0 of the tenant
  * isolation hardening spec. After this middleware validates the
  * session and learns which `accountId` the request belongs to, it runs
- * the rest of the middleware chain inside `tenantContextStorage.run()`.
+ * the rest of the middleware chain inside `tenantContextStorage.run`.
  * That AsyncLocalStorage value is read by the Prisma `$extends` in
  * `lib/data/prisma.ts` to bind PostgreSQL's `app.current_account_id`
  * for every query the request handler issues.
@@ -75,7 +75,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
   try {
     // Create a minimal Web API Request-like object for the session service
-    // since it expects request.headers.get() interface
+    // since it expects request.headers.get interface
     const fakeRequest = toWebRequest(req);
     const result = await validateSession(sessionToken, fakeRequest);
 
@@ -88,11 +88,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     req.session = result.data;
     // Pin the tenant context for the rest of this request's middleware
     // chain and route handler. AsyncLocalStorage propagates through all
-    // promise/await boundaries, so any downstream `prisma.X.method()`
+    // promise/await boundaries, so any downstream `prisma.X.method`
     // call will be wrapped by the tenant-pin extension and run with
     // `app.current_account_id` set in PostgreSQL. RLS policies then
     // filter rows to the requesting tenant.
-    //
+//
     // NOTE: cross-tenant lookups (validateSession itself, the
     // requireActiveSubscription cache, audit logging, etc.) use
     // `prismaAdmin` so they bypass this pin — they need to operate
@@ -313,7 +313,7 @@ export function requirePermission(permission: Permission) {
 
 /**
  * Creates a minimal Web API Request-like object from an Express request.
- * The session service uses request.headers.get() which is the Web API interface.
+ * The session service uses request.headers.get which is the Web API interface.
  */
 export function toWebRequest(req: Request): globalThis.Request {
   const headers = new Headers();

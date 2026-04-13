@@ -1,7 +1,7 @@
 /**
  * get_bank_transactions — list Bank Transaction rows for the current tenant.
  *
- * Phase 7 of the AI-Native ERP overhaul. Pre-binds doctype="Bank Transaction"
+ * v7.0 of the AI-Native ERP overhaul. Pre-binds doctype="Bank Transaction"
  * with optional filters by status (Pending|Reconciled|Unreconciled), date,
  * and bank account. Read-only.
  *

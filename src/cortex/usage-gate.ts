@@ -4,7 +4,7 @@
  * defined in lib/modules.ts.
  *
  * The chat route and the events processor both pass an instance of this gate
- * to executeAgent() so the engine can:
+ * to executeAgent so the engine can:
  *   1. Clamp the agent's autonomy to the tenant's plan ceiling
  *   2. Refuse to start a run when the tenant has exhausted its quota
  *   3. Record token usage after every successful Claude API call

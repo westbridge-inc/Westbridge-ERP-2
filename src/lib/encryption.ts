@@ -12,7 +12,7 @@
  *     • Still readable for backwards compatibility with rows written before AAD.
  *
  *   v1 (current, 4 parts): v1:ivHex:authTagHex:encryptedHex
- *     • Caller passes a `context` string on both encrypt() and decrypt().
+ *     • Caller passes a `context` string on both encrypt and decrypt.
  *     • The context becomes GCM Additional Authenticated Data — it is NOT
  *       secret, but is cryptographically bound to the ciphertext, so an
  *       attacker who substitutes one user's encrypted secret onto another row
@@ -48,7 +48,7 @@ const ENVELOPE_V1 = "v1";
 
 const HEX_KEY_REGEX = /^[0-9a-fA-F]{64}$/;
 
-// Ciphertext structural patterns. Used by isEncrypted() to discriminate
+// Ciphertext structural patterns. Used by isEncrypted to discriminate
 // encrypted blobs from plaintext during transparent migration windows where a
 // column may contain both formats.
 //   v0: ivHex(24):authTagHex(32):encryptedHex(≥2)
@@ -81,7 +81,7 @@ function getKeyFromHex(secret: string): Buffer {
 /**
  * Validate ENCRYPTION_KEY (and ENCRYPTION_KEY_PREVIOUS if set) at server
  * startup so misconfiguration crashes the process immediately rather than
- * surfacing later as the first encrypt() call from a request handler.
+ * surfacing later as the first encrypt call from a request handler.
  *
  * Called from src/lib/env.ts after Zod parsing.
  */
@@ -100,7 +100,7 @@ export function validateEncryptionKey(): void {
 }
 
 /**
- * Detect whether a string is a ciphertext blob produced by encrypt().
+ * Detect whether a string is a ciphertext blob produced by encrypt.
  *
  * Use this when migrating a column that may contain both plaintext (legacy)
  * and ciphertext (new writes) so reads can transparently decrypt-or-passthrough
@@ -108,8 +108,8 @@ export function validateEncryptionKey(): void {
  * rows on the next write path.
  *
  * Note: this is a STRUCTURAL check, not an integrity check. A string that
- * happens to match the format but was not produced by encrypt() will pass
- * isEncrypted() but fail decrypt() with a tag-mismatch error. That's the
+ * happens to match the format but was not produced by encrypt will pass
+ * isEncrypted but fail decrypt with a tag-mismatch error. That's the
  * intended fail-closed behavior.
  */
 export function isEncrypted(value: string): boolean {
@@ -123,7 +123,7 @@ export function isEncrypted(value: string): boolean {
  * @param plaintext  UTF-8 string to encrypt.
  * @param context    Optional Additional Authenticated Data (AAD). When supplied,
  *                   the ciphertext is bound to this context — the exact same
- *                   string must be passed to decrypt(), or the auth tag will not
+ *                   string must be passed to decrypt, or the auth tag will not
  *                   verify. Pass a stable namespaced identifier such as
  *                   `"totp.secret:" + userId`. This prevents an attacker who
  *                   can write to your DB from moving one user's encrypted
@@ -137,7 +137,7 @@ export function encrypt(plaintext: string, context?: string): string {
   const iv = randomBytes(IV_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   if (context !== undefined) {
-    // setAAD must be called BEFORE update() — Node enforces this ordering.
+    // setAAD must be called BEFORE update — Node enforces this ordering.
     cipher.setAAD(Buffer.from(context, "utf8"));
   }
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -150,11 +150,11 @@ export function encrypt(plaintext: string, context?: string): string {
 }
 
 /**
- * Decrypt a ciphertext produced by encrypt(). Auto-detects envelope version.
+ * Decrypt a ciphertext produced by encrypt. Auto-detects envelope version.
  *
  * @param ciphertext  3-part v0 (`iv:tag:ct`) or 4-part v1 (`v1:iv:tag:ct`).
  * @param context     Required when the envelope is v1; ignored for v0. Must
- *                    match the value passed to encrypt() exactly.
+ *                    match the value passed to encrypt exactly.
  */
 export function decrypt(ciphertext: string, context?: string): string {
   if (typeof ciphertext !== "string" || ciphertext.length === 0) {
@@ -202,14 +202,14 @@ export function decrypt(ciphertext: string, context?: string): string {
     // Reject zero-length IVs and any IV that is not the recommended 96 bits.
     // Non-12-byte IVs are technically supported by GCM but go through GHASH
     // derivation, which has worse analysis. We always emit 12-byte IVs in
-    // encrypt(), so anything else is either truncation or tampering.
+    // encrypt, so anything else is either truncation or tampering.
     if (iv.length !== IV_BYTES) {
       throw new Error("Invalid IV length — expected 12 bytes");
     }
     const decipher = createDecipheriv(ALGORITHM, key, iv); // nosemgrep: javascript.node-crypto.security.gcm-no-tag-length.gcm-no-tag-length
     decipher.setAuthTag(authTag);
     if (envelopeVersion === "v1") {
-      // setAAD must be called BEFORE update() — Node enforces this ordering.
+      // setAAD must be called BEFORE update — Node enforces this ordering.
       decipher.setAAD(Buffer.from(context!, "utf8"));
     }
     return decipher.update(encrypted, undefined, "utf8") + decipher.final("utf8");

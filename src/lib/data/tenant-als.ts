@@ -6,7 +6,7 @@
  * to every Prisma query the request handler issues — without having to
  * thread the accountId through every function call.
  *
- * This is the FOUNDATION of the runtime side of Phase 3 of the tenant
+ * This is the FOUNDATION of the runtime side of v3.0 of the tenant
  * isolation hardening spec. The Prisma `$extends` in
  * `src/lib/data/prisma.ts` reads from this storage and pins the
  * PostgreSQL session variable `app.current_account_id` for the duration
@@ -18,12 +18,12 @@
  *   // In requireAuth middleware (after validating the session):
  *   import { tenantContextStorage } from "../lib/data/tenant-als.js";
  *
- *   tenantContextStorage.run({ accountId: session.accountId }, () => next());
+ *   tenantContextStorage.run({ accountId: session.accountId },  => next);
  *
  *   // Anywhere downstream (route handler, service, helper):
  *   import { prisma } from "../lib/data/prisma.js";
  *
- *   await prisma.user.findMany();   // ← pinned to tenant via the extension
+ *   await prisma.user.findMany;   // ← pinned to tenant via the extension
  *
  * The store is read inside the Prisma `$allOperations` extension; you
  * never need to read it directly outside of `prisma.ts`.

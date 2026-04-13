@@ -169,9 +169,9 @@ describe("tenant-scope", () => {
     expect(result).toEqual(complexData);
   });
 
-  // ── Phase 3 ALS plumbing ───────────────────────────────────────────────────
+  // ── v3.0 ALS plumbing ───────────────────────────────────────────────────
   // withTenantScope now ALSO publishes the tenant id into
-  // `tenantContextStorage` so that bare `prisma.X.method()` calls inside
+  // `tenantContextStorage` so that bare `prisma.X.method` calls inside
   // the callback (i.e. those that use the request-scoped client instead
   // of the explicit tx client) still get tenant-pinned by the Prisma
   // extension. And it sets `tenantPinInProgress=true` so the extension

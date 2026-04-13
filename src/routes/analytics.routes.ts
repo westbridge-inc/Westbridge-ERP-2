@@ -2,7 +2,7 @@
  * Analytics routes
  *
  * POST /analytics/track  — receives product analytics events from the client-side tracker
- * POST /analytics/vitals — receives Core Web Vitals from reportWebVitals()
+ * POST /analytics/vitals — receives Core Web Vitals from reportWebVitals
  */
 import { Router, Request, Response } from "express";
 import { z } from "zod";
@@ -74,14 +74,14 @@ router.post("/analytics/track", async (req: Request, res: Response) => {
 
   const parsed = trackBodySchema.safeParse(rawBody);
   if (!parsed.success) {
-    return res.status(204).end(); // silently drop invalid payloads
+    return res.status(204).end; // silently drop invalid payloads
   }
   const body = parsed.data;
 
   const identifier = getClientIdentifier(toWebRequest(req));
   const { allowed } = await checkTieredRateLimit(identifier, "anonymous", "/api/analytics/track");
   if (!allowed) {
-    return res.status(204).end(); // silently drop, don't error
+    return res.status(204).end; // silently drop, don't error
   }
 
   const redis = getRedis();
@@ -121,7 +121,7 @@ router.post("/analytics/vitals", async (req: Request, res: Response) => {
 
   const parsed = vitalsBodySchema.safeParse(rawBody);
   if (!parsed.success) {
-    return res.status(204).end(); // silently drop invalid payloads
+    return res.status(204).end; // silently drop invalid payloads
   }
   const body = parsed.data;
 

@@ -5,10 +5,10 @@ import request from "supertest";
 // Mocks
 // ---------------------------------------------------------------------------
 
-// Phase 3: handleLogin / handleValidate / handleResetPassword now use
+// v3.0: handleLogin / handleValidate / handleResetPassword now use
 // `prismaAdmin` (cross-tenant pre-context lookups). Use vi.hoisted to
 // share a single mock between both module targets so existing
-// assertions on prisma.X.method() keep working transparently.
+// assertions on prisma.X.method keep working transparently.
 const { sharedPrismaMock } = vi.hoisted(() => ({
   sharedPrismaMock: {
     $executeRaw: vi.fn().mockResolvedValue(0),
@@ -20,7 +20,7 @@ const { sharedPrismaMock } = vi.hoisted(() => ({
       update: vi.fn(),
     },
     session: { deleteMany: vi.fn() },
-    // C1 fix: handleLogin consults totpSecret.verified to decide whether
+    // (security patch): handleLogin consults totpSecret.verified to decide whether
     // to short-circuit into the TOTP challenge step.
     totpSecret: { findUnique: vi.fn().mockResolvedValue(null) },
     $transaction: vi.fn(),
@@ -296,7 +296,7 @@ describe("Auth Routes", () => {
         ok: true,
         data: {
           token: "new-session-token",
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expiresAt: new Date(Date.now + 7 * 24 * 60 * 60 * 1000),
         },
       });
 
@@ -331,7 +331,7 @@ describe("Auth Routes", () => {
         role: "owner",
         status: "active",
         failedLoginAttempts: 5,
-        lockedUntil: new Date(Date.now() + 15 * 60 * 1000), // locked for 15 min
+        lockedUntil: new Date(Date.now + 15 * 60 * 1000), // locked for 15 min
       });
 
       const res = await request(app)

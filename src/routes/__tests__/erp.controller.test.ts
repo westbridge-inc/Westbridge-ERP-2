@@ -1,5 +1,5 @@
 /**
- * ERP controller tests (B3)
+ * ERP controller tests 
  *
  * Tests the controller functions directly with mocked services.
  * Covers happy paths, error paths, and edge cases.
@@ -578,7 +578,7 @@ describe("erp.controller", () => {
 
       await handleList(req, res);
 
-      // list() MUST NOT have been called — data stays in ERPNext
+      // list MUST NOT have been called — data stays in ERPNext
       expect(list).not.toHaveBeenCalled();
 
       const jsonCall = vi.mocked(res.json).mock.calls[0]?.[0];

@@ -54,7 +54,7 @@ export function createApp(): express.Application {
 
   // ─── Global Middleware ─────────────────────────────────────────────────────
 
-  // Response time header -- mount early to capture full request lifecycle (B4)
+  // Response time header -- mount early to capture full request lifecycle 
   app.use(responseTime);
 
   // SLO tracking -- record latency & availability metrics for every request
@@ -155,7 +155,7 @@ export function createApp(): express.Application {
   // `requireAuth` in src/middleware/auth.ts AFTER the session is
   // validated (so we know which tenant the request belongs to).
   // The previous global `tenantContext` middleware was deleted because
-  // it ran BEFORE auth and was therefore always a no-op — see Phase 3
+  // it ran BEFORE auth and was therefore always a no-op — see v3.0
   // of the tenant isolation hardening spec for the full rationale.
 
   // Block past_due/canceled accounts from accessing non-billing endpoints
@@ -192,7 +192,7 @@ export function createApp(): express.Application {
   // Mount versioned API (canonical)
   app.use("/api/v1", apiRouter);
 
-  // Mount unversioned API (backwards compatibility — deprecated per RFC 8594) (B5)
+  // Mount unversioned API (backwards compatibility — deprecated per RFC 8594) 
   app.use(
     "/api",
     (req, res, next) => {

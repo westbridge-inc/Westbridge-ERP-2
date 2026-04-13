@@ -201,7 +201,7 @@ describe("Admin Routes", () => {
       expect(res.status).toBe(403);
     });
 
-    it("returns 403 for manager role (only owner has admin:*)", async () => {
+    it("returns 403 for manager role (only owner has admin:*)", async  => {
       mockSession("manager");
 
       const res = await request(app).get("/api/admin/flags").set("Cookie", SESSION_COOKIE);

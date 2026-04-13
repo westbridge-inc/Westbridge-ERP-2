@@ -325,7 +325,7 @@ describe.skipIf(!REDIS_AVAILABLE)("checkErpAccountRateLimit (Redis integration)"
   });
 });
 
-// ─── M7: explicit fail-mode under Redis-down ───────────────────────────────
+// ─── explicit fail-mode under Redis-down ───────────────────────────────
 //
 // These tests don't need a real Redis. They use vi.doMock("../../redis.js")
 // to simulate Redis being unavailable (returning null) and verify that the

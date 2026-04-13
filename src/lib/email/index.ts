@@ -1,7 +1,7 @@
 /**
- * Email client: thin wrapper around Resend with retry-on-failure (M6).
+ * Email client: thin wrapper around Resend with retry-on-failure .
  *
- * All email sending in the app goes through sendEmail(). Email is treated
+ * All email sending in the app goes through sendEmail. Email is treated
  * as best-effort by callers (signup activation, password reset, invites,
  * audit notifications) but a single Resend hiccup should not silently
  * burn a password reset link or an account activation. We retry with
@@ -12,10 +12,10 @@
  *   - Backoff: 250ms → 750ms → 2_250ms (jittered)
  *   - Aborts on 4xx (auth/validation failures — retrying won't help)
  *
- * If all retries fail, the function returns err() and logs an error-level
+ * If all retries fail, the function returns err and logs an error-level
  * event so the caller (and Sentry) sees the permanent failure. Callers
  * that need stronger guarantees (signup activation, password reset) should
- * be moved to BullMQ via enqueueEmail() so the job survives a process
+ * be moved to BullMQ via enqueueEmail so the job survives a process
  * restart and benefits from the queue's own retry/backoff machinery.
  */
 
@@ -47,7 +47,7 @@ const BASE_BACKOFF_MS = 250;
 function backoffDelay(attempt: number): number {
   // Exponential backoff with full jitter to spread thundering-herd retries.
   const exp = BASE_BACKOFF_MS * Math.pow(3, attempt);
-  return Math.floor(exp * (0.5 + Math.random() * 0.5));
+  return Math.floor(exp * (0.5 + Math.random * 0.5));
 }
 
 function isTransientError(error: unknown): boolean {

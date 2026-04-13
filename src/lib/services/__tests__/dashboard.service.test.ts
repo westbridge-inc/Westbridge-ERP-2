@@ -18,17 +18,17 @@ describe("dashboard.service", () => {
     });
 
     it("formats minutes ago", () => {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const fiveMinutesAgo = new Date(Date.now - 5 * 60 * 1000).toISOString;
       expect(formatRelativeTime(fiveMinutesAgo)).toMatch(/\dm ago/);
     });
 
     it("formats hours ago", () => {
-      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      const threeHoursAgo = new Date(Date.now - 3 * 60 * 60 * 1000).toISOString;
       expect(formatRelativeTime(threeHoursAgo)).toMatch(/\dh ago/);
     });
 
     it("formats days ago", () => {
-      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      const twoDaysAgo = new Date(Date.now - 2 * 24 * 60 * 60 * 1000).toISOString;
       expect(formatRelativeTime(twoDaysAgo)).toMatch(/\dd ago/);
     });
   });

@@ -58,6 +58,6 @@ Implementation (`src/lib/services/session.service.ts`):
   the cache path.
 - Session table grows with active users and requires periodic cleanup (handled
   by the `cleanup` BullMQ queue, hourly).
-- The `toWebRequest()` conversion in auth middleware is a compatibility shim
+- The `toWebRequest` conversion in auth middleware is a compatibility shim
   because the session service uses the Web API `Request` interface while
   Express provides its own `req` object.

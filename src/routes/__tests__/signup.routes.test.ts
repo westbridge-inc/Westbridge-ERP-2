@@ -259,7 +259,7 @@ describe("Signup Routes", () => {
       expect(res.body.error.message).toContain("Disposable");
     });
 
-    // ─── B3: age gate ────────────────────────────────────────────────────
+    // ─── age gate ────────────────────────────────────────────────────
     // The signupBodySchema rejects payloads without `ageConfirmed: true`.
     // The route should surface the schema error message so the frontend
     // can show a meaningful error if a request bypasses the UI checkbox.

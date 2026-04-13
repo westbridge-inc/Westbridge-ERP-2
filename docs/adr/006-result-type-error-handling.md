@@ -31,7 +31,7 @@ Conventions:
 - **Services** (`src/lib/services/`) return `Result<T, string>` -- never
   throw for expected failures.
 - **Data clients** (`src/lib/data/`) return `Result<T, string>` -- network
-  errors, 404s, and upstream failures are all `err()` values.
+  errors, 404s, and upstream failures are all `err` values.
 - **Route handlers** check `result.ok` and map to the appropriate HTTP
   status code. The service does not decide HTTP semantics.
 - **AppError** extends the pattern with structured error codes, timestamps,
@@ -67,6 +67,6 @@ export async function getInvoice(accountId: string, name: string): Promise<Resul
 - More verbose than throw/catch for simple cases -- every caller needs an
   `if (!result.ok)` check.
 - Third-party libraries still throw, so boundaries (e.g., Prisma calls,
-  `fetch`) still need try/catch to convert exceptions into `err()` values.
+  `fetch`) still need try/catch to convert exceptions into `err` values.
 - Team members unfamiliar with the pattern need onboarding (documented in
   CONTRIBUTING.md section 4).

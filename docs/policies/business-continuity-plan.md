@@ -41,7 +41,7 @@ Covers continuity of:
 | ------------------------ | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Fly.io platform          | Yes (full Fly.io outage)                | Two-region deployment (iad + mia). Manual failover to a different cloud is documented but untested.                   |
 | `westbridge-db` Postgres | Yes (single primary today)              | Daily backups to Tigris. Plan to add a hot read replica in 2026-Q3.                                                   |
-| Upstash Redis            | Yes (Upstash outage)                    | Redis-down fail-mode policy (M7 fix) ensures application keeps serving most reads.                                    |
+| Upstash Redis            | Yes (Upstash outage)                    | Redis-down fail-mode policy (security patch) ensures application keeps serving most reads.                                    |
 | Frappe Cloud (ERPNext)   | Yes (Frappe outage)                     | App-side caching of frequently-read documents in Redis. Read-only ERP data still available during a Frappe outage.    |
 | Resend                   | No (best-effort with retries)           | Email retry budget (3 attempts) + permanent failure logged. Customers see "email not sent" but can retry from the UI. |
 | Paddle                   | Yes for new payments (no other gateway) | New signups blocked during Paddle outage. Existing customers continue to use the platform. Paddle has its own SLA.    |
@@ -134,7 +134,7 @@ Covers continuity of:
 **Response:**
 
 - Sentry: no action — application continues to run. Errors are logged to Pino but not aggregated. Catch up on the Sentry side after their incident resolves.
-- Resend: emails fail through the retry budget then return err(). Customers see "email not sent" but the application stays up. After the outage, manually re-trigger any failed activation/reset emails from the audit log.
+- Resend: emails fail through the retry budget then return err. Customers see "email not sent" but the application stays up. After the outage, manually re-trigger any failed activation/reset emails from the audit log.
 - Anthropic: AI assistant returns "service unavailable". Core ERP unaffected.
 - Paddle: New checkouts fail. Existing customers unaffected. Communicate to the marketing site about the impact.
 

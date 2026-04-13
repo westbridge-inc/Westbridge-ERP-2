@@ -1,5 +1,5 @@
 /**
- * Phase 7 specialised Cortex tool tests — verifies the tools wire to the
+ * v7.0 specialised Cortex tool tests — verifies the tools wire to the
  * legacy executeTool with the right doctype/filter args, validate input,
  * and return the expected shape.
  *

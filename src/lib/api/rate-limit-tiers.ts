@@ -172,9 +172,9 @@ export interface RateLimitResult {
  * Generic sliding window rate limiter backed by a Redis sorted set.
  *
  * Algorithm:
- *   1. Remove entries older than `windowMs` (phase 1 pipeline).
+ *   1. Remove entries older than `windowMs` (v1.0 pipeline).
  *   2. Count remaining entries — reject if >= `limit`.
- *   3. Add the new request entry (phase 2 pipeline).
+ *   3. Add the new request entry (v2.0 pipeline).
  *
  * This two-phase approach ensures we never consume a token when the
  * caller is already over the limit.
@@ -196,7 +196,7 @@ async function slidingWindowRateLimit(
   }
 
   try {
-    // Phase 1: clean stale entries and check current count BEFORE adding.
+    // v1.0: clean stale entries and check current count BEFORE adding.
     const checkPipeline = redis.pipeline();
     checkPipeline.zremrangebyscore(key, 0, windowStart);
     checkPipeline.zcard(key);
@@ -209,7 +209,7 @@ async function slidingWindowRateLimit(
       return { allowed: false, limit, remaining: 0, reset, retryAfter: Math.ceil(windowMs / 1000) };
     }
 
-    // Phase 2: add the request now that we know it's within limits.
+    // v2.0: add the request now that we know it's within limits.
     const member = `${now}:${Math.random().toString(36).slice(2)}`;
     const addPipeline = redis.pipeline();
     addPipeline.zadd(key, now, member);

@@ -76,7 +76,7 @@ The following test files lock the encryption-at-rest behavior in for regression:
 
 - `src/lib/__tests__/encryption.test.ts` — covers AES-256-GCM round trip + AAD binding mismatch detection
 - `src/lib/services/__tests__/session.service.test.ts` — covers ERPNext SID encryption
-- The Phase 3 audit memory documents this rating as 5/5 (cryptography)
+- The v3.0 audit memory documents this rating as 5/5 (cryptography)
 
 ## 6. Data in Transit Encryption
 

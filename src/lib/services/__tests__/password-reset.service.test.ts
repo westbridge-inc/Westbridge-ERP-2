@@ -83,7 +83,7 @@ describe("password-reset.service", () => {
       if (!result.ok) expect(result.error).toContain("Invalid");
     });
 
-    // Regression test for audit finding C2 (2026-04-09): applyPasswordReset
+    // Regression test for (security review) C2 (2026-04-09): applyPasswordReset
     // used to update the password in ERPNext but never wrote
     // prismaAdmin.user.passwordHash. The login flow checks the local hash first
     // and short-circuits, so the OLD password kept working AND the NEW

@@ -41,9 +41,9 @@ describe("provisioning.service", () => {
     // Mock all fetch calls to succeed
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) }) // company creation
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) }) // user creation
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) }) as any; // set default company
+      .mockResolvedValueOnce({ ok: true, json:  => Promise.resolve({}) }) // company creation
+      .mockResolvedValueOnce({ ok: true, json:  => Promise.resolve({}) }) // user creation
+      .mockResolvedValueOnce({ ok: true, json:  => Promise.resolve({}) }) as any; // set default company
 
     const result = await provisionErpnextAccount("acc_1");
     expect(result.ok).toBe(true);
@@ -64,8 +64,8 @@ describe("provisioning.service", () => {
 
     global.fetch = vi
       .fn()
-      .mockResolvedValueOnce({ ok: false, text: () => Promise.resolve("already exists") }) // company exists
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) }) // user creation
+      .mockResolvedValueOnce({ ok: false, text:  => Promise.resolve("already exists") }) // company exists
+      .mockResolvedValueOnce({ ok: true, json:  => Promise.resolve({}) }) // user creation
       .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) }) as any;
 
     const result = await provisionErpnextAccount("acc_1");

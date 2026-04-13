@@ -441,7 +441,7 @@ describe("engine.__testing__ — cost + impact helpers", () => {
 
 // ─── UsageGate ─────────────────────────────────────────────────────────────
 //
-// Phase 3 of the AI-Native overhaul: the engine accepts a usageGate that
+// v3.0 of the AI-Native overhaul: the engine accepts a usageGate that
 // clamps autonomy, gates the run on plan quota, and records token usage
 // per Claude API iteration. These tests use a fake gate so we can verify
 // the engine wires it correctly without touching Redis or Prisma.

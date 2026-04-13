@@ -14,7 +14,7 @@ This document maps each SOC 2 Trust Services Criterion to the Westbridge control
 
 This is NOT a SOC 2 attestation. It is a self-attested gap analysis, written and grounded in actual operational reality, intended to help a prospective customer's security team understand exactly what controls are in place TODAY (2026-04-09) ahead of the formal Type 1 audit currently planned for 2026-Q3.
 
-The criteria below cover the **Common Criteria (CC1–CC9)** plus the **Availability (A1)** and **Confidentiality (C1)** trust principles. We are not pursuing Processing Integrity (PI) or Privacy (P) trust principles in the initial Type 1 — those are scoped for the Type 2.
+The criteria below cover the **Common Criteria (CC1–CC9)** plus the **Availability (A1)** and **Confidentiality ** trust principles. We are not pursuing Processing Integrity (PI) or Privacy (P) trust principles in the initial Type 1 — those are scoped for the Type 2.
 
 ## 2. Common Criteria
 
@@ -43,7 +43,7 @@ The criteria below cover the **Common Criteria (CC1–CC9)** plus the **Availabi
 | CC3.1     | Annual risk assessment process documented. 15 risks identified, scored, and treated.                                                                      | `docs/policies/risk-assessment.md`    |
 | CC3.2     | Each P1 risk (score ≥6) has an active treatment plan with an owner.                                                                                       | `docs/policies/risk-assessment.md` §4 |
 | CC3.3     | Risk register reviewed annually OR on any material change to the platform / threat model.                                                                 | `docs/policies/risk-assessment.md` §1 |
-| CC3.4     | Big-4 audit performed 2026-04-09 by an external advisor; findings tracked in `~/.claude/projects/.../memory/project_audit_remediation.md` and remediated. | (audit memo)                          |
+| CC3.4     | (compliance review)-04-09 by an external advisor; findings tracked in `~/.claude/projects/.../memory/project_audit_remediation.md` and remediated. | (audit memo)                          |
 
 ### CC4 — Monitoring Activities
 
@@ -65,7 +65,7 @@ The criteria below cover the **Common Criteria (CC1–CC9)** plus the **Availabi
 | Criterion | Implementation                                                                                                                                                                                                                                                | Evidence                                                                                                                           |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | CC6.1     | Authentication: bcrypt password hashing (cost 14), TOTP MFA (opt-in; org-wide enforcement is a tracked gap targeted 2026-Q3), SSO (SAML 2.0 + OIDC), 7-day session expiry with 30-min idle + fingerprint validation, account lockout after 5 failed attempts. | `src/lib/services/auth.service.ts`, `src/lib/services/session.service.ts`, `src/routes/totp.routes.ts`, `src/routes/sso.routes.ts` |
-| CC6.2     | RBAC with four roles (owner, admin, member, viewer) and string-based permission identifiers checked by `requirePermission()` middleware.                                                                                                                      | `src/lib/rbac.ts`                                                                                                                  |
+| CC6.2     | RBAC with four roles (owner, admin, member, viewer) and string-based permission identifiers checked by `requirePermission` middleware.                                                                                                                      | `src/lib/rbac.ts`                                                                                                                  |
 | CC6.3     | Access provisioning and deprovisioning procedures documented; access reviews quarterly.                                                                                                                                                                       | `docs/policies/access-control-policy.md` §5, §6                                                                                    |
 | CC6.4     | Physical access — N/A; Westbridge is fully remote and all infrastructure is hosted by sub-processors with their own physical security controls.                                                                                                               | (sub-processor SOC 2 reports)                                                                                                      |
 | CC6.5     | Logical separation between customer tenants enforced by PostgreSQL Row-Level Security policies + AsyncLocalStorage tenant pinning + explicit `where: { accountId }` in service code.                                                                          | `prisma/migrations/20260318_add_row_level_security/migration.sql`, `src/lib/data/prisma.ts`, `src/lib/data/tenant-als.ts`          |
@@ -104,7 +104,7 @@ The criteria below cover the **Common Criteria (CC1–CC9)** plus the **Availabi
 | A1.2      | Backup, recovery, and PITR enabled via Fly Postgres + Tigris. Daily snapshots, WAL archiving, restore procedure documented.                                            | `docs/runbooks/database-backup.md`          |
 | A1.3      | Disaster recovery tested quarterly (planned). Recovery objectives documented in the Business Continuity Plan.                                                          | `docs/policies/business-continuity-plan.md` |
 
-## 4. Confidentiality (C1)
+## 4. Confidentiality 
 
 | Criterion | Implementation                                                                                                                                         | Evidence                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
@@ -144,4 +144,4 @@ For deeper verification (e.g., "show me a real audit log row with the hash chain
 - Information Security Policy (`information-security-policy.md`)
 - All policies in `docs/policies/`
 - All runbooks in `docs/runbooks/`
-- The Westbridge Big-4 audit memo (internal, not part of this document set)
+- The Westbridge (compliance review)(internal, not part of this document set)

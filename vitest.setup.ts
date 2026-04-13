@@ -4,7 +4,7 @@
 import { webcrypto } from "node:crypto";
 import { vi } from "vitest";
 
-// Polyfill crypto.randomUUID() for environments where Web Crypto API is not available.
+// Polyfill crypto.randomUUID for environments where Web Crypto API is not available.
 if (typeof globalThis.crypto === "undefined") {
   // @ts-expect-error — webcrypto is compatible enough for randomUUID
   globalThis.crypto = webcrypto;
@@ -16,11 +16,11 @@ if (typeof globalThis.crypto === "undefined") {
 process.env.__VITEST_GLOBAL_MOCKS__ = "true";
 
 // Seed placeholder DB URLs so module-level PrismaClient construction doesn't
-// throw when CI runs without a real database. Phase 3 introduced
+// throw when CI runs without a real database. v3.0 introduced
 // `prismaAdmin` (`src/lib/data/prisma-admin.ts`), which deliberately throws
 // at construction if neither MIGRATION_DATABASE_URL nor DATABASE_URL is set
 // — so a misconfigured production deploy fails loudly at boot. In tests
-// every Prisma client is mocked at module load via vi.mock(), so the URL
+// every Prisma client is mocked at module load via vi.mock, so the URL
 // is never actually dialed; we just need a non-empty string for the
 // constructor to accept. The "postgresql://" scheme keeps Prisma's internal
 // URL parser happy without implying a real connection.

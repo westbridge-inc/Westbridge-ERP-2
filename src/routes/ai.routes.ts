@@ -18,7 +18,7 @@ import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
 import { toWebRequest, requireAuth, runWithTenantContext } from "../middleware/auth.js";
 
-// Phase 3: this file's `prisma` calls all run AFTER manual session
+// v3.0: this file's `prisma` calls all run AFTER manual session
 // validation. We wrap the post-validation handler body in
 // `runWithTenantContext(session.accountId, ...)` so the AsyncLocalStorage
 // context is set and the Prisma extension RLS-pins each query — same
@@ -84,7 +84,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   const session = sessionResult.data;
 
   // Pin the tenant context for the rest of this handler so every
-  // `prisma.X.method()` call below is RLS-pinned to session.accountId.
+  // `prisma.X.method` call below is RLS-pinned to session.accountId.
   // (This handler bypasses requireAuth — it does its own session
   // validation — so we have to call runWithTenantContext explicitly.)
   // Anthropic is non-null inside the closure (the early return above

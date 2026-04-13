@@ -11,7 +11,7 @@ import { prismaAdmin } from "../data/prisma-admin.js";
 import { verifyWebhookSignature, refundPaddleTransaction, type PlanSlug } from "../data/paddle.client.js";
 import { enqueueProvisioning, enqueueSubscriptionCreate } from "../jobs/queue.js";
 
-// Phase 3: this service has a mix of cross-tenant and per-tenant flows.
+// v3.0: this service has a mix of cross-tenant and per-tenant flows.
 //   - createAccount + markAccountPaid run BEFORE any tenant context
 //     exists (signup, Paddle webhook handler that just verified a
 //     signature). They MUST use prismaAdmin so the cross-tenant
@@ -123,7 +123,7 @@ export async function createAccount(input: CreateAccountInput): Promise<Result<C
     // Auto-provision ERPNext company + create subscription immediately on
     // signup. Without this, trial users would share an unscoped ERPNext
     // instance — a tenant isolation leak. Both jobs are queued via BullMQ
-    // (M5 fix) so they survive a process restart and benefit from queue-
+    // (security patch) so they survive a process restart and benefit from queue-
     // managed exponential backoff. Signup stays fast because we only
     // ENQUEUE here; the worker drains the jobs in the background.
     // Dashboard endpoints return empty data until provisioning completes
@@ -197,7 +197,7 @@ export async function markAccountPaid(
     });
     const updated = (result.count ?? 0) > 0;
     if (updated) {
-      // M5: queue ERPNext provisioning + subscription creation through BullMQ
+      // queue ERPNext provisioning + subscription creation through BullMQ
       // so the work survives a process restart and gets queue-managed retries.
       try {
         await enqueueProvisioning(accountId);
@@ -285,7 +285,7 @@ const ANNUAL_INVOICE_PERIOD_DAYS = 180;
  * monthly, with no chance of misclassifying a leap month.
  */
 function isAnnualInvoice(periodStart: Date, periodEnd: Date): boolean {
-  const spanDays = (periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24);
+  const spanDays = (periodEnd.getTime - periodStart.getTime) / (1000 * 60 * 60 * 24);
   return spanDays >= ANNUAL_INVOICE_PERIOD_DAYS;
 }
 

@@ -74,7 +74,7 @@ export const webhooksQueue = new Queue("webhooks", {
 /**
  * Cortex event processing queue. Every emitted event lands here so the
  * orchestrator can wake up, look at the event type, and dispatch to the
- * right specialist agent. Phase 1 ships the queue + emitter; Phase 2 adds
+ * right specialist agent. v1.0 ships the queue + emitter; v2.0 adds
  * the worker that drains it.
  */
 export const cortexQueue = new Queue("cortex", {
@@ -87,14 +87,14 @@ export const cortexQueue = new Queue("cortex", {
 });
 
 /**
- * Account provisioning queue (M5).
+ * Account provisioning queue .
  *
  * Owns the work that used to run as fire-and-forget dynamic imports from
  * billing.service.createAccount: ERPNext company + user creation, and
  * subscription record creation. Putting these on a real queue means:
  *
  *   1. The work survives a process restart mid-flight (not the case
- *      with `void import().then().catch()`).
+ *      with `void import.then.catch`).
  *   2. Retries are managed by BullMQ with proper exponential backoff and
  *      attempt counting that survives restart.
  *   3. Failures land in the BullMQ dead-letter queue and can be
@@ -146,7 +146,7 @@ export interface CleanupJobData {
     | "check-grace-period"
     | "send-trial-warnings"
     | "cleanup-expired-trials"
-    // B1: hard-delete accounts whose 30-day soft-delete grace period
+    // hard-delete accounts whose 30-day soft-delete grace period
     // has elapsed. Cascades through every child row via the FK relations
     // in schema.prisma; audit logs are anonymized in place beforehand.
     | "purge-deleted-accounts";
@@ -172,7 +172,7 @@ export interface CortexEventJobData {
 }
 
 /**
- * Provisioning job payload (M5). Discriminated by `task` so a single
+ * Provisioning job payload . Discriminated by `task` so a single
  * worker can handle both ERPNext setup and subscription-record creation
  * for a fresh signup.
  */
@@ -242,7 +242,7 @@ export async function scheduleCleanupJobs(): Promise<void> {
     repeat: { every: 7 * 24 * 60 * 60 * 1000 }, // weekly
   });
 
-  // B1: Daily account purge worker. Hard-deletes accounts whose 30-day
+  // Daily account purge worker. Hard-deletes accounts whose 30-day
   // soft-delete grace period has elapsed. The Privacy Policy promises
   // production purge within 30 days, so this MUST run at least daily.
   await cleanupQueue.add(
@@ -253,7 +253,7 @@ export async function scheduleCleanupJobs(): Promise<void> {
 }
 
 /**
- * Enqueue an ERPNext provisioning job for a newly-created account (M5).
+ * Enqueue an ERPNext provisioning job for a newly-created account .
  *
  * Replaces the previous `void import("./provisioning.service.js").then(...)`
  * fire-and-forget pattern in billing.service. The work now survives a
@@ -270,7 +270,7 @@ export async function enqueueProvisioning(accountId: string): Promise<void> {
 }
 
 /**
- * Enqueue a subscription record creation job for a newly-paid account (M5).
+ * Enqueue a subscription record creation job for a newly-paid account .
  *
  * Same justification as enqueueProvisioning — replaces a fire-and-forget
  * dynamic import that wouldn't survive a restart.

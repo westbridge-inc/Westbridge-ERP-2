@@ -75,15 +75,15 @@ Reference issues with `Closes #123`.
 
 ### Routes (`src/routes/`)
 
-- Use `apiSuccess()` / `apiError()` from `src/types/api.ts` — never return raw JSON
+- Use `apiSuccess` / `apiError` from `src/types/api.ts` — never return raw JSON
 - Validate input with Zod schemas (defined in `src/types/schemas/`)
-- Rate-limit with `checkRateLimit()` — use tiered limits for new routes
-- Authenticate with `validateSession()` — extract token from cookies
+- Rate-limit with `checkRateLimit` — use tiered limits for new routes
+- Authenticate with `validateSession` — extract token from cookies
 - Wrap handler body in try/catch and capture with Sentry
 
 ```typescript
 // Good
-return res.json(apiSuccess(data, meta()));
+return res.json(apiSuccess(data, meta));
 
 // Bad — raw shape
 return res.json({ ok: true, data });
@@ -92,7 +92,7 @@ return res.json({ ok: true, data });
 ### Services (`src/lib/services/`)
 
 - Business logic lives here, **not** in route handlers
-- Return `Result<T, E>` — use `ok()` / `err()` from `src/lib/utils/result.ts`
+- Return `Result<T, E>` — use `ok` / `err` from `src/lib/utils/result.ts`
 - Never throw from services — let the caller decide the HTTP status
 - Pass `accountId` explicitly to service signatures, AND rely on the RLS-pinned `prisma` client (which auto-filters by tenant via `current_setting('app.current_account_id')`) — defense in depth
 
@@ -115,7 +115,7 @@ export async function getInvoice(accountId: string, name: string): Promise<Resul
 
 ### Workers (`src/workers/`)
 
-- Each queue has a dedicated `create*Worker()` function
+- Each queue has a dedicated `create*Worker` function
 - Workers are started in `src/server.ts` after the HTTP server is listening
 - Use structured logging (`logger.info/error`) with job context
 - Idempotency: design jobs to be safely retried

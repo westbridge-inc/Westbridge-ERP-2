@@ -31,7 +31,7 @@ We chose **Express 5** (`express@^5.0.1`).
    handlers automatically, removing the main foot-gun of Express 4.
 3. **Hiring and onboarding** -- Express is the most widely known Node.js
    framework. Future hires can be productive on day one.
-4. **Separation of app and server** -- `createApp()` in `src/app.ts` returns a
+4. **Separation of app and server** -- `createApp` in `src/app.ts` returns a
    configured Express instance that integration tests import via Supertest
    without starting the HTTP server or BullMQ workers.
 

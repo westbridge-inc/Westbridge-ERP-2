@@ -1,14 +1,14 @@
 /**
  * Conversation agent — the user-facing Bridge AI.
  *
- * Phase 1 of the AI-Native ERP overhaul. This is the agent that answers
+ * v1.0 of the AI-Native ERP overhaul. This is the agent that answers
  * chat messages from /api/cortex/chat. It uses Opus 4.6 with adaptive
  * thinking, the existing ERP tool set, and runs at AUTONOMOUS by default
  * because the user is in the loop on every turn.
  *
  * Future phases add specialised agents (extract.invoice, finance.reconcile,
  * supply.reorder, ...) — those are registered the same way: build a
- * CortexAgentDefinition, call registerAgent() once at module load.
+ * CortexAgentDefinition, call registerAgent once at module load.
  */
 
 import { AUTONOMY, type CortexAgentDefinition } from "../protocol.js";
@@ -36,14 +36,14 @@ export function buildConversationAgent(systemPrompt: string): CortexAgentDefinit
     adaptiveThinking: true,
     tools: CORTEX_ERP_TOOLS,
     autonomyLevel: AUTONOMY.AUTONOMOUS,
-    // Phase 1: $10K cap on side-effecting tools. Above this, the engine
+    // v1.0: $10K cap on side-effecting tools. Above this, the engine
     // halts and persists a CortexApprovalRequest. The user-facing agent
     // generally is not asked to move money — most conversation traffic is
     // queries — but this protects against prompt injection or accidents.
     maxFinancialImpactUsd: 10_000,
     maxIterations: 10,
     timeoutMs: 60_000,
-    // 100K tokens / day / tenant for Phase 1 — the meter enforces this.
+    // 100K tokens / day / tenant for v1.0 — the meter enforces this.
     dailyTokenBudget: 100_000,
   };
 }

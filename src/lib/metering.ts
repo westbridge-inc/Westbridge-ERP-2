@@ -48,18 +48,18 @@ function periodKey(accountId: string, period: string): string {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return new Date.toISOString.slice(0, 10); // YYYY-MM-DD
 }
 
 function currentPeriod(): string {
-  return new Date().toISOString().slice(0, 7); // YYYY-MM
+  return new Date.toISOString.slice(0, 7); // YYYY-MM
 }
 
 // Keys expire at end of period + 90 days (generous buffer for billing disputes)
 function keyTtlSeconds(period: string): number {
   const [year, month] = period.split("-").map(Number);
   const endOfMonth = new Date(year!, month!, 1); // first day of *next* month
-  const expiry = new Date(endOfMonth.getTime() + 90 * 24 * 60 * 60 * 1000);
+  const expiry = new Date(endOfMonth.getTime + 90 * 24 * 60 * 60 * 1000);
   return Math.max(0, Math.floor((expiry.getTime() - Date.now()) / 1000));
 }
 

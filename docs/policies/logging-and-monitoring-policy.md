@@ -64,9 +64,9 @@ Each row contains:
 - `resource` and `resourceId` (e.g., `Sales Invoice` and the invoice name)
 - `severity` (`info`, `warning`, `critical`)
 - `outcome` (`success`, `failure`)
-- `ipAddress` (redacted to /24 — last octet zeroed by `redactIp()`)
+- `ipAddress` (redacted to /24 — last octet zeroed by `redactIp`)
 - `userAgent` (SHA-256 hashed and truncated to 16 chars)
-- `metadata` (JSON, recursively redacted for sensitive keys by `redactSensitive()`)
+- `metadata` (JSON, recursively redacted for sensitive keys by `redactSensitive`)
 - `timestamp`
 - Hash chain fields: `_hash` (SHA-256 of the row's content + previous row's hash), `_prevHash` (the previous row's `_hash`)
 

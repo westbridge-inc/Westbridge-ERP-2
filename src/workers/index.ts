@@ -12,7 +12,7 @@ import { prisma } from "../lib/data/prisma.js";
 import { prismaAdmin } from "../lib/data/prisma-admin.js";
 import { withTenantScope } from "../lib/data/tenant-scope.js";
 
-// Phase 3:
+// v3.0:
 //   - Cross-tenant cleanup tasks (session purge, audit log retention,
 //     webhook endpoint state) use prismaAdmin so they're not gated by
 //     RLS — the cleanup worker is intentionally global per spec §5.
@@ -149,7 +149,7 @@ function createCleanupWorker(): Worker {
         });
         logger.info("Deleted expired sessions", { jobId: job.id, count: result.count });
       } else if (task === "audit_logs") {
-        const cutoff = new Date(Date.now() - DATA_RETENTION.AUDIT_LOGS_DAYS * 24 * 60 * 60 * 1000);
+        const cutoff = new Date(Date.now - DATA_RETENTION.AUDIT_LOGS_DAYS * 24 * 60 * 60 * 1000);
         const result = await prismaAdmin.auditLog.deleteMany({
           where: { timestamp: { lt: cutoff } },
         });
@@ -179,7 +179,7 @@ function createCleanupWorker(): Worker {
         const result = await cleanupExpiredTrialData();
         logger.info("Expired trial cleanup completed", { jobId: job.id, deleted: result.deleted });
       } else if (task === "purge-deleted-accounts") {
-        // B1: hard-delete accounts whose 30-day grace period has elapsed.
+        // hard-delete accounts whose 30-day grace period has elapsed.
         // Drives the Privacy Policy promise of full erasure within 30 days
         // of cancellation. Each account is purged sequentially so a single
         // failure doesn't poison the rest of the batch.
@@ -216,7 +216,7 @@ function createCleanupWorker(): Worker {
 // ─── Webhooks Worker ───────────────────────────────────────────────────────────
 
 /**
- * Exponential backoff delays for webhook retries (B7).
+ * Exponential backoff delays for webhook retries .
  * Attempt 1: immediate, Attempt 2: 30s, Attempt 3: 2min, Attempt 4: 15min, Attempt 5: 1hr
  * After 5 failures: circuit breaker disables the endpoint.
  */
@@ -261,12 +261,12 @@ function createWebhooksWorker(): Worker {
 
         // The schema documents WebhookEndpoint.secret as encrypted-at-rest,
         // and any new write paths MUST encrypt before persisting (use the
-        // encrypt() helper). Until every legacy row has been backfilled to
+        // encrypt helper). Until every legacy row has been backfilled to
         // ciphertext, we tolerate plaintext on read by detecting the format
         // and skipping decryption when the value is not a ciphertext blob.
         // This keeps webhook delivery functional through the migration window
         // without weakening the encrypt-on-write guarantee for new rows.
-        //
+//
         // AAD-bound to endpointId on v1 envelopes — the context is ignored on
         // v0 (legacy) ciphertexts so transparent migration still works.
         const secret = isEncrypted(endpoint.secret)
@@ -437,7 +437,7 @@ const REPORT_HANDLERS: Record<
 
   async audit_export(tx, accountId, params) {
     const days = (params.days as number) ?? 30;
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const cutoff = new Date(Date.now - days * 24 * 60 * 60 * 1000);
     logger.info("Generating audit export", { accountId, days });
 
     const logs = await tx.auditLog.findMany({
@@ -570,7 +570,7 @@ function createReportsWorker(): Worker {
   );
 }
 
-// ─── Provisioning Worker (M5) ──────────────────────────────────────────────────
+// ─── Provisioning Worker  ──────────────────────────────────────────────────
 
 /**
  * Drains the provisioning queue. Replaces the fire-and-forget dynamic
@@ -639,7 +639,7 @@ function createProvisioningWorker(): Worker {
 
 /**
  * Drains the cortex BullMQ queue. Each event flows through processCortexEvent
- * which loads the row, dispatches to a registered agent (Phase 6 wires the
+ * which loads the row, dispatches to a registered agent (v6.0 wires the
  * dispatch table), and marks the event processed. The worker is intentionally
  * thin — all logic lives in events/processor.ts so it can be unit tested
  * without spinning up a Worker.

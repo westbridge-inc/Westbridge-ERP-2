@@ -12,14 +12,14 @@
  *   1. Does NOT install the tenant-pin extension that wraps every
  *      operation in a `set_config('app.current_account_id', ...)`
  *      transaction. It just runs the query directly.
- *   2. Connects as the schema-owner role even AFTER Phase 3's
+ *   2. Connects as the schema-owner role even AFTER v3.0's
  *      DATABASE_URL switch flips the runtime role to `westbridge_app`.
  *
  * USE THIS CLIENT FOR — and ONLY FOR:
  *
  *   - Pre-tenant-context auth flows that need to discover which tenant
  *     a request belongs to:
- *       • `validateSession()` — looks up session by token hash, joins user
+ *       • `validateSession` — looks up session by token hash, joins user
  *       • `requireActiveSubscription` middleware — looks up account status
  *       • `handleLogin` / `handleForgotPassword` — looks up account+user
  *         by email (no tenant context yet)
@@ -27,11 +27,11 @@
  *         a query string (no tenant context yet)
  *
  *   - INSERTs into multiple tenants from the same handler:
- *       • `createAccount()` — creates an account row + the first user row
+ *       • `createAccount` — creates an account row + the first user row
  *
  *   - Verified-by-signature webhook handlers that mark accounts paid:
- *       • `markAccountPaid()` (Paddle webhook handler)
- *       • `cancelSubscription()`
+ *       • `markAccountPaid` (Paddle webhook handler)
+ *       • `cancelSubscription`
  *
  *   - Cleanup workers that legitimately operate across all tenants:
  *       • daily session cleanup, audit log retention
@@ -40,7 +40,7 @@
  *       • subscription state reconciliation
  *
  *   - System-level audit logging:
- *       • `audit.service.logAudit()` — writes to audit_logs from any
+ *       • `audit.service.logAudit` — writes to audit_logs from any
  *         layer of the stack, often before tenant context is set
  *
  * EVERYTHING ELSE — every authenticated route handler, every per-tenant
@@ -59,7 +59,7 @@ function createPrismaAdminClient() {
   // DATABASE_URL only when MIGRATION_DATABASE_URL is unset, which is the
   // pre-Phase-3-cutover state where both URLs point at the same role.
   // Once the runtime role is switched to `westbridge_app`, this fallback
-  // becomes incorrect — Phase 3's deploy MUST set MIGRATION_DATABASE_URL
+  // becomes incorrect — v3.0's deploy MUST set MIGRATION_DATABASE_URL
   // to the schema-owner URL or this client will inherit RLS-enforced
   // visibility and break.
   const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;

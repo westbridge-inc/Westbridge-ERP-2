@@ -1,5 +1,5 @@
 /**
- * Tenant isolation integration test (Phase 5 of the tenant isolation
+ * Tenant isolation integration test (v5.0 of the tenant isolation
  * hardening spec). Connects to a real Postgres database AS the
  * `westbridge_app` role and verifies that Row-Level Security policies
  * actually enforce tenant isolation across every protected table.
@@ -105,7 +105,7 @@ describe.skipIf(shouldSkip)("tenant isolation (RLS enforcement)", () => {
             sessions: {
               create: {
                 token: "tnt_test_sess_a",
-                expiresAt: new Date(Date.now() + 60 * 60_000),
+                expiresAt: new Date(Date.now + 60 * 60_000),
               },
             },
           },
@@ -155,7 +155,7 @@ describe.skipIf(shouldSkip)("tenant isolation (RLS enforcement)", () => {
             sessions: {
               create: {
                 token: "tnt_test_sess_b",
-                expiresAt: new Date(Date.now() + 60 * 60_000),
+                expiresAt: new Date(Date.now + 60 * 60_000),
               },
             },
           },

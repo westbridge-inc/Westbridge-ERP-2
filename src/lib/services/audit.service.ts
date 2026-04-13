@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { logger } from "../logger.js";
 
-// Phase 3: audit logging is system-level. It is invoked from every
+// v3.0: audit logging is system-level. It is invoked from every
 // layer of the stack — middleware, route handlers, background workers,
 // auth pre-context — and the audit_logs INSERT must succeed regardless
 // of whether a tenant pin is currently active. Use the cross-tenant

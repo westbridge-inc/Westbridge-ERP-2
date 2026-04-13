@@ -25,7 +25,7 @@ import { logger } from "../logger.js";
 const PADDLE_API_KEY = () => process.env.PADDLE_API_KEY ?? "";
 const PADDLE_WEBHOOK_SECRET = () => process.env.PADDLE_WEBHOOK_SECRET ?? "";
 const PADDLE_SANDBOX = () => (process.env.PADDLE_SANDBOX ?? "true") === "true";
-const PADDLE_API_URL = () => (PADDLE_SANDBOX() ? "https://sandbox-api.paddle.com" : "https://api.paddle.com");
+const PADDLE_API_URL =  => (PADDLE_SANDBOX ? "https://sandbox-api.paddle.com" : "https://api.paddle.com");
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

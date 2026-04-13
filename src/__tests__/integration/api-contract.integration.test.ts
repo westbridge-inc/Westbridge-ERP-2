@@ -1,5 +1,5 @@
 /**
- * API Contract Tests (B2)
+ * API Contract Tests 
  *
  * Validates the response shape of every major API endpoint using Zod schemas.
  * These tests define the contract between frontend and backend. If a backend
@@ -14,7 +14,7 @@ import { z } from "zod";
 // Mocks — must be declared before importing the app
 // ---------------------------------------------------------------------------
 
-// Phase 3: handleLogin now uses prismaAdmin (login runs before requireAuth
+// v3.0: handleLogin now uses prismaAdmin (login runs before requireAuth
 // establishes a tenant context). validateSession is fully mocked below, but
 // the login path still hits the real client unless we mock prismaAdmin too.
 // vi.hoisted lets one mock object be exposed under both `prisma` and
@@ -49,7 +49,7 @@ const { sharedPrismaMock } = vi.hoisted(() => ({
       create: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
     },
-    // C1 fix: handleLogin now consults totpSecret.verified to decide
+    // (security patch): handleLogin now consults totpSecret.verified to decide
     // whether to gate the login behind a TOTP challenge. The contract
     // test exercises a single-factor login path, so default to "no TOTP
     // row" and the legacy createSession branch still runs.
@@ -473,7 +473,7 @@ describe("API Contract Tests", () => {
     });
   });
 
-  // ── Deprecation headers on unversioned routes (B5) ─────────────────────
+  // ── Deprecation headers on unversioned routes  ─────────────────────
   describe("Deprecation headers", () => {
     it("sets Deprecation/Sunset/Link on unversioned /api/ routes", async () => {
       const res = await request(app).get("/api/health/live");
@@ -491,7 +491,7 @@ describe("API Contract Tests", () => {
     });
   });
 
-  // ── Response time header (B4) ──────────────────────────────────────────
+  // ── Response time header  ──────────────────────────────────────────
   describe("Response time header", () => {
     it.skip("includes X-Response-Time on every response", async () => {
       const res = await request(app).get("/api/health/live");

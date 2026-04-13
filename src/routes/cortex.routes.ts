@@ -6,7 +6,7 @@
  * GET  /cortex/conversations/:id — fetch a single conversation's history
  * GET  /cortex/activity — recent execution log entries (audit trail)
  *
- * Phase 1 of the AI-Native ERP overhaul. These routes layer the Cortex on
+ * v1.0 of the AI-Native ERP overhaul. These routes layer the Cortex on
  * top of the existing /api/ai/chat endpoint without breaking it. The legacy
  * route stays in place for the existing AIChatPanel widget; new clients use
  * /cortex/chat with a streaming SSE response.
@@ -128,7 +128,7 @@ router.post("/cortex/chat", async (req: Request, res: Response) => {
   }
   const session = sessionResult.data;
 
-  // Phase 3: this handler bypasses requireAuth (it does manual session
+  // v3.0: this handler bypasses requireAuth (it does manual session
   // validation because it streams via SSE), so the tenant context isn't
   // pinned automatically. Capture a non-null `ai` reference for the
   // closure (TS narrowing on `anthropic` doesn't survive the wrap), then
@@ -264,9 +264,9 @@ router.post("/cortex/chat", async (req: Request, res: Response) => {
     }
 
     // ── Stream the result back ──
-    // Phase 1: we run the agent to completion server-side then emit the full
-    // text + structured metadata as SSE events. Phase 2 will switch to true
-    // streaming via client.messages.stream() so users see tokens as they
+    // v1.0: we run the agent to completion server-side then emit the full
+    // text + structured metadata as SSE events. v2.0 will switch to true
+    // streaming via client.messages.stream so users see tokens as they
     // arrive — that requires the engine to expose iteration callbacks, which
     // is a more invasive change. The wire format is forward-compatible.
     if (result.toolCalls.length > 0) {
@@ -632,13 +632,13 @@ router.post("/cortex/reject/:id", requireAuth, requireCsrf, async (req: Request,
 // this on the home screen so a user opening the app first thing in the
 // morning sees state-of-the-business at a glance.
 //
-// Phase 5 ships a structured aggregate built from the existing tables.
-// Phase 9 (future) wires this through a dedicated briefing agent that
+// v5.0 ships a structured aggregate built from the existing tables.
+// v9.0 (future) wires this through a dedicated briefing agent that
 // turns the aggregate into prose using Claude.
 
 router.get("/cortex/briefing", requireAuth, async (req: Request, res: Response) => {
   const session = req.session!;
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now - 24 * 60 * 60 * 1000);
 
   // Run the four aggregate queries in parallel — none depend on each other.
   const [executions, pendingApprovals, recentExceptions, recentEvents] = await Promise.all([
@@ -699,7 +699,7 @@ router.get("/cortex/briefing", requireAuth, async (req: Request, res: Response) 
 // ─── POST /cortex/feedback ─────────────────────────────────────────────────
 //
 // Capture human ratings, comments, and corrections on AI decisions. Writes
-// to CortexFeedback (added in Phase 2). The learning pipeline later promotes
+// to CortexFeedback (added in v2.0). The learning pipeline later promotes
 // corrections into per-tenant CortexMemory rules; for now we just persist
 // the feedback so it accumulates.
 
@@ -763,7 +763,7 @@ router.post("/cortex/feedback", requireAuth, requireCsrf, async (req: Request, r
   });
 
   // Emit a Cortex event so the learning worker can pick up corrections and
-  // promote them into CortexMemory. Phase 6 wires the worker; for now the
+  // promote them into CortexMemory. v6.0 wires the worker; for now the
   // event flows in and is no-op'd by the empty dispatch table.
   await emitEvent({
     accountId: session.accountId,

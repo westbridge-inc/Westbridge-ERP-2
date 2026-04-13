@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
 // ---------------------------------------------------------------------------
-// Mocks — external boundaries needed to mount createApp()
+// Mocks — external boundaries needed to mount createApp
 // ---------------------------------------------------------------------------
 
-// sso.routes.ts uses prismaAdmin (Phase 3): SSO callbacks run BEFORE
+// sso.routes.ts uses prismaAdmin (v3.0): SSO callbacks run BEFORE
 // requireAuth establishes a tenant context, so the helper that loads
 // the SSO config has to bypass RLS. Use vi.hoisted to share one mock
 // object across both `prisma` and `prismaAdmin` module names so the

@@ -3,8 +3,8 @@
  * surface something a human should see (a flagged anomaly, a low cash
  * warning, a recurring failure, etc).
  *
- * Phase 6 of the AI-Native ERP overhaul. Output is a structured notification
- * payload that the Phase 7 send_notification tool will turn into an in-app
+ * v6.0 of the AI-Native ERP overhaul. Output is a structured notification
+ * payload that the v7.0 send_notification tool will turn into an in-app
  * banner and an optional email. The agent itself does not send anything —
  * it composes the message and a downstream tool delivers it.
  */
@@ -52,7 +52,7 @@ export const notificationAgent: CortexAgentDefinition = {
   systemPrompt: NOTIFICATION_SYSTEM_PROMPT,
   maxTokens: 1_000,
   adaptiveThinking: false,
-  // Phase 7 will add: send_notification.
+  // v7.0 will add: send_notification.
   tools: [],
   autonomyLevel: AUTONOMY.AUTONOMOUS,
   maxFinancialImpactUsd: 0,

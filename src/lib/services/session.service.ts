@@ -25,7 +25,7 @@ function hashToken(token: string): string {
 }
 
 // Only trust X-Forwarded-For values that are valid IPv4 or IPv6 addresses.
-// net.isIP() strictly validates RFC 3513/791 format; the previous regex
+// net.isIP strictly validates RFC 3513/791 format; the previous regex
 // /^[0-9a-fA-F:]+$/ accepted invalid patterns like "::::::::::".
 function isValidIp(ip: string): boolean {
   return isIP(ip) !== 0;
@@ -62,7 +62,7 @@ interface CachedSession {
   role: string;
   erpnextSid?: string | null;
   // Security fields stored in cache so we can validate without a DB hit.
-  expiresAt: number; // Unix ms — checked against Date.now()
+  expiresAt: number; // Unix ms — checked against Date.now
   lastActiveAt: number; // Unix ms — checked for idle timeout
   fingerprint: string | null;
 }
@@ -79,7 +79,7 @@ export async function createSession(
 ): Promise<Result<{ token: string; expiresAt: Date }, string>> {
   const raw = randomBytes(32).toString("base64url");
   const tokenHash = hashToken(raw);
-  const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
   const fingerprint = fingerprintFromRequest(request);
 
   try {

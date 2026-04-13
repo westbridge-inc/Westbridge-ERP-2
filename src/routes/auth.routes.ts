@@ -6,7 +6,7 @@
  *
  * Endpoints:
  *   - POST /api/auth/login
- *   - POST /api/auth/login/totp   (C1 fix — second-factor completion)
+ *   - POST /api/auth/login/totp   (security patch) — second-factor completion)
  *   - POST /api/auth/logout
  *   - GET  /api/auth/validate
  *   - POST /api/auth/forgot-password

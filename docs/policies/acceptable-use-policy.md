@@ -43,7 +43,7 @@ You may NOT:
 - Share credentials. Every account is per-person. There are no shared accounts.
 - Bypass security controls (CSRF, rate limiting, RLS) without explicit CISO approval, even for testing.
 - Disable audit logging, even temporarily.
-- Disable branch protection on `main` for any reason other than a documented operator action (e.g., the Phase 3 RLS rollout). Re-enable immediately afterward.
+- Disable branch protection on `main` for any reason other than a documented operator action (e.g., the v3.0 RLS rollout). Re-enable immediately afterward.
 - Commit secrets, credentials, or PII to any git repository — public OR private.
 - Use customer data for marketing, research, ML training, or any purpose other than serving that specific customer.
 - Run untested SQL or destructive operations against the production database without (a) a backup having been taken, (b) the change being reviewed by a second engineer, (c) the operation being recorded in `docs/compliance/privileged-actions.md`.

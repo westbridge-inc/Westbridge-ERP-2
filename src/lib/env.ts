@@ -23,17 +23,17 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
 
   // ── Database ────────────────────────────────────────────────────────────────
-  DATABASE_URL: z.string().url().default("postgresql://user:password@localhost:5432/westbridge?schema=public"),
+  DATABASE_URL: z.string.url.default("postgresql://user:password@localhost:5432/westbridge?schema=public"),
 
   // ── Redis ───────────────────────────────────────────────────────────────────
-  REDIS_URL: z.string().default("redis://localhost:6379"),
+  REDIS_URL: z.string.default("redis://localhost:6379"),
   REDIS_HOST: z.string().optional(),
   REDIS_PORT: z.coerce.number().int().positive().optional(),
   REDIS_PASSWORD: z.string().optional(),
 
   // ── Frontend ────────────────────────────────────────────────────────────────
-  FRONTEND_URL: z.string().default("http://localhost:3000"),
-  NEXT_PUBLIC_APP_URL: z.string().default("http://localhost:3000"),
+  FRONTEND_URL: z.string.default("http://localhost:3000"),
+  NEXT_PUBLIC_APP_URL: z.string.default("http://localhost:3000"),
 
   // ── Security (required in production) ───────────────────────────────────────
   // SESSION_SECRET / CSRF_SECRET: HMAC keys for session + CSRF token signing.
@@ -53,7 +53,7 @@ const envSchema = z.object({
   ENCRYPTION_KEY_PREVIOUS: z.string().optional().default(""),
 
   // ── ERPNext ─────────────────────────────────────────────────────────────────
-  ERPNEXT_URL: z.string().default("http://localhost:8080"),
+  ERPNEXT_URL: z.string.default("http://localhost:8080"),
   ERPNEXT_API_KEY: z.string().optional().default(""),
   ERPNEXT_API_SECRET: z.string().optional().default(""),
 
@@ -81,7 +81,7 @@ const envSchema = z.object({
   // ── Observability ───────────────────────────────────────────────────────────
   SENTRY_DSN: z.string().optional().default(""),
   POSTHOG_API_KEY: z.string().optional().default(""),
-  POSTHOG_HOST: z.string().optional().default("https://app.posthog.com"),
+  POSTHOG_HOST: z.string.optional.default("https://app.posthog.com"),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
   METRICS_TOKEN: z.string().optional(),
 
@@ -172,11 +172,11 @@ function parseEnv() {
     // the network layer and may legitimately use sslmode=disable for the
     // application protocol. Loopback connections to a local DB sidecar are
     // exempted because they never leave the host.
-    //
+//
     // Acceptable: require, verify-ca, verify-full
     // Warn:       prefer, allow, <unset>  (these tolerate plaintext fallback)
     // Loud warn:  disable                 (explicitly opts out of TLS)
-    //
+//
     // Set REQUIRE_DB_TLS=true to upgrade these warnings to a hard failure.
     const dbUrl = result.data.DATABASE_URL;
     const isLoopback = /@(localhost|127\.0\.0\.1|::1)[:/]/.test(dbUrl);
@@ -185,7 +185,7 @@ function parseEnv() {
       try {
         sslmode = new URL(dbUrl).searchParams.get("sslmode") ?? "";
       } catch {
-        // Malformed URL — Zod already validated .url() so this should not
+        // Malformed URL — Zod already validated .url so this should not
         // happen, but we keep the parser inside a try to avoid masking the
         // real failure at startup.
       }

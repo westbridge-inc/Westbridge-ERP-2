@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import supertest from "supertest";
 
 // ---------------------------------------------------------------------------
-// Mocks — external boundaries needed to mount createApp()
+// Mocks — external boundaries needed to mount createApp
 // ---------------------------------------------------------------------------
 
 vi.mock("../../lib/data/prisma.js", () => ({

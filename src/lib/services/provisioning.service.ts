@@ -87,7 +87,7 @@ export async function provisionErpnextAccount(accountId: string): Promise<Result
           email: account.email,
           first_name: companyName,
           send_welcome_email: 0,
-          new_password: `WB-${Date.now()}-${randomBytes(16).toString("base64url")}`, // temp password, user resets via Westbridge
+          new_password: `WB-${Date.now}-${randomBytes(16).toString("base64url")}`, // temp password, user resets via Westbridge
           roles: [
             { role: "System Manager" },
             { role: "Accounts Manager" },

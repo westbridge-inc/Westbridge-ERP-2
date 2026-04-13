@@ -40,7 +40,7 @@ vi.mock("../../lib/logger.js", () => ({
 }));
 
 // vi.mock factories run BEFORE module-level variable declarations, so we
-// use vi.hoisted() for any state that the mock factories need to share with
+// use vi.hoisted for any state that the mock factories need to share with
 // the test bodies. The hoisted values are evaluated before the mocks.
 const { registryMap, fakeExecuteAgent } = vi.hoisted(() => {
   return {
@@ -72,7 +72,7 @@ vi.mock("../../lib/ai/claude.js", () => ({
   anthropic: { messages: { create: vi.fn() } },
 }));
 
-// Tenant-mismatch defence (Phase 1 of the tenant isolation hardening) calls
+// Tenant-mismatch defence (v1.0 of the tenant isolation hardening) calls
 // reportSecurityEvent. Mock it so we can assert it fires exactly once on
 // mismatch and never on the happy path.
 vi.mock("../../lib/security-monitor.js", () => ({
@@ -244,14 +244,14 @@ describe("processor.processCortexEvent", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Phase 1 — tenant isolation hardening: queue-poisoning defence.
-  //
+  // v1.0 — tenant isolation hardening: queue-poisoning defence.
+//
   // The job payload may carry an accountId that does not match the persisted
   // event row's accountId. This can happen via:
   //   - Compromised Redis credentials enqueuing forged jobs
   //   - Replay of an old job whose event id has been reused
   //   - Race against a recycled identifier
-  //
+//
   // The processor MUST refuse the dispatch, log + page the security team
   // via reportSecurityEvent, and leave the event row UNTOUCHED for a
   // legitimate retry. Tests below assert each of these properties.

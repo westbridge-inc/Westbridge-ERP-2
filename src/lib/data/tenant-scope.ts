@@ -18,7 +18,7 @@
  * and (when running as the `westbridge_app` role) RLS policies default-
  * deny every row.
  *
- * After the Phase 3 role switch, runtime queries connect as `westbridge_app`,
+ * After the v3.0 role switch, runtime queries connect as `westbridge_app`,
  * which is bound by tenant_isolation_* policies on every tenant table.
  * Forgetting to use this helper from a worker will return zero rows for
  * that worker's queries — failure mode is loud, not silent.
@@ -39,8 +39,8 @@ type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0
 
 export async function withTenantScope<T>(accountId: string, fn: (tx: TransactionClient) => Promise<T>): Promise<T> {
   // Set the AsyncLocalStorage tenant context so that any code path
-  // INSIDE the callback that happens to call `prisma.X.method()`
-  // (instead of `tx.X.method()`) still sees the right tenant. The
+  // INSIDE the callback that happens to call `prisma.X.method`
+  // (instead of `tx.X.method`) still sees the right tenant. The
   // Prisma extension reads this storage on every operation.
   return tenantContextStorage.run({ accountId }, async () => {
     return prisma.$transaction(async (tx) => {
@@ -49,7 +49,7 @@ export async function withTenantScope<T>(accountId: string, fn: (tx: Transaction
       // transaction commits, the next request gets a clean slate.
       await tx.$executeRaw`SELECT set_config('app.current_account_id', ${accountId}, true)`;
       // Mark recursion guard so the Prisma `$allOperations` extension
-      // doesn't try to open NESTED transactions for each `tx.X.method()`
+      // doesn't try to open NESTED transactions for each `tx.X.method`
       // call inside fn — we already have the variable set on this
       // connection, additional pinning would just add overhead (and
       // Prisma rejects nested $transactions).

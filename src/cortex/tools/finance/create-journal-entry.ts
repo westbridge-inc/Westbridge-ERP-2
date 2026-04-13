@@ -2,7 +2,7 @@
  * create_journal_entry — compose and persist a balanced ERPNext Journal
  * Entry document for the current tenant.
  *
- * Phase 7 of the AI-Native ERP overhaul. Validates that debits == credits
+ * v7.0 of the AI-Native ERP overhaul. Validates that debits == credits
  * BEFORE calling executeTool, so the engine never asks ERPNext to commit
  * an unbalanced entry. Side-effecting + irreversible — the engine wraps it
  * in the financial-impact gate based on the input total.

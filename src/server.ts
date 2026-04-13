@@ -12,7 +12,7 @@ import { closeRedis } from "./lib/redis.js";
 // ─── Sentry — initialize BEFORE anything else can throw ──────────────────────
 //
 // beforeSend redacts:
-//   1. Absolute filesystem paths in stack frames + breadcrumbs (M9 audit
+//   1. Absolute filesystem paths in stack frames + breadcrumbs (security patch)
 //      finding — leaks the build environment's directory layout, which
 //      tells an attacker about the deploy topology and may expose user
 //      home directories on dev machines).

@@ -3,9 +3,9 @@
  * invoice, a matched bank transaction, a payroll run) into ERPNext Journal
  * Entry documents with the right debit / credit splits.
  *
- * Phase 6 of the AI-Native ERP overhaul. The agent NEVER creates an entry
+ * v6.0 of the AI-Native ERP overhaul. The agent NEVER creates an entry
  * with unbalanced debits and credits — the prompt enforces the rule and the
- * Phase 7 create_journal_entry tool re-validates server-side as belt + braces.
+ * v7.0 create_journal_entry tool re-validates server-side as belt + braces.
  */
 
 import { AUTONOMY, type CortexAgentDefinition } from "../../protocol.js";
@@ -54,7 +54,7 @@ export const journalAgent: CortexAgentDefinition = {
   systemPrompt: JOURNAL_SYSTEM_PROMPT,
   maxTokens: 4_000,
   adaptiveThinking: true,
-  // Phase 7 wires the journal agent's tool bundle: get_accounts (validation),
+  // v7.0 wires the journal agent's tool bundle: get_accounts (validation),
   // get_outstanding + get_invoices (looking up source documents),
   // create_journal_entry (the only mutating tool — guarded by the engine's
   // financial-impact gate).

@@ -4,7 +4,7 @@
  * Verifies the AsyncLocalStorage primitives that plumb the active
  * tenant id from `requireAuth` through every async hop down to the
  * Prisma `$extends` tenant-pin extension. These primitives are the
- * load-bearing piece of Phase 3 RLS — if they leak between concurrent
+ * load-bearing piece of v3.0 RLS — if they leak between concurrent
  * requests OR fail to propagate across `await`, every subsequent query
  * sees the wrong tenant.
  */

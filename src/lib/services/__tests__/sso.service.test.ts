@@ -100,7 +100,7 @@ describe("sso.service", () => {
     it("returns error on invalid discovery", async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({ issuer: "test" }), // missing endpoints
+        json:  => Promise.resolve({ issuer: "test" }), // missing endpoints
       }) as any;
 
       const result = await discoverOidc("https://incomplete.example.com");

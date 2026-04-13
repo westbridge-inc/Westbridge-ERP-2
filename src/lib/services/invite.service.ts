@@ -6,7 +6,7 @@ import { randomBytes, createHash } from "crypto";
 import { prisma } from "../data/prisma.js";
 import { prismaAdmin } from "../data/prisma-admin.js";
 
-// Phase 3: createInvite is called from POST /invite (authenticated, the
+// v3.0: createInvite is called from POST /invite (authenticated, the
 // requesting account is in tenant context). validateInviteToken and
 // acceptInvite are called from /invite GET and POST /invite/accept,
 // both UNAUTHENTICATED (the invitee is identified only by the token).
@@ -47,7 +47,7 @@ export async function createInvite(input: CreateInviteInput): Promise<Result<{ i
 
   const raw = randomBytes(32).toString("base64url");
   const tokenHash = hashToken(raw);
-  const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
 
   const invite = await prisma.$transaction(async (tx) => {
     await tx.inviteToken.updateMany({

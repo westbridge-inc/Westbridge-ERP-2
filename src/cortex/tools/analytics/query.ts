@@ -1,7 +1,7 @@
 /**
  * analytics_query — generic doctype query escape hatch.
  *
- * Phase 7 of the AI-Native ERP overhaul. The other Phase 7 tools (get-accounts,
+ * v7.0 of the AI-Native ERP overhaul. The other v7.0 tools (get-accounts,
  * get-invoices, get-bank-transactions, etc) are pre-bound to specific
  * doctypes. This tool exposes the raw `list_records` interface so the
  * conversation agent can answer ad-hoc questions like "how many leads did

@@ -33,7 +33,7 @@ import { fromBase32, verifyTotp } from "../lib/totp.js";
 import type { Request, Response } from "express";
 
 // ---------------------------------------------------------------------------
-// 2FA login challenge (C1 fix)
+// 2FA login challenge (Two-Factor Authentication)
 // ---------------------------------------------------------------------------
 //
 // When a user with verified TOTP successfully passes the password step,
@@ -41,9 +41,8 @@ import type { Request, Response } from "express";
 // of immediately creating a session. The client must then POST the challenge
 // token + a TOTP/backup code to /api/auth/login/totp to actually log in.
 //
-// This is the missing second-factor gate that closes the C1 audit finding:
-// before this fix, `handleLogin` set the session cookie immediately on
-// password verification, ignoring totp_secrets.verified entirely.
+// Implementation detail: Handle login evaluates totp_secrets.verified early
+// so that a session cookie isn't immediately set.
 //
 // The challenge value carries the userId and an encrypted erpnextSid (so we
 // can hand it to createSession on completion without re-authenticating
@@ -241,7 +240,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         request_id: requestId,
       });
       const nextAttempts = (user.failedLoginAttempts ?? 0) + 1;
-      const lockedUntil = nextAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+      const lockedUntil = nextAttempts >= 5 ? new Date(Date.now + 15 * 60 * 1000) : null;
       await prismaAdmin.user.update({
         where: { id: user.id },
         data: {
@@ -292,7 +291,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
 
     const erpnextSid = loginResult.data;
 
-    // --- 2FA gate (C1 fix) ---
+    // --- 2FA gate (security patch) ---
     // If the user has verified TOTP, do NOT create a session yet. Issue a
     // single-use challenge that the client must redeem at /auth/login/totp
     // with a valid 6-digit code or 8-hex backup code. The user is treated
@@ -424,7 +423,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
 }
 
 // ---------------------------------------------------------------------------
-// POST /login/totp — second-factor completion (C1 fix)
+// POST /login/totp — second-factor completion (security patch)
 // ---------------------------------------------------------------------------
 //
 // Consumes a challenge issued by handleLogin when the user has verified TOTP.
@@ -759,7 +758,7 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
   const isOnTrial = !!(account?.trialEndsAt && account.trialEndsAt > now);
   const trialDaysRemaining =
     isOnTrial && account?.trialEndsAt
-      ? Math.max(0, Math.ceil((account.trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+      ? Math.max(0, Math.ceil((account.trialEndsAt.getTime - now.getTime) / (24 * 60 * 60 * 1000)))
       : 0;
 
   return res

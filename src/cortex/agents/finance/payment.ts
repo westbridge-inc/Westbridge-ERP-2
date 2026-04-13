@@ -3,8 +3,8 @@
  * paid this run, in what order, and via which method (bank transfer, card,
  * Paddle, etc).
  *
- * Phase 6 of the AI-Native ERP overhaul. Always runs at SUPERVISED maximum
- * because moving money is the riskiest thing the AI does. The Phase 7 tools
+ * v6.0 of the AI-Native ERP overhaul. Always runs at SUPERVISED maximum
+ * because moving money is the riskiest thing the AI does. The v7.0 tools
  * will let it READ outstanding invoices but the actual `make_payment` tool
  * always carries `requiresApproval: true`, so even at AUTONOMOUS the engine
  * stops the loop and asks a human before any money moves.
@@ -71,7 +71,7 @@ export const paymentAgent: CortexAgentDefinition = {
   systemPrompt: PAYMENT_SYSTEM_PROMPT,
   maxTokens: 6_000,
   adaptiveThinking: true,
-  // Phase 7 wires the payment scheduler bundle: get_outstanding (what's due),
+  // v7.0 wires the payment scheduler bundle: get_outstanding (what's due),
   // get_financial_summary (cash check), search_contacts (verify supplier),
   // get_invoices (look up source bills). The actual `make_payment` tool is
   // a future addition and will always carry requiresApproval=true so the

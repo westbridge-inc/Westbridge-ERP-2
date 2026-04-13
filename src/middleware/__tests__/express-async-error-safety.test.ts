@@ -1,7 +1,7 @@
 /**
  * Express 5 async-error safety net regression tests.
  *
- * Audit finding M4 ("Async route handlers don't catch all rejections")
+ * (security review) M4 ("Async route handlers don't catch all rejections")
  * was raised against the Express 4 era pattern where an unhandled rejection
  * inside an async route handler would NOT be forwarded to the error
  * middleware — the request would simply hang and the rejection would

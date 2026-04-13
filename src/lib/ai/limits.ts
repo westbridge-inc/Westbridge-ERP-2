@@ -19,7 +19,7 @@ async function getTrialAiLimit(accountId: string): Promise<number | null> {
     select: { trialEndsAt: true, trialAiLimit: true },
   });
   if (!account?.trialEndsAt) return null;
-  if (new Date() > account.trialEndsAt) return null; // trial expired
+  if (new Date > account.trialEndsAt) return null; // trial expired
   return account.trialAiLimit;
 }
 

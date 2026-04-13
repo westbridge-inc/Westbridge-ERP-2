@@ -45,7 +45,7 @@ vi.mock("../subscription.service.js", () => ({
   createSubscription: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
-// M5: billing.service now enqueues provisioning + subscription jobs through
+// billing.service now enqueues provisioning + subscription jobs through
 // BullMQ instead of fire-and-forget dynamic imports. Mock the queue helpers
 // so tests can assert that enqueue was called with the right payload
 // without needing a real Redis connection.
@@ -113,7 +113,7 @@ describe("billing.service", () => {
     // Regression: new trial accounts must auto-provision an ERPNext company +
     // subscription immediately on signup. Without this, trial users share an
     // unscoped ERPNext instance (cross-tenant data leak) until they pay.
-    //
+//
     // M5 update: provisioning is now enqueued via BullMQ instead of called
     // inline, so the assertion targets enqueueProvisioning + enqueueSubscriptionCreate
     // rather than the underlying service functions.
@@ -205,19 +205,19 @@ describe("billing.service", () => {
     });
   });
 
-  // ─── Refund window branching (B5: align with published policy) ─────────
-  //
+  // ─── Refund window branching (align with published policy) ─────────
+//
   // The published Refund Policy table:
-  //
+//
   //   First monthly subscription          → 14 days, 100% refund
   //   Monthly subscription renewals       → not eligible
   //   Annual subscription (first-time)    → 30 days, pro-rata
   //   Annual subscription renewals        → 14 days, pro-rata
-  //
+//
   // Pre-fix the code hardcoded `REFUND_WINDOW_DAYS = 14` for every invoice
   // type, so a customer who paid for an annual plan and asked for a refund
   // on day 20 was rejected even though the policy promised 30 days. The
-  // refundWindowDaysFor() helper now branches on (annual?, first-time?).
+  // refundWindowDaysFor helper now branches on (annual?, first-time?).
   describe("refundWindowDaysFor", () => {
     const monthly = {
       periodStart: new Date("2026-01-01"),

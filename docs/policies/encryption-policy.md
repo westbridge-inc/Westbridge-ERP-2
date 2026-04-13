@@ -56,7 +56,7 @@ Adding a new restricted column requires adding a new context entry — code revi
 
 ### 3.3 Key storage
 
-The encryption key is stored as the Fly.io secret `ENCRYPTION_KEY`. Fly envelopes secrets using its platform-managed KMS so the on-disk representation in Fly is itself encrypted. The application reads the secret at process start (`src/lib/env.ts:52`) and validates the key length and base64 format via `validateEncryptionKey()`.
+The encryption key is stored as the Fly.io secret `ENCRYPTION_KEY`. Fly envelopes secrets using its platform-managed KMS so the on-disk representation in Fly is itself encrypted. The application reads the secret at process start (`src/lib/env.ts:52`) and validates the key length and base64 format via `validateEncryptionKey`.
 
 ### 3.4 Validation
 

@@ -1,5 +1,5 @@
 /**
- * account-cleanup.service tests (Big-4 audit B1 + B2)
+ * account-cleanup.service tests (compliance review)+ B2)
  *
  * Mocks (database boundary only). Internal helpers run for real.
  */

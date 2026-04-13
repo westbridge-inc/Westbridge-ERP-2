@@ -2,7 +2,7 @@
  * get_financial_summary — high-level cash position + AR/AP totals for the
  * current tenant.
  *
- * Phase 7 of the AI-Native ERP overhaul. Aggregates the totals an agent or
+ * v7.0 of the AI-Native ERP overhaul. Aggregates the totals an agent or
  * a user typically asks for first when checking on a business: cash on
  * hand, total receivables, total payables, net position, and a simple
  * health flag (positive | tight | negative). Built on top of the existing

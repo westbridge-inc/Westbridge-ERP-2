@@ -1,9 +1,9 @@
 /**
  * OpenAPI generator regression tests.
  *
- * Phase 1 of this file exists because the live spec endpoint was 500'ing
+ * v1.0 of this file exists because the live spec endpoint was 500'ing
  * silently in production: the openapi.ts module forgot to call
- * extendZodWithOpenApi(z) before any registry.register() call, so every
+ * extendZodWithOpenApi(z) before any registry.register call, so every
  * Zod schema crashed at registration with "zodSchema.openapi is not a
  * function". The test below would have caught it the first time.
  *

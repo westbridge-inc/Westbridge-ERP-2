@@ -1,5 +1,5 @@
 /**
- * Response time middleware tests (B4)
+ * Response time middleware tests 
  */
 
 import { describe, it, expect, vi } from "vitest";

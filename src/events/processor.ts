@@ -5,7 +5,7 @@
  *   1. Load the full row from cortex_events (the queue payload only carries
  *      the id + accountId so the queue stays small).
  *   2. Dispatch via the eventTypeDispatch table to the correct specialised
- *      agent. Phase 4 ships the dispatch table empty — Phase 6 (Specialized
+ *      agent. v4.0 ships the dispatch table empty — v6.0 (Specialized
  *      Agents) populates it. Until then every event flows in, gets logged,
  *      and is marked processed without triggering an agent run.
  *   3. Mark the event as processed = true with a `processedBy` tag and the
@@ -43,7 +43,7 @@ export interface ProcessEventResult {
 }
 
 /**
- * Dispatch table — event type → agent id. Empty in Phase 4. Phase 6
+ * Dispatch table — event type → agent id. Empty in v4.0. v6.0
  * populates this with the specialised agents (router, extraction, finance,
  * etc). Kept as a Map so an agent can register itself at module load.
  */
@@ -96,7 +96,7 @@ export async function processCortexEvent(jobData: CortexEventJobData): Promise<P
   // a recycled event id) could trick the worker into executing event A's
   // data under tenant B's identity, exfiltrating A's payload into B's
   // traces, memories, and conversation history.
-  //
+//
   // Refuse the dispatch and page on-call via reportSecurityEvent. We do
   // NOT mark the event processed — leave it for a legitimate dispatch (or
   // for an operator to investigate via the trace).
@@ -135,8 +135,8 @@ export async function processCortexEvent(jobData: CortexEventJobData): Promise<P
   const agentId = eventTypeDispatch.get(type);
 
   if (!agentId) {
-    // No registered handler — Phase 4 ships with an empty dispatch table,
-    // so this is the expected path until Phase 6 wires up specialists.
+    // No registered handler — v4.0 ships with an empty dispatch table,
+    // so this is the expected path until v6.0 wires up specialists.
     // We still mark the event processed so it does not get re-queued.
     await markProcessed(eventId, event.accountId, "no_handler", {
       reason: "No agent registered for this event type",
@@ -144,7 +144,7 @@ export async function processCortexEvent(jobData: CortexEventJobData): Promise<P
     return { status: "no_handler" };
   }
 
-  // ── 3. Run the agent (Phase 6) ─────────────────────────────────────────
+  // ── 3. Run the agent (v6.0) ─────────────────────────────────────────
   // Resolve the agent definition from the registry. If the dispatch table
   // points at an unknown id (mis-registration, deploy skew), fall through
   // to the no_handler branch rather than crashing the worker.
@@ -280,7 +280,7 @@ async function persistExecutionLog(
  * same transaction as the UPDATE.
  *
  * Caller must pass the row's verified accountId — never the queue payload
- * accountId, which Phase 1 explicitly rejects on mismatch.
+ * accountId, which v1.0 explicitly rejects on mismatch.
  */
 async function markProcessed(
   eventId: string,

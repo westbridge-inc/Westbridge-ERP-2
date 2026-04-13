@@ -120,7 +120,7 @@ router.post(
     const keyHash = createHash("sha256").update(raw).digest("hex");
 
     const expiresAt = new Date();
-    expiresAt.setFullYear(expiresAt.getFullYear() + 1); // 1 year expiry
+    expiresAt.setFullYear(expiresAt.getFullYear + 1); // 1 year expiry
 
     await prisma.apiKey.create({
       data: {

@@ -9,7 +9,7 @@
  *   const price = Money.of(100_000, "GYD");
  *   const vat   = price.multiply(0.14);
  *   const total = price.add(vat);
- *   console.log(total.format()); // "GY$ 114,000.00"
+ *   console.log(total.format); // "GY$ 114,000.00"
  */
 
 import { DEFAULT_CURRENCY, type CaribbeanCurrency, SUPPORTED_CURRENCIES } from "./constants.js";

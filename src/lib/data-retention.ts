@@ -4,6 +4,6 @@ export const DATA_RETENTION = {
   // Hard-delete soft-deleted accounts after 30 days. Aligned with the
   // published Privacy Policy promise: "After the 30-day period, Customer
   // Data is permanently deleted from our production systems and purged
-  // from backups within 90 days." (Big-4 audit B1)
+  // from backups within 90 days." (compliance review)
   SOFT_DELETED_DAYS: 30,
 } as const;

@@ -1,6 +1,6 @@
 /**
  * Source of truth for all feature flag definitions.
- * Add new flags here before using getFlag() or useFeatureFlag().
+ * Add new flags here before using getFlag or useFeatureFlag.
  *
  * This object is imported by lib/feature-flags.ts as the in-code fallback.
  */

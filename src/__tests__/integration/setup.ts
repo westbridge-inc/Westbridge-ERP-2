@@ -19,7 +19,7 @@ export const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 /**
  * Call at the top of every integration test file:
  *   const shouldSkip = !TEST_DB_URL;
- *   describe.skipIf(shouldSkip)("...", () => { ... });
+ *   describe.skipIf(shouldSkip)("...",  => { ... });
  */
 export function getTestPrisma(): PrismaClient {
   if (!TEST_DB_URL) {

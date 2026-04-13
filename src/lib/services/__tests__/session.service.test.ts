@@ -23,7 +23,7 @@ vi.mock("../../data/prisma-admin.js", () => ({
       findUnique: vi.fn().mockResolvedValue(null),
     },
     $executeRaw: vi.fn().mockResolvedValue(0),
-    $transaction: vi.fn(), // tests set their own implementation per case
+    $transaction: vi.fn, // tests set their own implementation per case
   },
 }));
 
@@ -97,7 +97,7 @@ import { logAudit } from "../audit.service.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Hash a raw token using SHA-256 — mirrors the internal hashToken() function. */
+/** Hash a raw token using SHA-256 — mirrors the internal hashToken function. */
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -142,7 +142,7 @@ describe("Session Service", () => {
   });
 
   // =========================================================================
-  // createSession()
+  // createSession
   // =========================================================================
   describe("createSession()", () => {
     it("creates a session token that is base64url encoded and at least 32 bytes", async () => {
@@ -196,7 +196,7 @@ describe("Session Service", () => {
         userId: "usr_1",
         token: `hash_${i}`,
         expiresAt: new Date(Date.now() + 86400000),
-        lastActiveAt: new Date(Date.now() - (5 - i) * 60000), // oldest first
+        lastActiveAt: new Date(Date.now - (5 - i) * 60000), // oldest first
       }));
 
       (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
@@ -223,7 +223,7 @@ describe("Session Service", () => {
         userId: "usr_1",
         token: `hash_${i}`,
         expiresAt: new Date(Date.now() + 86400000),
-        lastActiveAt: new Date(Date.now() - i * 60000),
+        lastActiveAt: new Date(Date.now - i * 60000),
       }));
 
       (prismaAdmin.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
@@ -257,7 +257,7 @@ describe("Session Service", () => {
       expect(result.data.token.length).toBeGreaterThan(0);
       expect(result.data.expiresAt).toBeInstanceOf(Date);
       // Expires 7 days from now
-      const expectedExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const expectedExpiry = new Date(Date.now + 7 * 24 * 60 * 60 * 1000);
       expect(result.data.expiresAt.getTime()).toBe(expectedExpiry.getTime());
     });
 
@@ -346,7 +346,7 @@ describe("Session Service", () => {
   });
 
   // =========================================================================
-  // validateSession()
+  // validateSession
   // =========================================================================
   describe("validateSession()", () => {
     const now = new Date("2026-03-11T12:00:00.000Z");
@@ -360,9 +360,9 @@ describe("Session Service", () => {
         ipAddress: "10.0.0.1",
         userAgent: "TestBrowser/1.0",
         fingerprint: null,
-        expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), // 7 days ahead
-        lastActiveAt: new Date(now.getTime() - 60000), // 1 minute ago
-        createdAt: new Date(now.getTime() - 3600000), // 1 hour ago
+        expiresAt: new Date(now.getTime + 7 * 24 * 60 * 60 * 1000), // 7 days ahead
+        lastActiveAt: new Date(now.getTime - 60000), // 1 minute ago
+        createdAt: new Date(now.getTime - 3600000), // 1 hour ago
         user: {
           id: "usr_1",
           accountId: "acc_1",
@@ -403,7 +403,7 @@ describe("Session Service", () => {
 
     it("returns ok=false for expired sessions (>7 days)", async () => {
       const session = makeDbSession({
-        expiresAt: new Date(now.getTime() - 1000), // expired 1 second ago
+        expiresAt: new Date(now.getTime - 1000), // expired 1 second ago
       });
       (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
       (prismaAdmin.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -416,10 +416,10 @@ describe("Session Service", () => {
     });
 
     it("returns ok=false for idle sessions (>30 min since last activity)", async () => {
-      const thirtyOneMinutesAgo = new Date(now.getTime() - 31 * 60 * 1000);
+      const thirtyOneMinutesAgo = new Date(now.getTime - 31 * 60 * 1000);
       const session = makeDbSession({
         lastActiveAt: thirtyOneMinutesAgo,
-        createdAt: new Date(now.getTime() - 2 * 60 * 60 * 1000), // 2 hours ago
+        createdAt: new Date(now.getTime - 2 * 60 * 60 * 1000), // 2 hours ago
       });
       (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
       (prismaAdmin.session.delete as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -432,7 +432,7 @@ describe("Session Service", () => {
     });
 
     it("allows sessions active within the 30 min window", async () => {
-      const twentyMinutesAgo = new Date(now.getTime() - 20 * 60 * 1000);
+      const twentyMinutesAgo = new Date(now.getTime - 20 * 60 * 1000);
       const session = makeDbSession({
         lastActiveAt: twentyMinutesAgo,
       });
@@ -446,7 +446,7 @@ describe("Session Service", () => {
 
     it("updates lastActiveAt on successful validation when stale", async () => {
       // lastActiveAt is more than 60s ago, so should trigger update
-      const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+      const twoMinutesAgo = new Date(now.getTime - 2 * 60 * 1000);
       const session = makeDbSession({
         lastActiveAt: twoMinutesAgo,
       });
@@ -463,7 +463,7 @@ describe("Session Service", () => {
 
     it("does NOT update lastActiveAt when recently updated (<60s)", async () => {
       // lastActiveAt is only 30 seconds ago — within the 60s debounce interval
-      const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000);
+      const thirtySecondsAgo = new Date(now.getTime - 30 * 1000);
       const session = makeDbSession({
         lastActiveAt: thirtySecondsAgo,
       });
@@ -529,7 +529,7 @@ describe("Session Service", () => {
       const fingerprint = createHash("sha256").update(`${ua}|${ipPrefix}`, "utf8").digest("hex");
       const session = makeDbSession({
         fingerprint,
-        lastActiveAt: new Date(now.getTime() - 2 * 60 * 1000),
+        lastActiveAt: new Date(now.getTime - 2 * 60 * 1000),
       });
       (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
       (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -546,7 +546,7 @@ describe("Session Service", () => {
       mockRedis.get.mockResolvedValue(null); // cache miss
 
       const session = makeDbSession({
-        lastActiveAt: new Date(now.getTime() - 2 * 60 * 1000),
+        lastActiveAt: new Date(now.getTime - 2 * 60 * 1000),
       });
       (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
       (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -574,8 +574,8 @@ describe("Session Service", () => {
         accountId: "acc_1",
         role: "owner",
         erpnextSid: null,
-        expiresAt: now.getTime() + 7 * 24 * 60 * 60 * 1000,
-        lastActiveAt: now.getTime() - 60000, // 1 min ago (within idle timeout)
+        expiresAt: now.getTime + 7 * 24 * 60 * 60 * 1000,
+        lastActiveAt: now.getTime - 60000, // 1 min ago (within idle timeout)
         fingerprint: null,
       };
       mockRedis.get.mockResolvedValue(JSON.stringify(cachedData));
@@ -598,7 +598,7 @@ describe("Session Service", () => {
         userId: "usr_1",
         accountId: "acc_1",
         role: "owner",
-        expiresAt: now.getTime() - 1000, // expired
+        expiresAt: now.getTime - 1000, // expired
         lastActiveAt: now.getTime() - 60000,
         fingerprint: null,
       };
@@ -618,8 +618,8 @@ describe("Session Service", () => {
         userId: "usr_1",
         accountId: "acc_1",
         role: "owner",
-        expiresAt: now.getTime() + 7 * 24 * 60 * 60 * 1000,
-        lastActiveAt: now.getTime() - 31 * 60 * 1000, // 31 min ago => idle
+        expiresAt: now.getTime + 7 * 24 * 60 * 60 * 1000,
+        lastActiveAt: now.getTime - 31 * 60 * 1000, // 31 min ago => idle
         fingerprint: null,
       };
       mockRedis.get.mockResolvedValue(JSON.stringify(cachedData));
@@ -639,7 +639,7 @@ describe("Session Service", () => {
         userId: "usr_1",
         accountId: "acc_1",
         role: "owner",
-        expiresAt: now.getTime() + 7 * 24 * 60 * 60 * 1000,
+        expiresAt: now.getTime + 7 * 24 * 60 * 60 * 1000,
         lastActiveAt: now.getTime() - 60000,
         fingerprint: storedFingerprint,
       };
@@ -662,7 +662,7 @@ describe("Session Service", () => {
     it("decrypts erpnextSid from DB on validation", async () => {
       const session = makeDbSession({
         erpnextSid: "encrypted:erp-session-xyz",
-        lastActiveAt: new Date(now.getTime() - 2 * 60 * 1000),
+        lastActiveAt: new Date(now.getTime - 2 * 60 * 1000),
       });
       (prismaAdmin.session.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(session);
       (prismaAdmin.session.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -714,7 +714,7 @@ describe("Session Service", () => {
   });
 
   // =========================================================================
-  // revokeSession()
+  // revokeSession
   // =========================================================================
   describe("revokeSession()", () => {
     it("deletes session from DB by token hash", async () => {
@@ -829,8 +829,8 @@ describe("Session Service", () => {
         token: "hash",
         erpnextSid: null,
         fingerprint: null,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        lastActiveAt: new Date(Date.now() - 2 * 60 * 1000),
+        expiresAt: new Date(Date.now + 7 * 24 * 60 * 60 * 1000),
+        lastActiveAt: new Date(Date.now - 2 * 60 * 1000),
         createdAt: new Date(Date.now() - 3600000),
         user: { id: "usr_1", accountId: "acc_1", role: "owner", account: { id: "acc_1" } },
       };
@@ -856,8 +856,8 @@ describe("Session Service", () => {
         token: "hash",
         erpnextSid: null,
         fingerprint: null,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        lastActiveAt: new Date(Date.now() - 2 * 60 * 1000),
+        expiresAt: new Date(Date.now + 7 * 24 * 60 * 60 * 1000),
+        lastActiveAt: new Date(Date.now - 2 * 60 * 1000),
         createdAt: new Date(Date.now() - 3600000),
         user: { id: "usr_1", accountId: "acc_1", role: "owner", account: { id: "acc_1" } },
       };
@@ -959,7 +959,7 @@ describe("Session Service", () => {
         userId: "usr_1",
         accountId: "acc_1",
         role: "owner",
-        expiresAt: Date.now() - 1000, // expired
+        expiresAt: Date.now - 1000, // expired
         lastActiveAt: Date.now() - 60000,
         fingerprint: null,
       };
@@ -977,8 +977,8 @@ describe("Session Service", () => {
         userId: "usr_1",
         accountId: "acc_1",
         role: "owner",
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
-        lastActiveAt: Date.now() - 31 * 60 * 1000, // 31 min ago
+        expiresAt: Date.now + 7 * 24 * 60 * 60 * 1000,
+        lastActiveAt: Date.now - 31 * 60 * 1000, // 31 min ago
         fingerprint: null,
       };
       mockRedis.get.mockResolvedValue(JSON.stringify(cachedData));
@@ -990,7 +990,7 @@ describe("Session Service", () => {
   });
 
   // =========================================================================
-  // revokeAllUserSessions()
+  // revokeAllUserSessions
   // =========================================================================
   describe("revokeAllUserSessions()", () => {
     it("deletes all sessions for a user from DB", async () => {
@@ -1073,7 +1073,7 @@ describe("Session Service", () => {
   });
 
   // =========================================================================
-  // deleteExpiredSessions()
+  // deleteExpiredSessions
   // =========================================================================
   describe("deleteExpiredSessions()", () => {
     it("deletes sessions where expiresAt is in the past", async () => {

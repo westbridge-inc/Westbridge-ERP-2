@@ -2,8 +2,8 @@
  * Invoice Extraction agent — reads invoice PDFs / images via Claude Vision
  * and emits structured JSON the finance agents can consume.
  *
- * Phase 6 of the AI-Native ERP overhaul. Triggered by `document.uploaded`
- * events whose mime type is application/pdf or image/*. The Phase 7 tool
+ * v6.0 of the AI-Native ERP overhaul. Triggered by `document.uploaded`
+ * events whose mime type is application/pdf or image/*. The v7.0 tool
  * set will add the actual document fetch + extraction tools; for now this
  * file ships the system prompt + agent definition so the registry has a
  * handle and the processor's dispatch table can route to it.
@@ -72,7 +72,7 @@ export const invoiceExtractionAgent: CortexAgentDefinition = {
   systemPrompt: INVOICE_EXTRACTION_SYSTEM_PROMPT,
   maxTokens: 4_000,
   adaptiveThinking: true,
-  // Phase 7 wires the extraction support tools: get_accounts (so the agent
+  // v7.0 wires the extraction support tools: get_accounts (so the agent
   // can suggest the correct chart-of-accounts mapping for each line item)
   // and search_contacts (to look up whether the supplier already exists).
   // Document fetch + Vision input is provided by the route as a content

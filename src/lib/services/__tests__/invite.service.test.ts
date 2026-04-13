@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// invite.service is dual-import (Phase 3): createInvite uses `prisma`
+// invite.service is dual-import (v3.0): createInvite uses `prisma`
 // because POST /invite is authenticated, while validateInviteToken
 // and acceptInvite use `prismaAdmin` because GET /invite and POST
 // /invite/accept are unauthenticated token redemption flows. The test

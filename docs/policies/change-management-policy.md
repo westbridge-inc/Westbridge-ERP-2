@@ -86,7 +86,7 @@ For P1 incidents or critical security hotfixes where the standard workflow's rev
 
 Some changes happen outside the code repository:
 
-- Production database role swap (e.g., the Phase 3 `westbridge_app` rollout)
+- Production database role swap (e.g., the v3.0 `westbridge_app` rollout)
 - Secret rotation (`fly secrets set`, `fly secrets unset`)
 - Backup enable / disable
 - Branch protection toggle for an emergency merge

@@ -10,7 +10,7 @@ import { z } from "zod";
 import { prisma } from "../lib/data/prisma.js";
 import { prismaAdmin } from "../lib/data/prisma-admin.js";
 
-// Phase 3:
+// v3.0:
 //   - POST /invite, GET /team/invites, POST /team/invites/:id/resend
 //     are authenticated (requireAuth has set the tenant context). They
 //     use `prisma`, which RLS-pins reads/writes to the requesting tenant.
@@ -360,7 +360,7 @@ router.post(
     // Generate a new token and reset expiry
     const raw = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(raw).digest("hex");
-    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now + 72 * 60 * 60 * 1000);
 
     await prisma.inviteToken.update({
       where: { id: inviteId },

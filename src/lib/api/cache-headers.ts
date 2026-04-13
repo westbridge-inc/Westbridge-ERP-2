@@ -1,7 +1,7 @@
 /**
  * Cache-Control header helpers for API and page responses.
  *
- * Apply these to Next.js route handlers via the `headers()` return value
+ * Apply these to Next.js route handlers via the `headers` return value
  * or by setting response headers directly.
  */
 

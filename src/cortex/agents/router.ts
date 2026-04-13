@@ -2,7 +2,7 @@
  * Router agent — analyses incoming business events and decides which
  * specialised agent (or sequence of agents) should handle them.
  *
- * Phase 6 of the AI-Native ERP overhaul. Most events have a one-to-one
+ * v6.0 of the AI-Native ERP overhaul. Most events have a one-to-one
  * mapping to a specialist agent (sales_invoice.created → finance.journal),
  * but some events need a multi-step plan (invoice.uploaded → extract.invoice
  * → finance.journal → comms.notification). The router emits a JSON plan

@@ -4,11 +4,11 @@
  *
  * Soft-delete strategy for Account and User models:
  * - All find/count operations auto-filter `deletedAt IS NULL` by default
- * - `delete` operations set `deletedAt = now()` instead of hard-deleting
+ * - `delete` operations set `deletedAt = now` instead of hard-deleting
  * - To include deleted records, pass `{ where: { deletedAt: { not: null } } }`
  *   — the extension only injects the filter when `deletedAt` is absent.
  *
- * Tenant-pin (Phase 3 of the tenant isolation hardening spec):
+ * Tenant-pin (v3.0 of the tenant isolation hardening spec):
  * - Every model operation reads `tenantContextStorage` from
  *   `tenant-als.ts`. If a tenant is set, the operation is wrapped in a
  *   one-shot `$transaction` that runs `set_config('app.current_account_id', ...)`
@@ -174,18 +174,18 @@ function createPrismaClient() {
   });
 
   // Extension #2 — tenant pin via AsyncLocalStorage.
-  //
+//
   // Reads the current tenant from `tenantContextStorage`. If a tenant is
   // set AND we're not already inside a tenant-pinned transaction, wraps
   // the operation in its own one-shot $transaction that runs
   // `set_config('app.current_account_id', ...)` first.
-  //
+//
   // Inside the wrapping $transaction, the model methods on the tx client
   // re-fire $allOperations (Prisma extensions are inherited by tx
   // clients). The `tenantPinInProgress` AsyncLocalStorage flag prevents
   // infinite recursion: when the inner call sees `inProgress=true`, it
   // forwards through without re-wrapping.
-  //
+//
   // We deliberately do NOT override `client.$transaction`. Authenticated
   // route handlers that need transactions MUST use `withTenantScope`
   // from `tenant-scope.ts` (which sets `tenantPinInProgress=true` for

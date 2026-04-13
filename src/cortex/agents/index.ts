@@ -10,10 +10,10 @@
  * deterministically.
  */
 
-// Load order: conversation first (it was the only Phase 1 agent and other
-// modules already import it directly), then the Phase 6 specialists in
-// alphabetical order. Each side-effect import triggers registerAgent() and,
-// where applicable, registerEventHandler() in the module body.
+// Load order: conversation first (it was the only v1.0 agent and other
+// modules already import it directly), then the v6.0 specialists in
+// alphabetical order. Each side-effect import triggers registerAgent and,
+// where applicable, registerEventHandler in the module body.
 //
 // We do not re-export the agent definitions here because the engine looks
 // them up by id via the registry — there is no need for typed re-exports.

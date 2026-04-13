@@ -82,7 +82,7 @@ This runbook defines Westbridge's incident response process — from detection t
 
 ### P3 — Low
 
-**Definition:** Minor issue with negligible user impact, or informational security finding.
+**Definition:** Minor issue with negligible user impact, or informational (security review).
 
 **Examples:**
 
@@ -115,7 +115,7 @@ This runbook defines Westbridge's incident response process — from detection t
 
 ## 4. Response Process
 
-### Phase 1: Detection and Triage (0-15 minutes)
+### v1.0: Detection and Triage (0-15 minutes)
 
 1. **Alert received** — On-call engineer acknowledges alert in PagerDuty/Slack.
 2. **Initial assessment** — Determine:
@@ -126,7 +126,7 @@ This runbook defines Westbridge's incident response process — from detection t
 3. **Declare incident** — For P0/P1: post in Slack #incidents with severity, affected systems, and initial assessment.
 4. **Assign Incident Commander** — P0: Engineering Lead or CTO. P1: On-call engineer (may escalate).
 
-### Phase 2: Containment (15-60 minutes)
+### v2.0: Containment (15-60 minutes)
 
 1. **Stabilize the system** — Priority is to stop further damage:
    - If bad deployment → rollback immediately (see `docs/runbooks/rollback.md`)
@@ -140,7 +140,7 @@ This runbook defines Westbridge's incident response process — from detection t
    - Note timestamps of all actions taken
 3. **Communicate** — IC posts initial Slack update: what is known, what is being done, ETA for next update.
 
-### Phase 3: Investigation (ongoing)
+### v3.0: Investigation (ongoing)
 
 1. **Root cause analysis** — While containment is in progress:
    - Review Sentry error traces for the relevant timeframe
@@ -154,7 +154,7 @@ This runbook defines Westbridge's incident response process — from detection t
    - Third-party vendor (ERPNext, PowerTranz, Resend)
    - External security consultant (if security breach)
 
-### Phase 4: Resolution
+### v4.0: Resolution
 
 1. **Implement fix** — Deploy the fix following the emergency change process (see `docs/policies/change-management.md`, Section 6).
 2. **Verify resolution:**
@@ -166,7 +166,7 @@ This runbook defines Westbridge's incident response process — from detection t
 4. **Update status page** — Confirm service restored.
 5. **Notify stakeholders** — Customer communication if external impact occurred.
 
-### Phase 5: Post-Incident
+### v5.0: Post-Incident
 
 1. **Blameless postmortem** — Completed within 48 hours of resolution (see Section 7).
 2. **Follow-up actions** — Track remediation items as GitHub Issues.

@@ -144,7 +144,7 @@ async function main() {
     create: {
       userId: owner.id,
       token: tokenHash,
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+      expiresAt: new Date(Date.now + 30 * 24 * 60 * 60 * 1000), // 30 days
       ipAddress: "127.0.0.1",
       userAgent: "seed-script",
     },

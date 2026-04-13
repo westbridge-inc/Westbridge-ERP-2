@@ -5,7 +5,7 @@ import request from "supertest";
 // Mocks
 // ---------------------------------------------------------------------------
 
-// invite.routes.ts is dual-import (Phase 3): authenticated handlers
+// invite.routes.ts is dual-import (v3.0): authenticated handlers
 // (POST /invite, GET /team/invites, POST /team/invites/:id/resend) use
 // `prisma`, while unauthenticated token redemption (GET /invite,
 // POST /invite/accept) uses `prismaAdmin`. Use vi.hoisted to share one

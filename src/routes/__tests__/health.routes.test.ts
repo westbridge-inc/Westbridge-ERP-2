@@ -52,7 +52,7 @@ vi.mock("../../lib/security-monitor.js", () => ({
   reportSecurityEvent: vi.fn(),
 }));
 
-// Mocks needed because createApp() loads ALL route files and their transitive imports
+// Mocks needed because createApp loads ALL route files and their transitive imports
 vi.mock("../../lib/services/auth.service.js", () => ({
   login: vi.fn(),
 }));

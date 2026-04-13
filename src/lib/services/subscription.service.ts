@@ -96,7 +96,7 @@ export async function handleRenewal(
  */
 export async function checkGracePeriodExpiry(): Promise<{ updated: number }> {
   const now = new Date();
-  const gracePeriodCutoff = new Date(now.getTime() - GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
+  const gracePeriodCutoff = new Date(now.getTime - GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
 
   // Mark subscriptions as past_due if their period ended beyond the grace window
   const result = await prismaAdmin.subscription.updateMany({

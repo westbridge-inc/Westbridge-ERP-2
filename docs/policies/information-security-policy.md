@@ -62,7 +62,7 @@ Every security-critical control has at least two independent layers. Examples im
 ### 5.2 Least privilege
 
 - Database access: the runtime app connects as `westbridge_app`, a role bound by RLS. Cross-tenant administrative queries use a separate `prismaAdmin` client connecting as the schema-owner role (`src/lib/data/prisma-admin.ts`). Migration jobs use `MIGRATION_DATABASE_URL` via Prisma's `directUrl`.
-- Application access: RBAC roles defined in `src/lib/rbac.ts`. Permission strings checked via `requirePermission()` middleware.
+- Application access: RBAC roles defined in `src/lib/rbac.ts`. Permission strings checked via `requirePermission` middleware.
 - Sub-processor access: only the minimum data necessary for each integration is shared (see Sub-processor List, `subprocessor-list.md`).
 
 ### 5.3 Fail secure

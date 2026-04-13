@@ -2,7 +2,7 @@
  * get_stock_levels — current stock-on-hand for items at one or more
  * warehouses for the current tenant.
  *
- * Phase 7 of the AI-Native ERP overhaul. Pre-binds doctype="Bin" which is
+ * v7.0 of the AI-Native ERP overhaul. Pre-binds doctype="Bin" which is
  * ERPNext's per-(item, warehouse) inventory snapshot. Read-only.
  *
  * Used by: conversation ("how much widget X do we have in the main warehouse?"),

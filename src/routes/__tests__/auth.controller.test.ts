@@ -1,5 +1,5 @@
 /**
- * Auth controller tests (B3)
+ * Auth controller tests 
  *
  * Tests the controller functions directly with mocked services.
  * Covers happy paths, error paths, and edge cases.
@@ -27,7 +27,7 @@ import type { Request, Response } from "express";
 // Mocks — external boundaries only (5 + Sentry)
 // ---------------------------------------------------------------------------
 
-// Phase 3: handleLogin / handleLoginTotp / handleValidate now use
+// v3.0: handleLogin / handleLoginTotp / handleValidate now use
 // `prismaAdmin` (cross-tenant pre-context lookups) instead of `prisma`.
 // Use vi.hoisted to share a single mock object between both module
 // targets so the existing test assertions on `prisma.X.method` continue
@@ -38,7 +38,7 @@ const { sharedPrismaMock } = vi.hoisted(() => ({
     account: { findUnique: vi.fn().mockResolvedValue(null) },
     user: { findUnique: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     auditLog: { create: vi.fn().mockResolvedValue({}) },
-    // C1 fix: handleLogin consults totpSecret.verified to decide whether
+    // (security patch): handleLogin consults totpSecret.verified to decide whether
     // to gate the login behind a TOTP challenge.
     totpSecret: { findUnique: vi.fn().mockResolvedValue(null) },
   } as Record<string, unknown>,
@@ -47,7 +47,7 @@ const { sharedPrismaMock } = vi.hoisted(() => ({
 vi.mock("../../lib/data/prisma.js", () => ({ prisma: sharedPrismaMock }));
 vi.mock("../../lib/data/prisma-admin.js", () => ({ prismaAdmin: sharedPrismaMock }));
 
-// C1 fix: handleLogin consults Redis to store the TOTP challenge.
+// (security patch): handleLogin consults Redis to store the TOTP challenge.
 vi.mock("../../lib/redis.js", () => ({
   getRedis: vi.fn().mockReturnValue({
     set: vi.fn().mockResolvedValue("OK"),
@@ -553,12 +553,12 @@ describe("auth.controller", () => {
 
   // -------------------------------------------------------------------------
   // C1 regression: 2FA gate at login + handleLoginTotp completion
-  //
-  // BEFORE THE FIX (audit finding C1, 2026-04-09): handleLogin called
-  // createSession() unconditionally on password verification, ignoring
+//
+  // BEFORE THE FIX (security review) C1, 2026-04-09): handleLogin called
+  // createSession unconditionally on password verification, ignoring
   // totp_secrets.verified. Users who enabled 2FA in settings got ZERO
   // protection — the cookie was set on password alone.
-  //
+//
   // AFTER THE FIX: when totpSecret.verified=true, handleLogin returns
   // { step: "totp_required", challengeToken } instead of setting a cookie.
   // The client must POST the challenge + a 6-digit TOTP code or 8-hex

@@ -2,7 +2,7 @@
  * get_outstanding — total outstanding accounts receivable / accounts payable
  * for the current tenant, optionally bucketed by aging window.
  *
- * Phase 7 of the AI-Native ERP overhaul. Aggregates over Sales Invoice +
+ * v7.0 of the AI-Native ERP overhaul. Aggregates over Sales Invoice +
  * Purchase Invoice rows with `outstanding_amount > 0`. Returns the totals
  * and a per-bucket breakdown the agents can use to make payment scheduling
  * decisions or surface "you have $X overdue" insights.
@@ -33,7 +33,7 @@ interface InvoiceRow {
 function ageBucket(dueDate: string | null): "current" | "1-30" | "31-60" | "61-90" | "90+" {
   if (!dueDate) return "current";
   const due = new Date(dueDate).getTime();
-  const days = Math.floor((Date.now() - due) / (24 * 60 * 60 * 1000));
+  const days = Math.floor((Date.now - due) / (24 * 60 * 60 * 1000));
   if (days <= 0) return "current";
   if (days <= 30) return "1-30";
   if (days <= 60) return "31-60";

@@ -14,12 +14,12 @@ Work on `feat/team-management` branch.
 - **Team**: Member removal, role changes, invite management, and per-plan seat limits
 - **Auth**: Block API access for `past_due` and `canceled` subscriptions (returns 402)
 - **Infrastructure**: Provisioning retry with exponential backoff and error notification
-- **Security (RLS Phase 3)**: AsyncLocalStorage-based runtime tenant pinning. `requireAuth` now publishes the active `accountId` into `tenantContextStorage`, and a Prisma `$extends` wraps every authenticated query in a one-shot `$transaction` that runs `set_config('app.current_account_id', ...)` so PostgreSQL Row-Level Security policies enforce tenant isolation on every read and write — even if a service forgets to filter by `accountId`. New `prismaAdmin` client (`src/lib/data/prisma-admin.ts`) is the deliberate bypass-RLS escape hatch for pre-auth flows, signature-verified webhooks, and cleanup workers; cross-tenant services have been audited and switched to it.
+- **Security (RLS v3.0)**: AsyncLocalStorage-based runtime tenant pinning. `requireAuth` now publishes the active `accountId` into `tenantContextStorage`, and a Prisma `$extends` wraps every authenticated query in a one-shot `$transaction` that runs `set_config('app.current_account_id', ...)` so PostgreSQL Row-Level Security policies enforce tenant isolation on every read and write — even if a service forgets to filter by `accountId`. New `prismaAdmin` client (`src/lib/data/prisma-admin.ts`) is the deliberate bypass-RLS escape hatch for pre-auth flows, signature-verified webhooks, and cleanup workers; cross-tenant services have been audited and switched to it.
 
 ### Changed
 
 - **AI**: Update AI models to latest generation (sonnet-4-6, opus-4-6)
-- **Workers**: BullMQ jobs that operate on a single tenant must wrap their work in `withTenantScope(accountId, ...)` so RLS still applies outside the request lifecycle (already required; helper now also publishes the AsyncLocalStorage tenant context for nested `prisma.X.method()` calls).
+- **Workers**: BullMQ jobs that operate on a single tenant must wrap their work in `withTenantScope(accountId, ...)` so RLS still applies outside the request lifecycle (already required; helper now also publishes the AsyncLocalStorage tenant context for nested `prisma.X.method` calls).
 
 ### Fixed
 

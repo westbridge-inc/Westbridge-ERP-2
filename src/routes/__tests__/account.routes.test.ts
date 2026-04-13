@@ -334,7 +334,7 @@ describe("Account Routes", () => {
       expect(res.body.data).toHaveProperty("message", "Account deleted");
     });
 
-    // B2: the route must hand off to softDeleteAccount, which is the
+    // the route must hand off to softDeleteAccount, which is the
     // single source of truth for setting `deletedAt` (so the daily
     // cleanup worker can find the row 30 days later) and revoking all
     // credentials. Regression: previously the route inlined a partial

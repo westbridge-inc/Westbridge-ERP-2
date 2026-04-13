@@ -90,7 +90,7 @@ describe("queue", () => {
       expect(mockAdd).toHaveBeenCalledTimes(7);
     });
 
-    // B1: regression test — the daily account purge worker MUST be
+    // regression test — the daily account purge worker MUST be
     // scheduled, otherwise soft-deleted accounts pile up indefinitely
     // and we breach the Privacy Policy promise of 30-day erasure.
     it("schedules the daily purge-deleted-accounts task (B1)", async () => {

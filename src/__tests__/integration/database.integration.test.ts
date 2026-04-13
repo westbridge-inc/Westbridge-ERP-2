@@ -161,7 +161,7 @@ describe.skipIf(shouldSkip)("Database Integration Tests", () => {
         data: {
           userId,
           token: tokenHash,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expiresAt: new Date(Date.now + 7 * 24 * 60 * 60 * 1000),
           ipAddress: "192.168.1.100",
           userAgent: "TestBrowser/1.0",
         },
@@ -355,7 +355,7 @@ describe.skipIf(shouldSkip)("Database Integration Tests", () => {
       const recent = await prisma.auditLog.findMany({
         where: {
           accountId,
-          timestamp: { gte: new Date(now.getTime() - 5400000) }, // last 1.5 hours
+          timestamp: { gte: new Date(now.getTime - 5400000) }, // last 1.5 hours
         },
         orderBy: { timestamp: "desc" },
       });
@@ -453,7 +453,7 @@ describe.skipIf(shouldSkip)("Database Integration Tests", () => {
 
       const finalSessions = await prisma.session.findMany({ where: { userId: user.id } });
       expect(finalSessions).toHaveLength(5); // still 5 (one evicted, one created)
-      expect(finalSessions.find((s) => s.token === "token-0")).toBeUndefined(); // oldest evicted
+      expect(finalSessions.find((s) => s.token === "token-0")).toBeUndefined; // oldest evicted
       expect(finalSessions.find((s) => s.token === "token-new")).toBeDefined();
     });
   });

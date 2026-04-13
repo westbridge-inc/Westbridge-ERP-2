@@ -228,7 +228,7 @@ export async function executeTool(
 
     if (toolName === "get_summary") {
       const metric = i.metric as string;
-      const from = (i.from_date as string) ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const from = (i.from_date as string) ?? new Date(Date.now - 30 * 86400000).toISOString.slice(0, 10);
       const to = (i.to_date as string) ?? new Date().toISOString().slice(0, 10);
       const filters: unknown[][] = [];
       if (erpnextCompany) filters.push(["company", "=", erpnextCompany]);

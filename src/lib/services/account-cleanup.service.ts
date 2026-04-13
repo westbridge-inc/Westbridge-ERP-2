@@ -1,5 +1,5 @@
 /**
- * Account cleanup service — GDPR right-to-erasure (Big-4 audit B1 + B2)
+ * Account cleanup service — GDPR right-to-erasure (compliance review)+ B2)
  *
  * The published Privacy Policy promises:
  *   "After the 30-day [post-cancellation] period, Customer Data is
@@ -16,9 +16,9 @@
  *        find it 30 days later.
  *
  *   2. hardDeleteAccount(accountId)
- *        Called from the daily cleanup worker (B1). Anonymises the
+ *        Called from the daily cleanup worker . Anonymises the
  *        account's audit log rows in place — scrubbing PII columns and
- *        nulling user_id — then calls prismaAdmin.account.delete(), which
+ *        nulling user_id — then calls prismaAdmin.account.delete, which
  *        cascades through every child table (users, subscriptions, api
  *        keys, webhooks, billing invoices, sso config, all cortex tables,
  *        notification preferences, totp secrets) via the FK relations
@@ -27,7 +27,7 @@
  *        SOC 2 / GRA security history retention is preserved alongside
  *        the GDPR Art. 17 erasure of customer data.
  *
- * findAccountsDueForHardDelete() is the worker's query — soft-deleted
+ * findAccountsDueForHardDelete is the worker's query — soft-deleted
  * accounts whose grace period has elapsed.
  */
 
@@ -93,7 +93,7 @@ export async function softDeleteAccount(
       await tx.passwordResetToken.deleteMany({ where: { userId: { in: userIds } } });
 
       // Stamp the soft-delete marker. The daily cleanup worker reads
-      // `deletedAt < NOW() - SOFT_DELETED_DAYS` to find rows to purge.
+      // `deletedAt < NOW - SOFT_DELETED_DAYS` to find rows to purge.
       await tx.account.update({
         where: { id: accountId },
         data: {
@@ -130,7 +130,7 @@ export async function softDeleteAccount(
  * now be hard-deleted. Used by the daily cleanup worker.
  */
 export async function findAccountsDueForHardDelete(now: Date = new Date()): Promise<string[]> {
-  const cutoff = new Date(now.getTime() - DATA_RETENTION.SOFT_DELETED_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(now.getTime - DATA_RETENTION.SOFT_DELETED_DAYS * 24 * 60 * 60 * 1000);
   const rows = await prismaAdmin.account.findMany({
     where: {
       deletedAt: { lt: cutoff },
@@ -155,7 +155,7 @@ export async function findAccountsDueForHardDelete(now: Date = new Date()): Prom
  *         we'd rather erase the database and leave a stray ERPNext
  *         company than fail to honor the GDPR right.
  *
- * Step 3: prismaAdmin.account.delete() — cascades through every child table.
+ * Step 3: prismaAdmin.account.delete — cascades through every child table.
  */
 export async function hardDeleteAccount(accountId: string): Promise<Result<HardDeleteResult, string>> {
   try {
