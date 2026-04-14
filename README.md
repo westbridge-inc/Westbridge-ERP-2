@@ -1,10 +1,16 @@
 # Westbridge ERP — Backend API
 
-[![CI](https://github.com/westbridgeinc/Westbridge-ERP-2/actions/workflows/ci.yml/badge.svg)](https://github.com/westbridgeinc/Westbridge-ERP-2/actions/workflows/ci.yml)
-[![Security](https://github.com/westbridgeinc/Westbridge-ERP-2/actions/workflows/security.yml/badge.svg)](https://github.com/westbridgeinc/Westbridge-ERP-2/actions/workflows/security.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/westbridge-inc/Westbridge-ERP-2/actions/workflows/ci.yml/badge.svg)](https://github.com/westbridge-inc/Westbridge-ERP-2/actions/workflows/ci.yml)
+[![Security](https://github.com/westbridge-inc/Westbridge-ERP-2/actions/workflows/security.yml/badge.svg)](https://github.com/westbridge-inc/Westbridge-ERP-2/actions/workflows/security.yml)
+![License: Proprietary](https://img.shields.io/badge/license-proprietary-red)
 
 Express.js API server for the Westbridge ERP platform.
+
+## Domains (Production)
+
+- **Marketing site**: `https://westbridgetoday.com`
+- **Web app**: `https://app.westbridgetoday.com`
+- **Backend API**: `https://api.westbridgetoday.com`
 
 ## Architecture
 
@@ -97,3 +103,7 @@ All routes are prefixed with `/api/`:
 - `/api/metrics` — Prometheus metrics
 - `/api/usage` — Usage stats
 - `/api/docs` — OpenAPI spec
+
+## License
+
+Proprietary -- source available for reference only. See [LICENSE](LICENSE) for terms.

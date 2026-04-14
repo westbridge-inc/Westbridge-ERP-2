@@ -249,9 +249,8 @@ export async function markAccountPaid(
 
 /**
  * Refund eligibility windows by invoice type. These MUST stay in sync with
- * the published Refund Policy at
- *   /Users/westbridgeinc/Westbridge-ERP-1/app/(marketing)/refund-policy/
- *      _components/RefundPolicyContent.tsx
+ * the published Refund Policy in the frontend repo:
+ *   Westbridge-ERP-1/app/(marketing)/refund-policy/_components/RefundPolicyContent.tsx
  *
  * Policy table:
  *   First monthly subscription          → 14 days from payment date  → 100% refund

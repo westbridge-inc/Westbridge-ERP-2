@@ -21,7 +21,7 @@ Instead, please report them via email to:
 
 Alternatively, you can report vulnerabilities through GitHub's private security advisory feature:
 
-[Create a Security Advisory](https://github.com/westbridgeinc/Westbridge-ERP-2/security/advisories/new)
+[Create a Security Advisory](https://github.com/westbridge-inc/Westbridge-ERP-2/security/advisories/new)
 
 ### What to Include
 
