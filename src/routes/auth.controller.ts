@@ -108,14 +108,14 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     if (!rateLimit.allowed) {
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
       if (systemAccountId) {
-        void logAudit({
+        logAudit({
           accountId: systemAccountId,
           action: "auth.login.rate_limited",
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
           severity: "warn",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       return res
         .status(429)
@@ -140,14 +140,14 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     if (!emailRateLimit.allowed) {
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
       if (systemAccountId) {
-        void logAudit({
+        logAudit({
           accountId: systemAccountId,
           action: "auth.login.rate_limited",
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
           severity: "warn",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       return res
         .status(429)
@@ -156,7 +156,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     }
 
     // --- Account lookup ---
-    const account = await prismaAdmin.account.findUnique({ where: { email } }).catch(() => null);
+    const account = await prismaAdmin.account.findUnique({ where: { email } }).catch(err => { console.error("Ignored Error:", err); return null; });
     if (!account) {
       // Constant-time response: do a dummy bcrypt comparison so the response
       // time matches the case where the account exists with a wrong password.
@@ -180,7 +180,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         where: { accountId: account.id },
       });
       if (existingCount > 0) {
-        void logAudit({
+        logAudit({
           accountId: account.id,
           action: "auth.login.user_not_invited",
           ipAddress: ctx.ipAddress,
@@ -188,7 +188,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
           severity: "warn",
           outcome: "failure",
           metadata: { email },
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
         return res
           .status(401)
           .set(responseTime())
@@ -208,7 +208,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
 
     // --- Account lockout check ---
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      void logAudit({
+      logAudit({
         accountId: account.id,
         userId: user.id,
         action: "auth.login.account_locked",
@@ -216,7 +216,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         userAgent: ctx.userAgent,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
       // Don't leak exact lockout time — just say "locked" to prevent timing attacks
       return res
         .status(423)
@@ -251,7 +251,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         },
       });
       if (lockedUntil) {
-        void logAudit({
+        logAudit({
           accountId: account.id,
           userId: user.id,
           action: "auth.login.account_lockout",
@@ -259,7 +259,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
           userAgent: ctx.userAgent,
           severity: "critical",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
         reportSecurityEvent({
           type: "brute_force",
           userId: user.id,
@@ -268,7 +268,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
           details: "Account locked after 5 failed login attempts",
         });
       }
-      void logAudit({
+      logAudit({
         accountId: account.id,
         userId: user.id,
         action: "auth.login.failure",
@@ -277,7 +277,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         userAgent: ctx.userAgent,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
       return res
         .status(401)
         .set(responseTime())
@@ -299,13 +299,13 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     // as fully unauthenticated until that second factor is verified.
     const totp = await prismaAdmin.totpSecret
       .findUnique({ where: { userId: user.id }, select: { verified: true } })
-      .catch(() => null);
+      .catch(err => { console.error("Ignored Error:", err); return null; });
     if (totp?.verified) {
       const redis = getRedis();
       if (!redis) {
         // Cannot issue a 2FA challenge without Redis. Fail closed: refuse
         // login rather than degrade silently to single-factor.
-        void logAudit({
+        logAudit({
           accountId: account.id,
           userId: user.id,
           action: "auth.login.totp_challenge_unavailable",
@@ -313,7 +313,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
           userAgent: ctx.userAgent,
           severity: "critical",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
         return res
           .status(503)
           .set(responseTime())
@@ -339,7 +339,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         TOTP_CHALLENGE_TTL_SEC,
       );
 
-      void logAudit({
+      logAudit({
         accountId: account.id,
         userId: user.id,
         action: "auth.login.totp_challenge_issued",
@@ -347,7 +347,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
         userAgent: ctx.userAgent,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res
         .status(200)
@@ -377,7 +377,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
     const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
 
     // --- Audit success ---
-    void logAudit({
+    logAudit({
       accountId: account.id,
       userId: user.id,
       action: "auth.login.success",
@@ -385,7 +385,7 @@ export async function handleLogin(req: Request, res: Response): Promise<Response
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     // --- PostHog identify ---
     const { identify } = await import("../lib/analytics/posthog.server.js");
@@ -525,7 +525,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
     // device after the challenge was issued.
     const user = await prismaAdmin.user
       .findUnique({ where: { id: userId }, include: { account: true } })
-      .catch(() => null);
+      .catch(err => { console.error("Ignored Error:", err); return null; });
     if (!user) {
       return res
         .status(401)
@@ -533,11 +533,11 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
         .json(apiError("AUTH_FAILED", "Invalid email or password.", undefined, meta()));
     }
 
-    const totp = await prismaAdmin.totpSecret.findUnique({ where: { userId } }).catch(() => null);
+    const totp = await prismaAdmin.totpSecret.findUnique({ where: { userId } }).catch(err => { console.error("Ignored Error:", err); return null; });
     if (!totp || !totp.verified) {
       // 2FA was disabled between login and totp completion — refuse this
       // challenge and tell the user to retry from the password screen.
-      void logAudit({
+      logAudit({
         accountId: user.accountId,
         userId,
         action: "auth.login.totp_challenge_disabled",
@@ -545,7 +545,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
         userAgent: ctx.userAgent,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
       return res
         .status(401)
         .set(responseTime())
@@ -589,7 +589,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
     }
 
     if (!codeValid) {
-      void logAudit({
+      logAudit({
         accountId: user.accountId,
         userId,
         action: "auth.login.totp_failed",
@@ -597,7 +597,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
         userAgent: ctx.userAgent,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
       return res
         .status(401)
         .set(responseTime())
@@ -627,7 +627,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
     const { token, expiresAt } = sessionResult.data;
     const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
 
-    void logAudit({
+    logAudit({
       accountId: user.accountId,
       userId,
       action: usedBackupCode ? "auth.login.totp_backup_success" : "auth.login.totp_success",
@@ -635,7 +635,7 @@ export async function handleLoginTotp(req: Request, res: Response): Promise<Resp
       userAgent: ctx.userAgent,
       severity: usedBackupCode ? "warn" : "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     res.cookie(COOKIE.SESSION_NAME, token, {
       httpOnly: true,
@@ -672,7 +672,7 @@ export async function handleLogout(req: Request, res: Response): Promise<Respons
   if (sid) {
     const sessionResult = await validateSession(sid, toWebRequest(req));
     if (sessionResult.ok) {
-      void logAudit({
+      logAudit({
         accountId: sessionResult.data.accountId,
         userId: sessionResult.data.userId,
         action: "auth.logout",
@@ -680,7 +680,7 @@ export async function handleLogout(req: Request, res: Response): Promise<Respons
         userAgent: ctx.userAgent,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     }
     await revokeSession(sid);
   }
@@ -723,14 +723,14 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
   if (!result.ok) {
     const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
     if (systemAccountId) {
-      void logAudit({
+      logAudit({
         accountId: systemAccountId,
         action: "auth.session.invalid",
         ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     }
     return res
       .status(401)
@@ -744,7 +744,7 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
       where: { id: result.data.userId },
       select: { name: true, email: true },
     })
-    .catch(() => null);
+    .catch(err => { console.error("Ignored Error:", err); return null; });
 
   // Fetch company + trial info for the account so the sidebar footer
   // can show company name + plan (not user name + role).
@@ -753,7 +753,7 @@ export async function handleValidate(req: Request, res: Response): Promise<Respo
       where: { id: result.data.accountId },
       select: { companyName: true, plan: true, trialEndsAt: true, trialAiLimit: true },
     })
-    .catch(() => null);
+    .catch(err => { console.error("Ignored Error:", err); return null; });
 
   const now = new Date();
   const isOnTrial = !!(account?.trialEndsAt && account.trialEndsAt > now);

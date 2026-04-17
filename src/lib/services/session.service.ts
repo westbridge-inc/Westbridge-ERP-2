@@ -161,7 +161,7 @@ export async function createSession(
       });
     if (user) {
       const ctx = auditContext(request);
-      void logAudit({
+      logAudit({
         accountId: user.accountId,
         userId: user.id,
         action: "auth.session.created",
@@ -169,7 +169,7 @@ export async function createSession(
         userAgent: ctx.userAgent,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     }
 
     return ok({ token: raw, expiresAt });
@@ -322,7 +322,7 @@ export async function validateSession(
     if (session.expiresAt <= now) {
       if (request) {
         const ctx = auditContext(request);
-        void logAudit({
+        logAudit({
           accountId: session.user.accountId,
           userId: session.userId,
           action: "auth.session.expired",
@@ -330,7 +330,7 @@ export async function validateSession(
           userAgent: ctx.userAgent,
           severity: "info",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       await prismaAdmin.session.delete({ where: { id: session.id } }).catch((e: unknown) =>
         logger.warn("validateSession: DB delete failed (expiry)", {
@@ -345,7 +345,7 @@ export async function validateSession(
     if (lastActive < idleCutoff) {
       if (request) {
         const ctx = auditContext(request);
-        void logAudit({
+        logAudit({
           accountId: session.user.accountId,
           userId: session.userId,
           action: "auth.session.idle_timeout",
@@ -353,7 +353,7 @@ export async function validateSession(
           userAgent: ctx.userAgent,
           severity: "info",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       await prismaAdmin.session.delete({ where: { id: session.id } }).catch((e: unknown) =>
         logger.warn("validateSession: DB delete failed (idle)", {
@@ -478,7 +478,7 @@ export async function revokeSession(
       );
     if (audit && deleted.count > 0) {
       const ctx = audit.request ? auditContext(audit.request) : { ipAddress: null, userAgent: null };
-      void logAudit({
+      logAudit({
         accountId: audit.accountId,
         userId: audit.userId,
         action: "auth.session.revoked",
@@ -487,7 +487,7 @@ export async function revokeSession(
         userAgent: ctx.userAgent,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     }
     return ok({ revoked: deleted.count > 0 });
   } catch {

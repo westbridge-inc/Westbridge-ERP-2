@@ -292,7 +292,7 @@ export function requirePermission(permission: Permission) {
     }
 
     if (!hasPermission(session.role, permission)) {
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "permission.denied",
@@ -301,7 +301,7 @@ export function requirePermission(permission: Permission) {
         severity: "warn",
         outcome: "failure",
         metadata: { required: permission, actual_role: session.role, path: req.path, method: req.method },
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       res.status(403).json({ ok: false, error: { code: "FORBIDDEN", message: "Insufficient permissions" } });
       return;

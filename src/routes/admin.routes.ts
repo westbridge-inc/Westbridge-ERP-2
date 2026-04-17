@@ -216,7 +216,7 @@ router.post("/admin/webhooks/:id/enable", requireAuth, requirePermission("admin:
       data: { disabledAt: null, consecutiveFailures: 0, enabled: true },
     });
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "webhook.endpoint.re_enabled",
@@ -224,7 +224,7 @@ router.post("/admin/webhooks/:id/enable", requireAuth, requirePermission("admin:
       ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     return res.set("X-Response-Time", `${Date.now() - start}ms`).json(apiSuccess({ enabled: true }, meta()));
   } catch (error) {

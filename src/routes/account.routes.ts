@@ -190,7 +190,7 @@ router.post("/account/export", requireCsrf, requireAuth, async (req: Request, re
       },
     };
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "account.data_exported",
@@ -198,7 +198,7 @@ router.post("/account/export", requireCsrf, requireAuth, async (req: Request, re
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     const filename = `westbridge-export-${session.accountId}-${new Date().toISOString().slice(0, 10)}.json`;
     return res

@@ -165,11 +165,11 @@ export function auditContext(request: Request): { ipAddress: string; userAgent: 
 /**
  * Fire-and-forget audit log with error visibility.
  *
- * Use this instead of `void logAudit(...)` so that failures are always
+ * Use this instead of `logAudit(...)` so that failures are always
  * logged and metered — never silently swallowed.
  *
  * @example
- * void safeLogAudit({ accountId, action: "auth.login.success", ... });
+ * void safeLogAudit({ accountId, action: "auth.login.success", ... }).catch((err: any) => console.error("Background task failed", err));
  */
 export function safeLogAudit(entry: Parameters<typeof logAudit>[0]): void {
   logAudit(entry).catch((e) => {

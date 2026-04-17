@@ -43,7 +43,7 @@ router.post("/reports", requireAuth, requirePermission("reports:create"), async 
     const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
     const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
     if (!validateCsrf(csrfHeader, csrfCookie)) {
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "reports.csrf_failure",
@@ -51,7 +51,7 @@ router.post("/reports", requireAuth, requirePermission("reports:create"), async 
         ipAddress: ctx.ipAddress,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
       return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
     }
 
@@ -89,7 +89,7 @@ router.post("/reports", requireAuth, requirePermission("reports:create"), async 
       requestedBy: session.userId,
     });
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "report.requested",
@@ -100,7 +100,7 @@ router.post("/reports", requireAuth, requirePermission("reports:create"), async 
       severity: "info",
       outcome: "success",
       metadata: { reportType, params },
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     return res
       .status(202)

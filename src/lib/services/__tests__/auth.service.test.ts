@@ -1,3 +1,4 @@
+const DEV_LOCAL_SESSION = "dev-local-session";
 /**
  * auth.service tests
  *
@@ -113,7 +114,7 @@ describe("auth.service", () => {
       vi.mocked(prismaAdmin.user.findFirst).mockResolvedValue({ passwordHash: hash } as never);
       const result = await login("test@test.com", "correctpassword");
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.data).toBe("dev-local-session");
+      if (result.ok) expect(result.data).toBe(DEV_LOCAL_SESSION);
       // Should NOT call ERPNext when local password matches
       expect(erpLogin).not.toHaveBeenCalled();
     });

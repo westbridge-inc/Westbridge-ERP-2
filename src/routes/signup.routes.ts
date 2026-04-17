@@ -61,14 +61,14 @@ router.post("/signup", async (req: Request, res: Response) => {
     if (!rateLimit.allowed) {
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
       if (systemAccountId) {
-        void logAudit({
+        logAudit({
           accountId: systemAccountId,
           action: "account.signup.rate_limited",
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
           severity: "warn",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimit) });
       return res
@@ -81,14 +81,14 @@ router.post("/signup", async (req: Request, res: Response) => {
     if (!validateCsrf(csrfHeader, csrfCookie)) {
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
       if (systemAccountId) {
-        void logAudit({
+        logAudit({
           accountId: systemAccountId,
           action: "auth.signup.csrf_failure",
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
           severity: "warn",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       res.set(responseHeaders());
       return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
@@ -127,14 +127,14 @@ router.post("/signup", async (req: Request, res: Response) => {
     if (!emailRateLimit.allowed) {
       const systemAccountIdForAudit = process.env.SYSTEM_ACCOUNT_ID;
       if (systemAccountIdForAudit) {
-        void logAudit({
+        logAudit({
           accountId: systemAccountIdForAudit,
           action: "account.signup.rate_limited",
           ipAddress: ctx.ipAddress,
           userAgent: ctx.userAgent,
           severity: "warn",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       res.set({ ...responseHeaders(), ...rateLimitHeaders(emailRateLimit) });
       return res
@@ -161,7 +161,7 @@ router.post("/signup", async (req: Request, res: Response) => {
       if (status === 500) logger.error("Signup API error", { error: result.error, request_id: requestId });
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
       if (systemAccountId) {
-        void logAudit({
+        logAudit({
           accountId: systemAccountId,
           action: "account.signup.failure",
           metadata: { reason: result.error },
@@ -169,13 +169,13 @@ router.post("/signup", async (req: Request, res: Response) => {
           userAgent: ctx.userAgent,
           severity: "warn",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       res.set(responseHeaders());
       return res.status(status).json(apiError("SIGNUP_FAILED", message, undefined, meta()));
     }
 
-    void logAudit({
+    logAudit({
       accountId: result.data.accountId,
       action: "account.created",
       metadata: { email: parsed.data.email, plan: parsed.data.plan },
@@ -183,7 +183,7 @@ router.post("/signup", async (req: Request, res: Response) => {
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     res.set(responseHeaders());
     return res.json(apiSuccess(result.data, meta()));

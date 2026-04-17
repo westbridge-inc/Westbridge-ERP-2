@@ -1,3 +1,4 @@
+const DEV_LOCAL_SESSION = "dev-local-session";
 /**
  * ERP controller — business logic extracted from erp.routes.ts.
  *
@@ -147,7 +148,7 @@ async function verifyTenantAccess(
 
   const account = await prisma.account
     .findUnique({ where: { id: accountId }, select: { erpnextCompany: true } })
-    .catch(() => null);
+    .catch(err => { console.error("Ignored Error:", err); return null; });
 
   if (!account?.erpnextCompany) return false;
 
@@ -183,8 +184,8 @@ export async function handleList(req: Request, res: Response): Promise<Response>
     const { accountId, erpnextSid } = session;
     // Fall back to API-key auth when no per-user ERPNext session is available
     // (e.g. fresh signup that hasn't completed ERPNext login flow yet).
-    // The ERP client uses ERPNEXT_API_KEY/SECRET when sid is "dev-local-session".
-    const sid = erpnextSid ?? "dev-local-session";
+    // The ERP client uses ERPNEXT_API_KEY/SECRET when sid is DEV_LOCAL_SESSION.
+    const sid = erpnextSid ?? DEV_LOCAL_SESSION;
 
     const doctype = req.query.doctype as string | undefined;
     if (!doctype) {
@@ -244,7 +245,7 @@ export async function handleList(req: Request, res: Response): Promise<Response>
 
     const account = await prisma.account
       .findUnique({ where: { id: accountId }, select: { erpnextCompany: true } })
-      .catch(() => null);
+      .catch(err => { console.error("Ignored Error:", err); return null; });
     const rawCompany = account?.erpnextCompany;
     const hasValidCompany = !!rawCompany && rawCompany !== "__PROVISIONING_FAILED__";
     // Tenant isolation: company-scoped doctypes without a provisioned company
@@ -263,7 +264,7 @@ export async function handleList(req: Request, res: Response): Promise<Response>
         const cached = await redis.get(cacheKey);
         if (cached) {
           const parsed = JSON.parse(cached) as { data: unknown[]; hasMore: boolean };
-          void logAudit({
+          logAudit({
             accountId: session.accountId,
             userId: session.userId,
             action: "erp.list.read",
@@ -273,7 +274,7 @@ export async function handleList(req: Request, res: Response): Promise<Response>
             severity: "info",
             outcome: "success",
             metadata: { cached: true },
-          });
+          }).catch((err: any) => console.error("Background task failed", err));
           res.set({ ...responseHeaders(), "X-Cache": "HIT" });
           return res.json(apiSuccess(parsed.data, { ...meta(), page, pageSize, hasMore: parsed.hasMore }));
         }
@@ -289,7 +290,7 @@ export async function handleList(req: Request, res: Response): Promise<Response>
       const message = status === 400 ? result.error : "Unable to load data right now. Please try again.";
       return res.status(status).json(apiError("ERP_ERROR", message, undefined, meta()));
     }
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "erp.list.read",
@@ -298,7 +299,7 @@ export async function handleList(req: Request, res: Response): Promise<Response>
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
     const hasMore = Array.isArray(result.data) && result.data.length === pageSize;
 
     // Cache the successful response
@@ -356,7 +357,7 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
       }
     }
 
-    const result = await getDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
+    const result = await getDoc(doctype, name, session.erpnextSid ?? DEV_LOCAL_SESSION, session.accountId);
     if (!result.ok) {
       const status = result.error === "Not found" ? 404 : 502;
       res.set(responseHeaders());
@@ -370,7 +371,7 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
       return res.status(403).json(apiError("FORBIDDEN", "You do not have access to this document", undefined, meta()));
     }
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "erp.doc.read",
@@ -380,7 +381,7 @@ export async function handleGetDoc(req: Request, res: Response): Promise<Respons
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     // Cache the successful response
     if (redisForDoc) {
@@ -440,7 +441,7 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
     }
     const result = await createDoc(
       doctype,
-      session.erpnextSid ?? "dev-local-session",
+      session.erpnextSid ?? DEV_LOCAL_SESSION,
       data as Record<string, unknown>,
       session.accountId,
     );
@@ -453,7 +454,7 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
     // Invalidate ERP list cache for this account + doctype after mutation
     invalidateErpListCache(session.accountId, doctype);
     const created = result.data as { name?: string };
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "erp.doc.create",
@@ -463,12 +464,12 @@ export async function handleCreateDoc(req: Request, res: Response): Promise<Resp
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
-    void publish(session.accountId, {
+    }).catch((err: any) => console.error("Background task failed", err));
+    publish(session.accountId, {
       type: "erp.doc_updated",
       payload: { title: `${doctype} created`, message: `${created?.name ?? "New document"} was created` },
       timestamp: new Date().toISOString(),
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
     // Meter billable doc creation -- fire-and-forget
     const { meter } = await import("../lib/metering.js");
     meter.increment(session.accountId, "erp_docs_created").catch(() => {});
@@ -513,7 +514,7 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     }
 
     // Tenant isolation: always fetch and verify ownership before updating
-    const existing = await getDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
+    const existing = await getDoc(doctype, name, session.erpnextSid ?? DEV_LOCAL_SESSION, session.accountId);
     if (
       existing.ok &&
       (await verifyTenantAccess(doctype, session.accountId, existing.data as Record<string, unknown>))
@@ -525,7 +526,7 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     const result = await updateDoc(
       doctype,
       name,
-      session.erpnextSid ?? "dev-local-session",
+      session.erpnextSid ?? DEV_LOCAL_SESSION,
       data as Record<string, unknown>,
       session.accountId,
     );
@@ -537,7 +538,7 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
     }
     // Invalidate ERP list cache for this account + doctype after mutation
     invalidateErpListCache(session.accountId, doctype);
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "erp.doc.update",
@@ -547,7 +548,7 @@ export async function handleUpdateDoc(req: Request, res: Response): Promise<Resp
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
     // Meter billable doc update -- fire-and-forget
     const { meter } = await import("../lib/metering.js");
     meter.increment(session.accountId, "erp_docs_updated").catch(() => {});
@@ -583,7 +584,7 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
     }
 
     // Tenant isolation: always fetch and verify ownership before deleting
-    const existing = await getDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
+    const existing = await getDoc(doctype, name, session.erpnextSid ?? DEV_LOCAL_SESSION, session.accountId);
     if (
       existing.ok &&
       (await verifyTenantAccess(doctype, session.accountId, existing.data as Record<string, unknown>))
@@ -592,7 +593,7 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
       return res.status(403).json(apiError("FORBIDDEN", "You do not have access to this document", undefined, meta()));
     }
 
-    const result = await deleteDoc(doctype, name, session.erpnextSid ?? "dev-local-session", session.accountId);
+    const result = await deleteDoc(doctype, name, session.erpnextSid ?? DEV_LOCAL_SESSION, session.accountId);
     if (!result.ok) {
       res.set(responseHeaders());
       return res
@@ -601,7 +602,7 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
     }
     // Invalidate ERP list cache for this account + doctype after mutation
     invalidateErpListCache(session.accountId, doctype);
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "erp.doc.delete",
@@ -611,7 +612,7 @@ export async function handleDeleteDoc(req: Request, res: Response): Promise<Resp
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
     res.set(responseHeaders());
     return res.json(apiSuccess(result.data, meta()));
   } catch (error) {

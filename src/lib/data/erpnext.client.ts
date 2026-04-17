@@ -1,3 +1,4 @@
+const DEV_LOCAL_SESSION = "dev-local-session";
 /**
  * Data layer: ERPNext API client. Pure I/O; no business logic or formatting.
  * All ERPNext communication in the app goes through this client.
@@ -59,7 +60,7 @@ async function fetchErp(
   // In dev mode with local auth fallback, use API key/secret instead of user SID
   const apiKey = process.env.ERPNEXT_API_KEY;
   const apiSecret = process.env.ERPNEXT_API_SECRET;
-  if (sessionId && sessionId !== "dev-local-session") {
+  if (sessionId && sessionId !== DEV_LOCAL_SESSION) {
     headers["Cookie"] = `sid=${sessionId}`;
   } else if (apiKey && apiSecret) {
     headers["Authorization"] = `token ${apiKey}:${apiSecret}`;

@@ -4,7 +4,7 @@
 # Staging environment for pre-production validation:
 #   - Same Dockerfile as prod
 #   - Smaller VM (cheaper) — single shared-cpu-1x machine, no HA
-#   - Same release_command (prisma db push) so schema stays in sync
+#   - Same release_command (prisma migrate deploy) so schema stays in sync
 #   - Sentry environment auto-tagged as "staging" via NODE_ENV
 #
 # Staging spends ~$5/month on Fly vs prod's ~$30/month — sized for the
@@ -17,7 +17,7 @@ primary_region = "iad"
   dockerfile = "Dockerfile"
 
 [deploy]
-  release_command = "npx prisma db push"
+  release_command = "npx prisma migrate deploy"
 
 [env]
   NODE_ENV = "staging"

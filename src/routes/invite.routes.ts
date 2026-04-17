@@ -130,7 +130,7 @@ router.post(
         return res.status(400).json(apiError("INVITE_FAILED", result.error, undefined, meta()));
       }
 
-      void logAudit({
+      logAudit({
         accountId,
         userId,
         action: "team.invite.sent",
@@ -139,7 +139,7 @@ router.post(
         userAgent: ctx.userAgent,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       res.set(responseHeaders());
       return res.json(apiSuccess({ sent: true }, meta()));
@@ -260,7 +260,7 @@ router.post("/invite/accept", requireCsrf, async (req: Request, res: Response) =
       },
       body: JSON.stringify({ new_password: password, logout_all_sessions: 1, user: inviteCheck.data.email }),
       signal: AbortSignal.timeout(10_000),
-    }).catch(() => null);
+    }).catch(err => { console.error("Ignored Error:", err); return null; });
 
     if (!erpRes?.ok) {
       res.set(responseHeaders());
@@ -285,7 +285,7 @@ router.post("/invite/accept", requireCsrf, async (req: Request, res: Response) =
       data: { passwordHash },
     });
 
-    void logAudit({
+    logAudit({
       accountId: result.data.accountId,
       userId: result.data.userId,
       action: "team.invite.accepted",
@@ -293,13 +293,13 @@ router.post("/invite/accept", requireCsrf, async (req: Request, res: Response) =
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
-    void publish(result.data.accountId, {
+    publish(result.data.accountId, {
       type: "notification.new",
       payload: { title: "New team member", message: `${name} joined the team` },
       timestamp: new Date().toISOString(),
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     res.set(responseHeaders());
     return res.json(apiSuccess({ success: true }, meta()));
@@ -388,7 +388,7 @@ router.post(
       }),
     });
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "team.invite.resent",
@@ -396,7 +396,7 @@ router.post(
       ...ctx,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     return res.json(apiSuccess({ resent: true }, meta()));
   },

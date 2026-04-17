@@ -160,7 +160,7 @@ router.post(
         return res.status(400).json(apiError("BILLING_ERROR", message, undefined, meta()));
       }
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "billing.plan_changed",
@@ -168,7 +168,7 @@ router.post(
         ...ctx,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res.json(apiSuccess(result.data, meta()));
     } catch (error) {
@@ -209,14 +209,14 @@ router.post(
           );
       }
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "billing.subscription_canceled",
         ...ctx,
         severity: "warn",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res.json(apiSuccess(result.data, meta()));
     } catch (error) {
@@ -277,7 +277,7 @@ router.post(
           result.error === "Invoice ID and reason are required";
         const status = isUserError ? 400 : 500;
 
-        void logAudit({
+        logAudit({
           accountId: session.accountId,
           userId: session.userId,
           action: "billing.refund_failed",
@@ -287,12 +287,12 @@ router.post(
           metadata: { reason: result.error },
           severity: "warn",
           outcome: "failure",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
 
         return res.status(status).json(apiError("REFUND_FAILED", result.error, undefined, meta()));
       }
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "billing.refund_processed",
@@ -306,7 +306,7 @@ router.post(
         },
         severity: "warn",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res.json(apiSuccess(result.data, meta()));
     } catch (error) {

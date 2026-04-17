@@ -48,14 +48,14 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
   if (!rateLimit.allowed) {
     const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
     if (systemAccountId) {
-      void logAudit({
+      logAudit({
         accountId: systemAccountId,
         action: "payment.webhook.rate_limited",
         ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     }
     return res
       .status(429)
@@ -75,14 +75,14 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
     });
     const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
     if (systemAccountId) {
-      void logAudit({
+      logAudit({
         accountId: systemAccountId,
         action: "payment.webhook.invalid_signature",
         ipAddress: ctx.ipAddress,
         userAgent: ctx.userAgent,
         severity: "critical",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     }
     return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json({ error: "Invalid signature" });
   }
@@ -136,7 +136,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
       if (!result.ok) {
         logger.error("Paddle webhook: markAccountPaid error", { error: result.error, accountId, eventId });
       } else {
-        void logAudit({
+        logAudit({
           accountId,
           action: "payment.webhook.success",
           metadata: { transactionId, subscriptionId, eventType },
@@ -144,7 +144,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
           userAgent: ctx.userAgent,
           severity: "info",
           outcome: "success",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       break;
     }
@@ -158,7 +158,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
         });
         // Subscription creation is handled by markAccountPaid (fires createSubscription).
         // Log for audit trail.
-        void logAudit({
+        logAudit({
           accountId,
           action: "subscription.created",
           metadata: { subscriptionId: event.data?.id, eventId },
@@ -166,7 +166,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
           userAgent: ctx.userAgent,
           severity: "info",
           outcome: "success",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       break;
     }
@@ -179,7 +179,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
           status: event.data?.status,
           eventId,
         });
-        void logAudit({
+        logAudit({
           accountId,
           action: "subscription.updated",
           metadata: {
@@ -191,7 +191,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
           userAgent: ctx.userAgent,
           severity: "info",
           outcome: "success",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       break;
     }
@@ -208,7 +208,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
         const { cancelSubscription } = await import("../lib/services/subscription.service.js");
         await cancelSubscription(accountId);
 
-        void logAudit({
+        logAudit({
           accountId,
           action: "subscription.canceled",
           metadata: { subscriptionId: event.data?.id, eventId },
@@ -216,7 +216,7 @@ router.post("/webhooks/paddle", rawBodyParser, async (req: Request, res: Respons
           userAgent: ctx.userAgent,
           severity: "info",
           outcome: "success",
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
       break;
     }

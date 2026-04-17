@@ -1,3 +1,4 @@
+const DEV_LOCAL_SESSION = "dev-local-session";
 /**
  * Auth service: ERPNext login, password hashing & verification.
  * Orchestrates data layer; returns Result.
@@ -63,7 +64,7 @@ export async function login(email: string, password: string): Promise<Result<str
   // sees them via API key auth (shared service account).
   const user = await prismaAdmin.user
     .findFirst({ where: { email: trimmedEmail }, select: { passwordHash: true } })
-    .catch(() => null);
+    .catch(err => { console.error("Ignored Error:", err); return null; });
 
   if (user?.passwordHash) {
     const match = await verifyPassword(password, user.passwordHash);
@@ -71,7 +72,7 @@ export async function login(email: string, password: string): Promise<Result<str
       logger.info("Local password verification succeeded", { email: trimmedEmail });
       // Return the dev-local-session sentinel — the ERP client uses API key auth
       // when it sees this value, so all ERPNext calls work normally.
-      return ok("dev-local-session");
+      return ok(DEV_LOCAL_SESSION);
     }
     // User exists but password is wrong — return invalid credentials
     return err("Invalid email or password");
@@ -142,7 +143,7 @@ export async function changePassword(
       user: user.email,
     }),
     signal: AbortSignal.timeout(10_000),
-  }).catch(() => null);
+  }).catch(err => { console.error("Ignored Error:", err); return null; });
 
   if (erpRes && !erpRes.ok) {
     const text = await erpRes.text().catch(() => "");
