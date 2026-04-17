@@ -89,7 +89,7 @@ router.get(
 
       const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "erp.doc.pdf_generated",
@@ -98,7 +98,7 @@ router.get(
         ...ctx,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
       const filename = `${doctype.replace(/\s+/g, "-")}-${safeName}.pdf`;
@@ -193,7 +193,7 @@ router.post(
         return res.status(500).json(apiError("EMAIL_FAILED", "Unable to send the email right now. Please try again."));
       }
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "erp.doc.emailed",
@@ -203,7 +203,7 @@ router.post(
         ...ctx,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res.json(apiSuccess({ sent: true, to: recipientEmail }, apiMeta({ request_id: requestId })));
     } catch (e) {

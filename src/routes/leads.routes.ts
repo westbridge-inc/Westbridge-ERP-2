@@ -257,7 +257,7 @@ router.post("/leads/newsletter", async (req: Request, res: Response) => {
       });
 
     // Send welcome email to the subscriber
-    void sendEmail({
+    sendEmail({
       to: parsed.data.email,
       subject: "Welcome to the Westbridge Newsletter!",
       html: `
@@ -271,7 +271,7 @@ router.post("/leads/newsletter", async (req: Request, res: Response) => {
       logger.error("Failed to send newsletter welcome email", {
         error: e instanceof Error ? e.message : String(e),
         request_id: requestId,
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     });
 
     logger.info("Newsletter subscriber added", { email: parsed.data.email, request_id: requestId });

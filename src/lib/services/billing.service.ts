@@ -210,7 +210,7 @@ export async function markAccountPaid(
 
       const acc = await prismaAdmin.account
         .findUnique({ where: { id: accountId }, select: { plan: true } })
-        .catch(() => null);
+        .catch(err => { console.error("Ignored Error:", err); return null; });
       if (acc) {
         try {
           await enqueueSubscriptionCreate(accountId, acc.plan);
@@ -223,21 +223,21 @@ export async function markAccountPaid(
       }
 
       // Send activation email (fire-and-forget — don't fail if email fails)
-      const account = await prismaAdmin.account.findUnique({ where: { id: accountId } }).catch(() => null);
+      const account = await prismaAdmin.account.findUnique({ where: { id: accountId } }).catch(err => { console.error("Ignored Error:", err); return null; });
       if (account) {
         const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/login`;
-        void sendEmail({
+        sendEmail({
           to: account.email,
           subject: "Your Westbridge account is now active",
           html: accountActivatedEmail({ companyName: account.companyName, plan: account.plan, loginUrl }),
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
       }
 
-      void publish(accountId, {
+      publish(accountId, {
         type: "notification.new",
         payload: { title: "Payment received", message: "Your subscription has been renewed" },
         timestamp: new Date().toISOString(),
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
     }
     return ok({ updated, accountId });
   } catch {
@@ -343,7 +343,7 @@ export async function refundInvoice(req: RefundRequest): Promise<Result<RefundRe
     .findFirst({
       where: { id: req.invoiceId, accountId: req.accountId },
     })
-    .catch(() => null);
+    .catch(err => { console.error("Ignored Error:", err); return null; });
 
   if (!invoice) {
     return err("Invoice not found");
@@ -418,14 +418,14 @@ export async function refundInvoice(req: RefundRequest): Promise<Result<RefundRe
   });
 
   // Notify user
-  void publish(req.accountId, {
+  publish(req.accountId, {
     type: "notification.new",
     payload: {
       title: "Refund processed",
       message: `Your refund of ${invoice.currency} ${invoice.amount.toString()} is on its way (5-10 business days).`,
     },
     timestamp: new Date().toISOString(),
-  });
+  }).catch((err: any) => console.error("Background task failed", err));
 
   return ok({
     refunded: true,

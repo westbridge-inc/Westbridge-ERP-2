@@ -166,13 +166,13 @@ export async function provisionWithRetry(accountId: string): Promise<Result<Prov
   // All retries exhausted — log audit event, flag account, notify owner and ops
   logger.error("ERPNext provisioning failed after all retries", { accountId, maxRetries: MAX_RETRIES });
 
-  void logAudit({
+  logAudit({
     accountId,
     action: "provisioning.failed",
     severity: "critical",
     outcome: "failure",
     meta: { maxRetries: MAX_RETRIES, reason: "All provisioning retries exhausted" },
-  });
+  }).catch((err: any) => console.error("Background task failed", err));
 
   // Flag the account so support/ops can identify accounts with failed provisioning
   await prismaAdmin.account
@@ -193,7 +193,7 @@ export async function provisionWithRetry(accountId: string): Promise<Result<Prov
   });
 
   if (account) {
-    void sendEmail({
+    sendEmail({
       to: account.email,
       subject: "Action needed: Your Westbridge account setup is incomplete",
       html: `
@@ -203,7 +203,7 @@ export async function provisionWithRetry(accountId: string): Promise<Result<Prov
         <p>Our team has been notified and will resolve this shortly. If you need immediate assistance, please reply to this email.</p>
         <p>We apologise for the inconvenience.</p>
       `,
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
   }
 
   Sentry.captureMessage("ERPNext provisioning failed after all retries", {

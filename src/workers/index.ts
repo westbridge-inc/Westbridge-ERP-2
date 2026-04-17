@@ -542,11 +542,11 @@ function createReportsWorker(): Worker {
         });
 
         // Notify connected clients that their report is ready
-        void publish(accountId, {
+        publish(accountId, {
           type: "report.ready",
           payload: { jobId: job.id, reportType, requestedBy },
           timestamp: new Date().toISOString(),
-        });
+        }).catch((err: any) => console.error("Background task failed", err));
 
         logger.info("Report generation completed", {
           jobId: job.id,

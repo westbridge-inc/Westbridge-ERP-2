@@ -124,7 +124,7 @@ router.delete(
       // Revoke all sessions so the user is logged out immediately
       await revokeAllUserSessions(targetUserId);
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "team.member.removed",
@@ -133,7 +133,7 @@ router.delete(
         ...ctx,
         severity: "warn",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res.json(apiSuccess({ removed: true }, meta()));
     } catch (error) {
@@ -206,7 +206,7 @@ router.patch(
         data: { role: parsed.data.role },
       });
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "team.member.role_changed",
@@ -215,7 +215,7 @@ router.patch(
         ...ctx,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res.json(apiSuccess({ userId: targetUserId, role: parsed.data.role }, meta()));
     } catch (error) {

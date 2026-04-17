@@ -169,14 +169,14 @@ router.get("/sso/callback", async (req: Request, res: Response) => {
   // Find or create user
   const userResult = await findOrCreateSsoUser(accountId, email, name, config);
   if (!userResult.ok) {
-    void logAudit({
+    logAudit({
       accountId,
       action: "sso.login.user_not_found",
       meta: { email },
       ...ctx,
       severity: "warn",
       outcome: "failure",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
     return res.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/login?error=sso_user_not_found`);
   }
 
@@ -189,7 +189,7 @@ router.get("/sso/callback", async (req: Request, res: Response) => {
   const { token, expiresAt } = sessionResult.data;
   const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
 
-  void logAudit({
+  logAudit({
     accountId,
     userId: userResult.data.userId,
     action: "sso.login.success",
@@ -197,7 +197,7 @@ router.get("/sso/callback", async (req: Request, res: Response) => {
     ...ctx,
     severity: "info",
     outcome: "success",
-  });
+  }).catch((err: any) => console.error("Background task failed", err));
 
   res.cookie(COOKIE.SESSION_NAME, token, {
     httpOnly: true,
@@ -272,7 +272,7 @@ router.put(
     try {
       await saveSsoConfig(config);
 
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "sso.config.updated",
@@ -280,7 +280,7 @@ router.put(
         ...ctx,
         severity: "info",
         outcome: "success",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
 
       return res.json(apiSuccess({ configured: true }, apiMeta({ request_id: requestId })));
     } catch {

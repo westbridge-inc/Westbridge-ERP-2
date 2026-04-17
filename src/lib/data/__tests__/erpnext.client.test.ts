@@ -1,3 +1,4 @@
+const DEV_LOCAL_SESSION = "dev-local-session";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Set env before import
@@ -82,7 +83,7 @@ describe("erpnext.client", () => {
         json: () => Promise.resolve({ data: [] }),
       }) as any;
 
-      await erpList("Sales Invoice", "dev-local-session");
+      await erpList("Sales Invoice", DEV_LOCAL_SESSION);
       expect(global.fetch).toHaveBeenCalled();
 
       delete process.env.ERPNEXT_API_KEY;

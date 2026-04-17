@@ -326,7 +326,7 @@ router.post("/cortex/chat", async (req: Request, res: Response) => {
     // any DB hiccup does not block the user. The fire-and-forget call
     // inherits the AsyncLocalStorage context, so the persist writes are
     // also RLS-pinned to the current tenant.
-    void persistRunArtefacts({
+    persistRunArtefacts({
       accountId: session.accountId,
       conversationId: conversation.id,
       storedMessages,
@@ -334,7 +334,7 @@ router.post("/cortex/chat", async (req: Request, res: Response) => {
       result,
       agentId: agent.id,
       traceId,
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
   }); // close runWithTenantContext callback
 });
 

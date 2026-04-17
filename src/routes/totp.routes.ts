@@ -120,14 +120,14 @@ router.post(
       data: { verified: true },
     });
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "auth.2fa.enabled",
       ...ctx,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     return res.json(apiSuccess({ enabled: true }, apiMeta({ request_id: requestId })));
   },
@@ -142,14 +142,14 @@ router.post("/auth/2fa/disable", requireAuth, requireCsrf, async (req: Request, 
 
   await prisma.totpSecret.deleteMany({ where: { userId: session.userId } });
 
-  void logAudit({
+  logAudit({
     accountId: session.accountId,
     userId: session.userId,
     action: "auth.2fa.disabled",
     ...ctx,
     severity: "warn",
     outcome: "success",
-  });
+  }).catch((err: any) => console.error("Background task failed", err));
 
   return res.json(apiSuccess({ disabled: true }, apiMeta({ request_id: requestId })));
 });
@@ -196,14 +196,14 @@ router.post(
     if (!totp || !totp.verified) {
       // Audit the attempt — recovery on a non-2FA account is suspicious enough
       // to warrant a record even though we return a generic error.
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "auth.2fa.recover_attempted_no_2fa",
         ...ctx,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
       return res.status(400).json(apiError("NOT_ENABLED", "2FA is not enabled for this account"));
     }
 
@@ -216,14 +216,14 @@ router.post(
     if (remaining.length === totp.backupCodes.length) {
       // No match: do NOT decrement remaining-codes counters or change state.
       // The audit log captures the failure for incident response.
-      void logAudit({
+      logAudit({
         accountId: session.accountId,
         userId: session.userId,
         action: "auth.2fa.recover_failed",
         ...ctx,
         severity: "warn",
         outcome: "failure",
-      });
+      }).catch((err: any) => console.error("Background task failed", err));
       return res.status(401).json(apiError("INVALID_CODE", "Backup code is invalid or already used"));
     }
 
@@ -233,7 +233,7 @@ router.post(
       data: { backupCodes: remaining },
     });
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "auth.2fa.recover_succeeded",
@@ -241,7 +241,7 @@ router.post(
       ...ctx,
       severity: remaining.length === 0 ? "critical" : "warn",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     return res.json(
       apiSuccess(

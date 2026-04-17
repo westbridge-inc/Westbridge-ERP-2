@@ -132,7 +132,7 @@ router.post(
       },
     });
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "settings.api_key_created",
@@ -140,7 +140,7 @@ router.post(
       ...ctx,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     // Return the full key ONCE — it cannot be retrieved again
     return res.status(201).json(
@@ -179,7 +179,7 @@ router.delete(
 
     await prisma.apiKey.delete({ where: { id: key.id } });
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "settings.api_key_revoked",
@@ -187,7 +187,7 @@ router.delete(
       ...ctx,
       severity: "warn",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     return res.json(apiSuccess({ revoked: true }, apiMeta({ request_id: requestId })));
   },

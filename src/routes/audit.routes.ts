@@ -60,7 +60,7 @@ router.get("/audit", requireAuth, requirePermission("audit_logs:read"), async (r
       }),
     ]);
 
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "audit.log.accessed",
@@ -68,7 +68,7 @@ router.get("/audit", requireAuth, requirePermission("audit_logs:read"), async (r
       userAgent: ctx.userAgent,
       severity: "info",
       outcome: "success",
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     const totalPages = Math.ceil(total / perPage);
     return res
@@ -136,7 +136,7 @@ router.get("/audit/export", requireAuth, requirePermission("audit_logs:read"), a
     const filename = `audit-${fromStr}-${toStr}.${format}`;
 
     // Log the export action before streaming begins
-    void logAudit({
+    logAudit({
       accountId: session.accountId,
       userId: session.userId,
       action: "audit.export.started",
@@ -145,7 +145,7 @@ router.get("/audit/export", requireAuth, requirePermission("audit_logs:read"), a
       severity: "info",
       outcome: "success",
       metadata: { format, from: fromStr, to: toStr },
-    });
+    }).catch((err: any) => console.error("Background task failed", err));
 
     const contentType = format === "csv" ? "text/csv" : "application/json";
     res.writeHead(200, {
