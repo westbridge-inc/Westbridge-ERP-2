@@ -26,9 +26,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@asteasolutions/zod-to-openapi": "^7.3.4",
-    "@opentelemetry/auto-instrumentations-node": "^0.72.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
-    "@opentelemetry/sdk-node": "^0.214.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.77.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
+    "@opentelemetry/sdk-node": "^0.219.0",
     "@prisma/client": "^6.4.1",
     "@sentry/node": "^9.5.0",
     "@types/compression": "^1.8.1",
