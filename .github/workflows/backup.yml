@@ -35,7 +35,7 @@ jobs:
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
 
       - name: Upload backup as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: db-backup-${{ github.run_id }}
           path: /tmp/backups/westbridge-backup-*.sql.gz

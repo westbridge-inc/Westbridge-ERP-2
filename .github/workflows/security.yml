@@ -47,7 +47,7 @@ jobs:
       - name: Generate CycloneDX SBOM
         run: npx @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom.json --output-format json
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sbom-cyclonedx
           path: sbom.json
